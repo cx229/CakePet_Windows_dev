@@ -15,7 +15,7 @@ internal sealed class PackageEditorPage:UserControl
     private readonly ContentControl host=new();
     private StackPanel? animationList;private ContentControl? animationDetail;private string? selectedAnimation;
     private readonly TextBlock status=Ui.Text("",12,true);
-    private bool dirty;
+    private bool dirty;private string? selectedText;
     private readonly string[] requiredPaths={"standby/pool","standby/static_pool","pat_head/pat_head","snap/snap_head","snap/pool","snap/pat_head/pat_head","snap/feed/lure","snap/feed/lure_fail","snap/feed/eat","feed/lure","feed/lure_fail","feed/food","feed/eat","touch/lift_up/slow","touch/lift_up/left_medium","touch/lift_up/left_fast","touch/lift_up/right_medium","touch/lift_up/right_fast","touch/roll","touch/jump_down","climb/leap/leap","climb/leap/landing","climb/forage/move","menu/pool","menu/preview","menu/summoned"};
     public PackageEditorPage(string root,Action saved,Action back)
     {
@@ -87,15 +87,38 @@ internal sealed class PackageEditorPage:UserControl
         }
         if(paths.Length>0)Show(paths[0]);
     }
+    private FrameworkElement GroupToolbar(bool thinking,Action refresh)
+    {
+        var panel=new DockPanel{Margin=new Thickness(0,0,0,8)};var name=new TextBox{ToolTip="分组名称",Margin=new Thickness(0,0,5,0)};var add=Ui.Button("＋ 分组",()=>Safe(()=>{editor.AddGroup(thinking,name.Text);Changed();refresh();}));DockPanel.SetDock(add,Dock.Right);panel.Children.Add(add);panel.Children.Add(name);return panel;
+    }
+    private void GroupList(StackPanel list,bool thinking,string filter,string? selected,Action<string> select,Action refresh)
+    {
+        list.Children.Clear();foreach(var group in editor.Grouped(thinking))
+        {
+            var ids=group.Ids.Where(id=>id.Contains(filter,StringComparison.OrdinalIgnoreCase)||(thinking&&(editor.Thinkings[id]?["text"]?.ToString()??"").Contains(filter,StringComparison.OrdinalIgnoreCase))).ToArray();
+            if(filter.Length>0&&ids.Length==0)continue;
+            var head=new DockPanel();if(group.Name!="未分组"){var more=Ui.Light("⋯",()=>{});var menu=new ContextMenu();foreach(var (label,action) in new (string,Action)[]{("上移",()=>editor.MoveGroup(thinking,group.Name,-1)),("下移",()=>editor.MoveGroup(thinking,group.Name,1)),("解散",()=>{if(MessageBox.Show("解散分组？资源会保留。","解散",MessageBoxButton.YesNo)==MessageBoxResult.Yes)editor.DissolveGroup(thinking,group.Name);})}){var item=new MenuItem{Header=label};item.Click+=(_,_)=>Safe(()=>{action();Changed();refresh();});menu.Items.Add(item);}more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;DockPanel.SetDock(more,Dock.Right);head.Children.Add(more);}
+            head.Children.Add(Ui.Text(group.Name+" · "+group.Ids.Length,12,true));
+            var body=new StackPanel{Margin=new Thickness(4,2,0,0)};var folder=new Expander{Header=head,Content=body,IsExpanded=filter.Length>0||ids.Contains(selected??"")||group.Name=="未分组",Margin=new Thickness(0,3,0,3),Foreground=Ui.Brush("Ink")};
+            foreach(var id in ids){var label=thinking?(editor.Thinkings[id]?["text"]?.ToString()??id):id+" · "+editor.Frames(id).Count+" 帧";var button=Ui.Nav(label,()=>select(id));button.Tag=id;button.ToolTip=label;button.Background=Ui.Brush(id==selected?"AccentSoft":"Sidebar");body.Children.Add(button);}
+            list.Children.Add(folder);
+        }
+    }
+    private void MembershipEditor(StackPanel page,bool thinking,string id,Action refresh)
+    {
+        var card=new SettingCard("所属分组","可以加入多个分组；解散分组不会删除资源。",initiallyExpanded:false);
+        foreach(var group in editor.Groups(thinking)){var check=new CheckBox{Content=group,IsChecked=editor.Membership(thinking,id).Contains(group)};check.Click+=(_,_)=>{var chosen=editor.Membership(thinking,id).ToList();if(check.IsChecked==true)chosen.Add(group);else chosen.RemoveAll(x=>x==group);editor.SetMembership(thinking,id,chosen);Changed();refresh();};card.Add(check);}
+        page.Children.Add(card);
+    }
     private void Animations()
     {
         var layout=new DockPanel();var header=Ui.Caption("动画","选择动画，在右侧修改播放循环、后续动画与逐帧属性。",true);((TextBlock)header.Children[0]).FontSize=24;header.Margin=new Thickness(0,0,0,12);DockPanel.SetDock(header,Dock.Top);layout.Children.Add(header);
         var grid=new Grid();grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(185)});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
         var left=new DockPanel{Margin=new Thickness(0,0,12,0)};var search=new TextBox{Margin=new Thickness(0,0,0,6),ToolTip="搜索动画"};DockPanel.SetDock(search,Dock.Top);left.Children.Add(search);
-        var add=new TextBox{Margin=new Thickness(0,0,0,4),ToolTip="新动画名称"};var toolbar=new StackPanel{Margin=new Thickness(0,0,0,8)};toolbar.Children.Add(add);toolbar.Children.Add(Ui.Button("＋ 新建动画",()=>Safe(()=>{var image=editor.Images().FirstOrDefault()??throw new InvalidDataException("请先导入图片。");editor.AddMode(add.Text.Trim(),image);selectedAnimation=add.Text.Trim();Changed();Animations();}),true));DockPanel.SetDock(toolbar,Dock.Top);left.Children.Add(toolbar);
+        var add=new TextBox{Margin=new Thickness(0,0,0,4),ToolTip="新动画名称"};var toolbar=new StackPanel{Margin=new Thickness(0,0,0,8)};toolbar.Children.Add(add);toolbar.Children.Add(Ui.Button("＋ 新建动画",()=>Safe(()=>{var image=editor.Images().FirstOrDefault()??throw new InvalidDataException("请先导入图片。");editor.AddMode(add.Text.Trim(),image);selectedAnimation=add.Text.Trim();Changed();Animations();}),true));toolbar.Children.Add(GroupToolbar(false,Animations));DockPanel.SetDock(toolbar,Dock.Top);left.Children.Add(toolbar);
         animationList=new StackPanel();left.Children.Add(new ScrollViewer{Content=animationList,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});grid.Children.Add(left);
         animationDetail=new ContentControl();Grid.SetColumn(animationDetail,1);grid.Children.Add(animationDetail);layout.Children.Add(grid);host.Content=layout;
-        void RefreshList(){animationList.Children.Clear();foreach(var id in editor.Modes.Select(x=>x.Key).Where(id=>id.Contains(search.Text,StringComparison.OrdinalIgnoreCase))){var frames=editor.Frames(id);var button=Ui.Nav(id+" · "+frames.Count+" 帧",()=>Animation(id));button.Background=Ui.Brush(id==selectedAnimation?"AccentSoft":"Sidebar");animationList.Children.Add(button);}}
+        void RefreshList()=>GroupList(animationList,false,search.Text,selectedAnimation,id=>{Animation(id);RefreshList();},Animations);
         search.TextChanged+=(_,_)=>RefreshList();
         if(selectedAnimation==null||!editor.Modes.ContainsKey(selectedAnimation))selectedAnimation=editor.Modes.Select(x=>x.Key).FirstOrDefault();
         RefreshList();if(selectedAnimation!=null)Animation(selectedAnimation);else animationDetail.Content=Ui.Text("还没有动画，先新建一个吧。",14,true);
@@ -106,9 +129,16 @@ internal sealed class PackageEditorPage:UserControl
         if(animationDetail==null){Animations();return;}
         if(animationList!=null)foreach(var button in animationList.Children.OfType<Button>())button.Background=Ui.Brush(button.Content?.ToString()?.StartsWith(id+" · ",StringComparison.Ordinal)==true?"AccentSoft":"Sidebar");
         var p=new StackPanel();var heading=Ui.Caption(id,"动画属性与逐帧编辑",true);heading.Margin=new Thickness(0,0,0,10);p.Children.Add(heading);animationDetail.Content=new ScrollViewer{Content=p,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+        MembershipEditor(p,false,id,Animations);
         var preview=new Image{Width=160,Height=160,Stretch=Stretch.Uniform};var previewNote=Ui.Text("预览忽略帧位移",12,true);var previewPanel=new StackPanel();previewPanel.Children.Add(preview);previewPanel.Children.Add(previewNote);p.Children.Add(Ui.Card(previewPanel));
         void ShowFrame(JsonObject frame){try{var bitmap=new BitmapImage();bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;bitmap.UriSource=new Uri(Path.Combine(editor.Root,frame["res"]?.ToString()??""));bitmap.EndInit();preview.Source=bitmap;previewNote.Text=frame["res"]?.ToString()??"";}catch{preview.Source=null;previewNote.Text="图片不可用";}}
         if(editor.Frames(id).FirstOrDefault() is JsonObject first)ShowFrame(first);
+        var progress=new ProgressBar{Height=5,Minimum=0,Maximum=1,Foreground=Ui.Brush("Accent"),Background=Ui.Brush("Line"),Margin=new Thickness(0,5,0,5)};previewPanel.Children.Add(progress);
+        var timer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(33)};
+        AnimationCursor? cursor=null;WpfImageCache? cache=null;long last=0;
+        void Replay(){try{var pack=editor.Preview();cursor=new AnimationCursor(pack,id,new Random());cache=new WpfImageCache(pack);last=Environment.TickCount64;timer.Start();}catch(Exception e){timer.Stop();previewNote.Text=e.Message;}}
+        timer.Tick+=(_,_)=>{try{if(cursor==null||cache==null)return;var now=Environment.TickCount64;cursor.Advance(Math.Clamp(now-last,0,100));last=now;preview.Source=cache.Get(cursor.Current);previewNote.Text=string.Join(" > ",cursor.Chain)+" · "+cursor.Mode.Id+" · "+(cursor.FrameIndex+1)+"/"+cursor.Mode.Frames.Count+(cursor.Ended?" · 已结束":" · 播放中");progress.Value=cursor.Ended?1:cursor.TargetDuration is long target?Math.Clamp((double)cursor.ModeElapsed/Math.Max(1,target),0,1):(cursor.FrameIndex+(double)cursor.FrameElapsed/Math.Max(1,cursor.FrameDuration))/cursor.Mode.Frames.Count;if(cursor.Ended)timer.Stop();}catch(Exception e){timer.Stop();previewNote.Text=e.Message;}};
+        previewPanel.Children.Add(Ui.Light("↻ 重播",Replay));p.Loaded+=(_,_)=>Replay();p.Unloaded+=(_,_)=>timer.Stop();
         var m=editor.Mode(id);var name=new TextBox{Text=id,Width=180};var rename=new WrapPanel();rename.Children.Add(name);rename.Children.Add(Ui.Button("重命名",()=>Safe(()=>{editor.RenameMode(id,name.Text.Trim());selectedAnimation=name.Text.Trim();Changed();Animations();})));rename.Children.Add(Ui.Button("删除动画",()=>{if(MessageBox.Show("删除动画并取消所有功能及后续引用？待机池缺失时将无法保存。","删除",MessageBoxButton.YesNo)==MessageBoxResult.Yes){editor.DeleteMode(id);Changed();Animations();}}));p.Children.Add(Ui.Card(rename));
         var loopKeys=new[]{"off","timed","infinite"};var loop=new ComboBox{ItemsSource=loopKeys.Select(LoopTitle).ToArray(),SelectedIndex=Math.Max(0,Array.IndexOf(loopKeys,m["loopMode"]?.ToString()??"off")),Width=160};loop.SelectionChanged+=(_,_)=>{if(loop.SelectedIndex<0)return;m["loopMode"]=loopKeys[loop.SelectedIndex];if(loopKeys[loop.SelectedIndex]=="timed"&&m["duration"]==null)m["duration"]=new JsonObject{["min"]=1000,["max"]=3000};Changed();};p.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("播放循环","单次 / 定时 / 无限"),loop)));
         var duration=m["duration"] as JsonObject??new JsonObject{["min"]=1000,["max"]=3000};if(m["duration"] is not JsonObject)m["duration"]=duration;
@@ -119,7 +149,7 @@ internal sealed class PackageEditorPage:UserControl
         for(int i=0;i<frames.Count;i++)
         {
             int index=i;var frame=frames[i]!.AsObject();var card=new SettingCard($"帧 {i+1}",frame["res"]?.ToString()??"",initiallyExpanded:false);
-            var image=new ComboBox{ItemsSource=editor.Images(),SelectedItem=frame["res"]?.ToString(),MinWidth=200};image.SelectionChanged+=(_,_)=>{frame["res"]=image.SelectedItem?.ToString();Changed();};card.Add(Ui.Pair(Ui.Caption("图片资源"),image,300));card.Add(Ui.Button("查看本帧",()=>ShowFrame(frame)));
+            var image=new ComboBox{ItemsSource=editor.Images(),SelectedItem=frame["res"]?.ToString(),MinWidth=200};image.SelectionChanged+=(_,_)=>{frame["res"]=image.SelectedItem?.ToString();Changed();};card.Add(Ui.Pair(Ui.Caption("图片资源"),image,300));card.Add(Ui.Button("查看本帧",()=>{timer.Stop();ShowFrame(frame);}));
             var delay=frame["delay"];int ReadInt(JsonNode? n,int fallback)=>n is JsonValue j&&j.TryGetValue<int>(out var v)?v:fallback;var min=delay is JsonArray ar&&ar.Count==2?ReadInt(ar[0],100):delay is JsonObject d?ReadInt(d["min"],100):ReadInt(delay,100);var max=delay is JsonArray ar2&&ar2.Count==2?ReadInt(ar2[1],min):delay is JsonObject d2?ReadInt(d2["max"],min):min;
             var range=new RangeSlider(1,Math.Max(10000,max),Math.Max(1,min),Math.Max(Math.Max(1,min),max),(lo,hi)=>{frame["delay"]=lo==hi?JsonValue.Create((int)lo):new JsonArray(JsonValue.Create((int)lo),JsonValue.Create((int)hi));Changed();});card.Add(Ui.Pair(Ui.Caption("帧时长","毫秒，最短至最长"),range,310));
             foreach(var key in new[]{"dx","dy","anchorX","anchorY"}){var k=key;int value=frame[k]?.GetValue<int>()??(k=="anchorX"?-1:0);card.Add(Ui.NumberRow(k switch{"dx"=>"水平位移","dy"=>"垂直位移","anchorX"=>"横向锚点",_=>"纵向锚点"},"",value,-500,500,1,"px",v=>{frame[k]=(int)v;Changed();}));}
@@ -136,9 +166,16 @@ internal sealed class PackageEditorPage:UserControl
     }
     private void Thinking()
     {
-        animationDetail=null;animationList=null;var p=Page("碎碎念文本","编辑素材包的文本资源；删除会同时取消引用。");
-        p.Children.Add(Ui.Button("＋ 新建文本",()=>{var id="t"+Guid.NewGuid().ToString("N").Substring(0,8);editor.Thinkings[id]=new JsonObject{["text"]="新碎碎念"};Changed();Thinking();},true));
-        foreach(var id in editor.Thinkings.Select(x=>x.Key).ToArray())
-        {if(editor.Thinkings[id] is not JsonObject node)continue;Field(p,id,node["text"]?.ToString()??"",v=>node["text"]=v,true);p.Children.Add(Ui.Button("删除 "+id,()=>{if(MessageBox.Show("删除文本并取消引用？","删除",MessageBoxButton.YesNo)==MessageBoxResult.Yes){editor.DeleteThinking(id);Changed();Thinking();}}));}
+        animationDetail=null;animationList=null;
+        var layout=new DockPanel();var heading=Ui.Caption("碎碎念文本","按分组选择文本，在右侧修改内容和所属分组。",true);((TextBlock)heading.Children[0]).FontSize=24;DockPanel.SetDock(heading,Dock.Top);layout.Children.Add(heading);
+        var grid=new Grid{Margin=new Thickness(0,12,0,0)};grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(205)});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(grid);
+        var left=new DockPanel{Margin=new Thickness(0,0,12,0)};var search=new TextBox{ToolTip="搜索文本",Margin=new Thickness(0,0,0,6)};DockPanel.SetDock(search,Dock.Top);left.Children.Add(search);
+        var toolbar=new StackPanel();toolbar.Children.Add(Ui.Button("＋ 新建文本",()=>{selectedText="t"+Guid.NewGuid().ToString("N").Substring(0,8);editor.Thinkings[selectedText]=new JsonObject{["text"]=""};Changed();Thinking();},true));toolbar.Children.Add(GroupToolbar(true,Thinking));DockPanel.SetDock(toolbar,Dock.Top);left.Children.Add(toolbar);
+        var list=new StackPanel();left.Children.Add(new ScrollViewer{Content=list,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});grid.Children.Add(left);
+        var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);host.Content=layout;
+        void Show(string id){selectedText=id;var node=editor.Thinkings[id]!.AsObject();var page=new StackPanel();page.Children.Add(Ui.Caption("碎碎念文本",id,true));Field(page,"文本",node["text"]?.ToString()??"",v=>node["text"]=v,true);MembershipEditor(page,true,id,Thinking);page.Children.Add(Ui.Light("删除文本",()=>{if(MessageBox.Show("删除文本并取消引用？","删除",MessageBoxButton.YesNo)==MessageBoxResult.Yes){editor.DeleteThinking(id);Changed();Thinking();}}));detail.Content=new ScrollViewer{Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};}
+        void Refresh()=>GroupList(list,true,search.Text,selectedText,id=>{Show(id);Refresh();},Thinking);
+        if(selectedText==null||!editor.Thinkings.ContainsKey(selectedText))selectedText=editor.Thinkings.Select(x=>x.Key).FirstOrDefault();
+        search.TextChanged+=(_,_)=>Refresh();Refresh();if(selectedText!=null)Show(selectedText);else detail.Content=Ui.Text("还没有碎碎念文本。",14,true);
     }
 }

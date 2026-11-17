@@ -52,6 +52,20 @@ public sealed class PackageEditor
     public bool ImageReferenced(string path)=>References(Modes,path)||References(ArchiveIO.Read(Path.Combine(Root,"modes.jsonc"))["modes"] as JsonObject??new JsonObject(),path);
     private static bool References(JsonObject modes,string path)=>modes.Select(x=>x.Value).OfType<JsonObject>().SelectMany(x=>x["frames"] as JsonArray??new JsonArray()).OfType<JsonObject>().Any(x=>string.Equals(x["res"]?.ToString().Replace('\\','/'),path.Replace('\\','/'),StringComparison.OrdinalIgnoreCase));
     public IReadOnlyList<string> Images()=>Directory.EnumerateFiles(Root,"*",SearchOption.AllDirectories).Where(x=>new[]{".png",".jpg",".jpeg",".webp",".bmp",".gif"}.Contains(Path.GetExtension(x),StringComparer.OrdinalIgnoreCase)).Select(x=>Path.GetRelativePath(Root,x).Replace('\\','/')).OrderBy(x=>x).ToArray();
+    public RolePackage Preview()=>RolePackage.FromDraft(Root,Document.ToJsonString(),File.Exists);
+    public IReadOnlyList<string> Groups(bool thinking)=> (Document[thinking?"thinkingGroups":"modeGroups"] as JsonArray??new JsonArray()).Select(x=>x?.ToString()??"").Where(x=>x.Length>0).Distinct().ToArray();
+    public IReadOnlyList<string> Membership(bool thinking,string id)=>((thinking?Thinkings:Modes)[id]?["groups"] as JsonArray??new JsonArray()).Select(x=>x?.ToString()??"").ToArray();
+    public void SetMembership(bool thinking,string id,IEnumerable<string> groups){var item=(thinking?Thinkings:Modes)[id]!.AsObject();item["groups"]=new JsonArray(groups.Distinct().Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray());}
+    private void WriteGroups(bool thinking,IEnumerable<string> groups)=>Document[thinking?"thinkingGroups":"modeGroups"]=new JsonArray(groups.Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray());
+    public void AddGroup(bool thinking,string name){name=name.Trim();var groups=Groups(thinking);if(name.Length==0||name=="未分组"||groups.Contains(name))throw new InvalidDataException("分组名称为空或重复。");WriteGroups(thinking,groups.Append(name));}
+    public void DissolveGroup(bool thinking,string name){WriteGroups(thinking,Groups(thinking).Where(x=>x!=name));foreach(var id in (thinking?Thinkings:Modes).Select(x=>x.Key).ToArray())if(Membership(thinking,id).Contains(name))SetMembership(thinking,id,Membership(thinking,id).Where(x=>x!=name));}
+    public void MoveGroup(bool thinking,string name,int direction){var groups=Groups(thinking).ToList();var i=groups.IndexOf(name);var j=i+direction;if(i<0||j<0||j>=groups.Count)return;(groups[i],groups[j])=(groups[j],groups[i]);WriteGroups(thinking,groups);}
+    public IEnumerable<(string Name,string[] Ids)> Grouped(bool thinking)
+    {
+        var groups=Groups(thinking);var ids=(thinking?Thinkings:Modes).Select(x=>x.Key).ToArray();
+        foreach(var group in groups)yield return (group,ids.Where(id=>Membership(thinking,id).Contains(group)).ToArray());
+        yield return ("未分组",ids.Where(id=>!Membership(thinking,id).Any(groups.Contains)).ToArray());
+    }
     public RolePackage Save(Func<string,bool>? imageReady=null)
     {
         var path=Path.Combine(Root,"modes.jsonc");var old=File.ReadAllText(path);Document["version"]=RolePackage.ContractVersion;

@@ -55,3 +55,5 @@ Stage 16c: fix local function syntax, hide empty movement section headings when 
 Stage 16 follow-up: role settings navigation summaries and true static preview, metadata-driven role short name, Android feeding group ordering, compact and narrow-window numeric rows, explicit startup setting row. Expiration uses existing zero=never semantics until a separate stored enable flag is implemented.
 
 Stage 16 editor follow-up: function groups in Android order and split function tree / searchable animation selection, true image thumbnails, dedicated resource checkbox, selected navigation highlight. Does not add animation-group editing or full playback preview.
+
+Stage 17a: Android-compatible modeGroups/thinkingGroups and per-item groups arrays, empty groups and ungrouped fallback, group dissolve and ordering, split thinking editor, draft animation playback using the existing cursor without copying or saving the package. Preview updates on replay; no GUI validation yet.

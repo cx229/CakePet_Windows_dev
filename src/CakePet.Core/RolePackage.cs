@@ -31,7 +31,7 @@ public sealed class RolePackage
     public IReadOnlyList<string> Warnings { get; }
     private readonly Dictionary<string, bool> playable = new(StringComparer.Ordinal);
 
-    private RolePackage(string root, JsonElement doc, Func<string,bool> imageReady)
+    private RolePackage(string root, JsonElement doc, Func<string,bool> imageReady,bool requireStandby=true)
     {
         Root = root;
         Id = Str(doc, "id", "unknown"); Name = Str(doc, "name", Id); ShortName=Str(doc,"shortName",Name);FoodName=Str(doc,"foodName","食物");
@@ -88,7 +88,7 @@ public sealed class RolePackage
             if(!string.IsNullOrWhiteSpace(value)) texts[entry.Name]=value;
         }
         foreach(var key in modes.Keys) playable[key]=CheckChain(key);
-        if(Candidates("standby/pool").Count==0) throw new InvalidDataException("待机池至少需要一个可播放的完整动画");
+        if(requireStandby&&Candidates("standby/pool").Count==0) throw new InvalidDataException("待机池至少需要一个可播放的完整动画");
     }
     public static RolePackage Load(string root, Func<string,bool>? imageReady=null)
     {
@@ -97,6 +97,12 @@ public sealed class RolePackage
         var check=imageReady ?? (p=>File.Exists(p)&&new FileInfo(p).Length>0);
         var cache=new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
         return new RolePackage(root,doc.RootElement,p=>{ if(!cache.TryGetValue(p,out var valid)) cache[p]=valid=check(p); return valid; });
+    }
+    public static RolePackage FromDraft(string root,string json,Func<string,bool> imageReady)
+    {
+        using var doc=JsonDocument.Parse(json);
+        var cache=new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
+        return new RolePackage(Path.GetFullPath(root),doc.RootElement,p=>{if(!cache.TryGetValue(p,out var valid))cache[p]=valid=imageReady(p);return valid;},false);
     }
     public string ResolveAsset(string resource)
     {
