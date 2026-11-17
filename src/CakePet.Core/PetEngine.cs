@@ -126,11 +126,12 @@ public sealed class PetEngine : IDisposable
     {
         if(!double.IsFinite(size)||size<=0||size==DisplaySize)return;
         var diff=size-DisplaySize;var old=Body.Position;
-        var offset=SurfaceMotion.ToScreen(new Point(-diff/2,-diff),RenderEdge);
+        var offset=Body.State is PhysicalState.Dragging or PhysicalState.Throwing?default:RenderEdge switch
+        {Edge.Left=>new Point(0,-diff/2),Edge.Right=>new Point(-diff,-diff/2),Edge.Top=>new Point(-diff/2,0),_=>new Point(-diff/2,-diff)};
         DisplaySize=size;
         // Window bounds are refreshed by the host; preserve the support-side anchor approximately.
         Bounds=new Bounds(Bounds.Left,Bounds.Top,Math.Max(Bounds.Left,Bounds.Right-diff),Math.Max(Bounds.Top,Bounds.Bottom-diff));
-        Body.Place(old+offset);Body.Constrain(Bounds);
+        Body.SetPosition(old+offset);Body.Constrain(Bounds);
     }
     private void Face(Point target,bool eating=false)
     {

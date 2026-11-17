@@ -56,7 +56,10 @@ internal sealed class PetWindow : Window
         var leap=Add("好动飞跃",()=>engine.SetLeapEnabled(!engine.LeapEnabled));leap.IsCheckable=true;
         var leapTest=Add("立即飞跃（测试）",()=>engine.TryStartLeap());
         menu.Items.Add(new Separator());
-        FoodInstance? Spawn()=>world.Spawn(engine,WorkArea(),48,60000,true,3);
+        FoodInstance? Spawn()=>world.Spawn(engine,WorkArea(),48,60000,true,3,id=>
+        {
+            var v=images.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*1.4,v.LogicalHeight*1.4);
+        });
         var feed=Add("投食",()=>{Spawn();world.ResetSpawnTimer(engine);});
         var automatic=Add("自动刷新食物",()=>world.SetAutomatic(engine,!world.IsAutomatic(engine),new Interval(30000,120000),Spawn));automatic.IsCheckable=true;
         var forage=Add("自动觅食",()=>engine.SetAutoForage(!engine.AutoForageEnabled));forage.IsCheckable=true;
@@ -76,7 +79,7 @@ internal sealed class PetWindow : Window
         MenuItem Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);return item;}
         MouseLeftButtonDown+=OnDown;MouseMove+=OnMove;MouseLeftButtonUp+=OnUp;
         LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging)FinishDrag();}};
-        engine.GrowOnFeed=true;engine.FeedGrowth=160*.03;engine.MaxDisplaySize=480;
+        engine.GrowOnFeed=true;engine.FeedGrowth=role.Package.AnchorRes*.03;engine.MaxDisplaySize=role.Package.AnchorRes*3;
         Loaded+=(_,_)=>Render();
         Closed+=(_,_)=>{closed=true;engine.Dispose();thoughtWindow.Close();};
     }

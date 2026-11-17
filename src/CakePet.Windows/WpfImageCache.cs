@@ -20,7 +20,7 @@ internal sealed class WpfImageCache(RolePackage pack)
         catch(Exception e) when(e is IOException or NotSupportedException or ArgumentException or InvalidOperationException or FormatException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException){return false;}
     }
     private readonly Dictionary<string,FoodVisual> foodVisuals=new(StringComparer.Ordinal);
-    internal sealed record FoodVisual(IReadOnlyDictionary<Frame,BitmapSource> Frames,int Width,int Height);
+    internal sealed record FoodVisual(IReadOnlyDictionary<Frame,BitmapSource> Frames,int Width,int Height,double LogicalWidth,double LogicalHeight);
     public FoodVisual GetFoodVisual(string start)
     {
         if(foodVisuals.TryGetValue(start,out var cached))return cached;
@@ -49,7 +49,7 @@ internal sealed class WpfImageCache(RolePackage pack)
         }
         var rect=right<left?new Int32Rect(0,0,canvasSide,canvasSide):new Int32Rect(left,top,right-left+1,bottom-top+1);
         var cropped=source.ToDictionary(x=>x.Key,x=>{var b=new CroppedBitmap(x.Value,rect);b.Freeze();return (BitmapSource)b;});
-        return foodVisuals[start]=new FoodVisual(cropped,rect.Width,rect.Height);
+        return foodVisuals[start]=new FoodVisual(cropped,rect.Width,rect.Height,rect.Width*(double)side/canvasSide,rect.Height*(double)side/canvasSide);
     }
     public BitmapSource Get(Frame frame)
     {

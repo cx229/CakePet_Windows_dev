@@ -1,14 +1,19 @@
 namespace CakePet.Core;
 
+public readonly record struct FoodExtent(double Width,double Height);
+
 public sealed class FoodInstance
 {
-    internal FoodInstance(PetEngine owner,AnimationCursor animation,Point center,double size,long? lifetime)
-    {Owner=owner;Animation=animation;Center=center;Size=size;RemainingMs=lifetime;}
+    internal FoodInstance(PetEngine owner,AnimationCursor animation,Point center,FoodExtent extent,long? lifetime)
+    {Owner=owner;Animation=animation;Center=center;Extent=extent;RemainingMs=lifetime;}
     public Guid Id { get; }=Guid.NewGuid();
     public PetEngine Owner { get; }
     public AnimationCursor Animation { get; }
     public Point Center { get; internal set; }
-    public double Size { get; }
+    public FoodExtent Extent { get; }
+    public double Width=>Extent.Width;
+    public double Height=>Extent.Height;
+    public double Size=>Math.Max(Width,Height);
     public string StartMode { get; internal set; }="";
     public bool Held { get; internal set; }
     public long? RemainingMs { get; internal set; }
@@ -22,6 +27,7 @@ public sealed class FoodWorld
     private readonly List<FoodInstance> foods=new();
     private readonly Dictionary<PetEngine,FoodInstance> lures=new();
     private readonly Dictionary<PetEngine,FoodInstance> forage=new();
+    private readonly Dictionary<FoodInstance,HashSet<PetEngine>> contacts=new();
     public IReadOnlyList<FoodInstance> Foods=>foods.AsReadOnly();
     private readonly Dictionary<PetEngine,SpawnSchedule> schedules=new();
     private sealed record SpawnSchedule(Interval Period,Func<FoodInstance?> Spawn,long Remaining);
@@ -45,45 +51,52 @@ public sealed class FoodWorld
     public void Remove(PetEngine pet)
     {
         if(!pets.Remove(pet))return;
-        schedules.Remove(pet);pet.ChooseForage=null;lures.Remove(pet);forage.Remove(pet);pet.EndLure(false);pet.StopForage();
+        schedules.Remove(pet);foreach(var set in contacts.Values)set.Remove(pet);pet.ChooseForage=null;lures.Remove(pet);forage.Remove(pet);pet.EndLure(false);pet.StopForage();
         foreach(var food in foods.Where(f=>f.Owner==pet).ToArray())Remove(food);
     }
-    public FoodInstance? Spawn(PetEngine owner,Bounds area,double size=48,long? lifetimeMs=60000,bool edge=true,int maximum=10)
+    public FoodInstance? Spawn(PetEngine owner,Bounds area,double size=48,long? lifetimeMs=60000,bool edge=true,int maximum=10,Func<string,FoodExtent>? dimensions=null)
     {
         if(!pets.Contains(owner)||!owner.FeedingEnabled||foods.Count(f=>f.Owner==owner)>=maximum)return null;
         var candidates=owner.Role.Package.Candidates("feed/food");
         if(candidates.Count==0||!double.IsFinite(size)||size<=0||lifetimeMs<=0)return null;
-        var half=size/2;
-        var b=new Bounds(area.Left+half,area.Top+half,Math.Max(area.Left+half,area.Right-half),Math.Max(area.Top+half,area.Bottom-half));
+        var selected=candidates[random.Next(candidates.Count)];
+        var extent=dimensions?.Invoke(selected)??new FoodExtent(size,size);
+        if(!double.IsFinite(extent.Width)||!double.IsFinite(extent.Height)||extent.Width<=0||extent.Height<=0||area.Right<=area.Left||area.Bottom<=area.Top)return null;
+        var scale=Math.Min(1,Math.Min((area.Right-area.Left)/extent.Width,(area.Bottom-area.Top)/extent.Height));
+        extent=new FoodExtent(extent.Width*scale,extent.Height*scale);
+        var hw=extent.Width/2;var hh=extent.Height/2;
+        var b=new Bounds(area.Left+hw,area.Top+hh,Math.Max(area.Left+hw,area.Right-hw),Math.Max(area.Top+hh,area.Bottom-hh));
         var p=new Point(b.Left+random.NextDouble()*(b.Right-b.Left),b.Top+random.NextDouble()*(b.Bottom-b.Top));
         if(edge)p=SurfaceMotion.OnEdge(p,b,SurfaceMotion.Sides[random.Next(4)]);
-        var cursor=new AnimationCursor(owner.Role.Package,candidates[random.Next(candidates.Count)],new Random(random.Next()));
-        var food=new FoodInstance(owner,cursor,p,size,lifetimeMs){StartMode=cursor.Mode.Id};foods.Add(food);Spawned?.Invoke(food);return food;
+        var cursor=new AnimationCursor(owner.Role.Package,selected,new Random(random.Next()));
+        var food=new FoodInstance(owner,cursor,p,extent,lifetimeMs){StartMode=cursor.Mode.Id};foods.Add(food);Spawned?.Invoke(food);return food;
     }
     public bool Hold(FoodInstance food)
-    {if(!foods.Contains(food))return false;food.Held=true;UpdateInteractions();return true;}
-    public void Move(FoodInstance food,Point center)
+    {if(!foods.Contains(food))return false;if(food.Held)return true;food.Held=true;contacts[food]=new();UpdateInteractions();return true;}
+    public void Move(FoodInstance food,Point center,Point? pointer=null)
     {
         if(!foods.Contains(food)||!food.Held)return;
         food.Center=center;UpdateInteractions();
         // Contact gives automatic forage a chance to select immediately, without forcing an animation by ID.
-        foreach(var pet in pets.Where(p=>p.CanForage&&p.Contains(center)&&p.Role.IsNaturalStandby&&!p.Foraging))
-            ChooseForage(pet);
+        var now=pets.Where(p=>p.Contains(pointer??center)).ToHashSet();
+        var previous=contacts.GetValueOrDefault(food)??new HashSet<PetEngine>();
+        foreach(var pet in now.Where(p=>!previous.Contains(p)&&p.CanForage&&p.Role.IsNaturalStandby&&!p.Foraging))ChooseForage(pet);
+        contacts[food]=now;
     }
-    public bool Release(FoodInstance food,Point pointer,bool cancelled=false)
+    public bool Release(FoodInstance food,Point pointer,bool cancelled=false,bool allowConsume=true)
     {
         if(!foods.Contains(food)||!food.Held)return false;
-        food.Held=false;
-        var eater=cancelled?null:FindPet(pointer);
+        food.Held=false;contacts.Remove(food);
+        var eater=cancelled||!allowConsume?null:FindPet(pointer);
         if(eater!=null)Consume(food,eater);
-        if(cancelled)foreach(var p in lures.Where(x=>x.Value==food).Select(x=>x.Key).ToArray())
+        if(cancelled&&!foods.Any(f=>f.Held))foreach(var p in lures.Where(x=>x.Value==food).Select(x=>x.Key).ToArray())
         {lures.Remove(p);p.EndLure(false);}
         UpdateInteractions();return eater!=null;
     }
     public void Remove(FoodInstance food)
     {
         if(!foods.Remove(food))return;
-        food.Held=false;
+        food.Held=false;contacts.Remove(food);
         foreach(var p in forage.Where(x=>x.Value==food).Select(x=>x.Key).ToArray())
         {forage.Remove(p);p.StopForage();}
         Removed?.Invoke(food);

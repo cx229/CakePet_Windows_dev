@@ -64,6 +64,7 @@ public sealed class PhysicsBody
     public PhysicsBody(Point position)=>Position=position;
     private static Point Clamp(Point p,Bounds b)=>new(Math.Clamp(p.X,b.Left,b.Right),Math.Clamp(p.Y,b.Top,b.Bottom));
     private Point Limit(Point p)=>new(Math.Clamp(p.X,-MaxSpeed,MaxSpeed),Math.Clamp(p.Y,-MaxSpeed,MaxSpeed));
+    public void SetPosition(Point point)=>Position=point;
     public void Place(Point point,Bounds? bounds=null){Position=bounds is Bounds b?Clamp(point,b):point;Velocity=default;}
     private void ClearPhysicalState()
     {

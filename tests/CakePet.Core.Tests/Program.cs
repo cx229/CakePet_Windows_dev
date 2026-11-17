@@ -115,6 +115,23 @@ try
  world.Add(feeder);world.SetAutomatic(feeder,true,new Interval(100,100),()=>world.Spawn(feeder,new Bounds(0,0,500,300),40,null,false,1));
  world.Advance(99);Assert(world.Foods.Count==0,"spawn waits");world.Advance(1);Assert(world.Foods.Count==1,"scheduled spawn");
  world.Advance(100);Assert(world.Foods.Count==1,"spawn cap");world.SetAutomatic(feeder,false,new Interval(100,100),()=>null);Assert(world.Foods.Count==0,"stop clears owner food");
+ var shaped=world.Spawn(feeder,new Bounds(0,0,500,300),40,null,true,3,_=>new FoodExtent(80,20))!;
+ Assert(shaped.Width==80&&shaped.Height==20&&
+  (shaped.Center.X==40||shaped.Center.X==460||shaped.Center.Y==10||shaped.Center.Y==290),"actual cropped edge bounds");
+ world.Remove(shaped);
+ eater.BeginDrag();eater.Body.SnapDistance=100;eater.EndDrag(default);
+ Assert(eater.Role.Snapped,"snap for food");
+ var snapFish=world.Spawn(feeder,new Bounds(0,0,500,300),40,null,false)!;
+ var otherFish=world.Spawn(feeder,new Bounds(0,0,500,300),40,null,false)!;
+ world.Hold(snapFish);Assert(eater.Role.FunctionPath=="snap/feed/lure","snap lure independent");
+ world.Hold(otherFish);world.Release(snapFish,new Point(0,0),true);
+ Assert(eater.IsLuring&&eater.Role.FunctionPath=="snap/feed/lure","one released while other held");
+ world.Release(otherFish,new Point(0,0),allowConsume:false);
+ Assert(eater.Role.FunctionPath=="snap/feed/lure_fail","last held release");
+ world.Clear();
+ eater.ReturnHome();eater.BeginDrag();eater.Body.SnapEnabled=false;eater.EndDrag(new Point(1000,-500));
+ var oldVelocity=eater.Body.Velocity;eater.Grow(5);
+ Assert(eater.Body.Velocity==oldVelocity&&eater.Body.State==PhysicalState.Throwing,"resize preserves physics");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
