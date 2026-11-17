@@ -10,7 +10,7 @@ internal static class ThinkingStyleSettings
     {
         var previewText=new TextBlock{Text=sample,TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center};
         var preview=new Border{CornerRadius=new CornerRadius(7),Padding=new Thickness(10,5,10,5),Child=previewText,HorizontalAlignment=HorizontalAlignment.Center};
-        var backdrop=new Border{Background=new SolidColorBrush(Color.FromRgb(110,107,117)),Padding=new Thickness(12),CornerRadius=new CornerRadius(8),Child=preview};
+        var backdrop=new Border{Background=new SolidColorBrush(Color.FromRgb(52,59,69)),Padding=new Thickness(12),CornerRadius=new CornerRadius(8),MinHeight=70,Child=preview};
         void Refresh(){var s=current().Normalize();previewText.FontSize=s.Size;previewText.Foreground=new SolidColorBrush(ColorOf(s.Color,s.Alpha));preview.Background=s.Background?new SolidColorBrush(ColorOf(s.BackgroundColor,s.BackgroundAlpha)):Brushes.Transparent;}
         void Set(Func<ThinkingStyle,ThinkingStyle> patch){change(patch);Refresh();foreach(var d in dependencies)d();}
         SettingCard Card(string title,string note,bool? on=null,Action<bool>? toggle=null,Func<bool>? extra=null)

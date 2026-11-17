@@ -20,6 +20,8 @@ public sealed class RolePackage
     public string Root { get; }
     public string Id { get; }
     public string Name { get; }
+    public string ShortName { get; }
+    public string FoodName { get; }
     public string Version { get; }
     public int AnchorRes { get; }
     public int DecodeTarget { get; }
@@ -32,7 +34,7 @@ public sealed class RolePackage
     private RolePackage(string root, JsonElement doc, Func<string,bool> imageReady)
     {
         Root = root;
-        Id = Str(doc, "id", "unknown"); Name = Str(doc, "name", Id);
+        Id = Str(doc, "id", "unknown"); Name = Str(doc, "name", Id); ShortName=Str(doc,"shortName",Name);FoodName=Str(doc,"foodName","食物");
         Version = Str(doc, "version", ""); AnchorRes = Math.Max(1, Int(doc, "anchorRes", 128));
         DecodeTarget = Math.Max(0, Int(doc, "decodeTarget", 256));
         var warnings = new List<string>();

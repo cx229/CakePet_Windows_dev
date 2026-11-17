@@ -51,3 +51,5 @@ Stage 16a: restore Android role-setting taxonomy, friendly role-specific remarks
 Stage 16b: compact dark home and pack management, grouped global settings, action menus, shared dark dropdown popup and menu colors, editor Chinese function labels and playback labels, top save action. Full multi-column editor and theme picker deferred.
 
 Stage 16c: fix local function syntax, hide empty movement section headings when parent disabled, preserve warning headings, and keep searchable animation list beside animation detail. Existing frame editor and save behavior retained; resource groups and full animation playback still pending.
+
+Stage 16 follow-up: role settings navigation summaries and true static preview, metadata-driven role short name, Android feeding group ordering, compact and narrow-window numeric rows, explicit startup setting row. Expiration uses existing zero=never semantics until a separate stored enable flag is implemented.

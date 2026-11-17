@@ -102,7 +102,7 @@ internal sealed class Launcher : Window
         var materials=new DockPanel{Margin=new Thickness(12)};var importRow=new StackPanel{Orientation=Orientation.Horizontal};
         var import=Ui.Button("导入 ▾",()=>{});var importMenu=new ContextMenu();var zipItem=new MenuItem{Header="导入 ZIP"};zipItem.Click+=(_,_)=>ImportArchive();importMenu.Items.Add(zipItem);var dirItem=new MenuItem{Header="导入目录"};dirItem.Click+=(_,_)=>ImportPack();importMenu.Items.Add(dirItem);import.ContextMenu=importMenu;import.Click+=(_,_)=>importMenu.IsOpen=true;importRow.Children.Add(import);
         importRow.Children.Add(Ui.Button("＋ 新建",()=>Safe(()=>{var pack=storage.Import(defaultRoot);RefreshCards();EditPack(pack);}),true));
-        var materialsTitle=Ui.Pair(Ui.Caption("素材包管理","管理「酥」们的素材包",true),importRow);((TextBlock)((StackPanel)materialsTitle.Children[0]).Children[0]).FontSize=26;materialsTitle.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        var materialsTitle=Ui.Pair(Ui.Caption("素材包管理","管理角色使用的素材包",true),importRow);((TextBlock)((StackPanel)materialsTitle.Children[0]).Children[0]).FontSize=26;materialsTitle.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var global=new StackPanel{Margin=new Thickness(12),MaxWidth=900};global.Children.Add(Ui.Text("全局设置",26));
         void GlobalGroup(string name){var t=Ui.Text(name,12,true);t.Margin=new Thickness(2,14,0,7);global.Children.Add(t);}
         GlobalGroup("个性化");
@@ -130,8 +130,8 @@ internal sealed class Launcher : Window
         thinkingCard.Add(Ui.Pair(policyNote,policies));thinkingCard.Add(Ui.Pair(Ui.Caption("显示位置","所有碎碎念共用的显示区域。"),locations));thinkingCard.Add(Ui.Pair(typingCaption,typingLink));global.Children.Add(thinkingCard);
         thoughts.Policy=catalog.ThinkingPolicy;UpdateThinkingUi();
         GlobalGroup("后台运行");
-        var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};launch.IsVisibleChanged+=(_,_)=>launch.IsChecked=catalog.AutoSummon;
-        launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(launch));
+        var launch=Ui.Switch(catalog.AutoSummon);launch.IsVisibleChanged+=(_,_)=>launch.IsChecked=catalog.AutoSummon;
+        launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("启动时召唤角色","软件启动后自动召唤第一个角色"),launch)));
         GlobalGroup("数据与备份");
         var backup=new SettingCard("备份与恢复","导出全部持久化数据；导入时只覆盖支持的内容。");backup.Add(Ui.Pair(Ui.Caption("导出软件备份","将软件设置与数据保存为备份文件"),Ui.Button("导出",ExportBackup)));backup.Add(Ui.Pair(Ui.Caption("导入软件备份","从备份文件恢复软件设置与数据"),Ui.Button("导入",ImportArchive)));backup.Add(Ui.Pair(Ui.Caption("重置软件","恢复首次安装状态"),Ui.Button("重置",ResetSoftware)));global.Children.Add(backup);
         GlobalGroup("系统与调试");var cleanup=new SettingCard("清理桌面","不修改角色设置。");cleanup.Add(Ui.Pair(Ui.Caption("清除全部食物"),Ui.Button("清除",()=>world.Clear())));cleanup.Add(Ui.Pair(Ui.Caption("清除全部定格"),Ui.Button("清除",()=>{foreach(var pet in pets)pet.ClearFreezes();})));global.Children.Add(cleanup);

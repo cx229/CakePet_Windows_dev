@@ -13,12 +13,14 @@ internal sealed class RoleSettingsPage:UserControl
         this.current=current;this.change=change;
         var entry=current();var s=entry.Settings.Normalize();
         bool Supports(string path)=>pack?.Supports(path)??true;
-        var petName=defaults?"角色":entry.Name;
+        var petName=defaults?"角色":string.IsNullOrWhiteSpace(pack?.ShortName)?entry.Name:pack.ShortName;
+        var foodName=string.IsNullOrWhiteSpace(pack?.FoodName)?"食物":pack.FoodName;
         bool MoveOn()=>current().Settings.Move||!Supports("standby/static_pool");
         bool FoodOn()=>current().Settings.Feed&&Supports("feed/food");
         var root=new Grid();root.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(205)});root.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});Content=root;
         var nav=new StackPanel{Margin=new Thickness(10,16,10,12)};var sidebar=new Border{Background=Ui.Brush("Sidebar"),Child=new ScrollViewer{Content=nav,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};root.Children.Add(sidebar);
         nav.Children.Add(Ui.Light("‹ 返回",back));var title=Ui.Caption(defaults?"用户习惯":entry.Name,defaults?"新角色默认设置":"角色设置",true);title.Margin=new Thickness(4,20,0,20);nav.Children.Add(title);
+        if(pack!=null&&!defaults){try{var id=pack.Candidates("standby/static_pool").Concat(pack.Candidates("standby/pool")).First();var image=new Image{Source=new WpfImageCache(pack).Get(pack.Modes[id].Frames[0]),Width=94,Height=82,Stretch=System.Windows.Media.Stretch.Uniform};var preview=Ui.Card(image);preview.Margin=new Thickness(4,0,4,12);nav.Children.Add(preview);}catch{}}
         var host=new ContentControl{Margin=new Thickness(22,20,22,12)};Grid.SetColumn(host,1);root.Children.Add(host);
         var sections=new List<FrameworkElement>();var buttons=new List<Button>();var summaries=new List<Action>();
         void Select(int index){host.Content=sections[index];for(int i=0;i<buttons.Count;i++)buttons[i].Background=Ui.Brush(i==index?"AccentSoft":"Sidebar");}
@@ -29,7 +31,7 @@ internal sealed class RoleSettingsPage:UserControl
             int index=sections.Count;sections.Add(layout);var b=Ui.Nav(name,()=>Select(index));buttons.Add(b);nav.Children.Add(b);return panel;
         }
         void Set(Func<RoleSettings,RoleSettings> patch){change(r=>r with{Settings=patch(r.Settings)});foreach(var refresh in dependencies)refresh();foreach(var refresh in summaries)refresh();}
-        void Summary(Func<string> state){var b=buttons[^1];var label=b.Content.ToString();void Refresh()=>b.Content=label+"    "+state();summaries.Add(Refresh);Refresh();}
+        void Summary(Func<string> state){var b=buttons[^1];var label=b.Content.ToString()??"";var text=Ui.Text(label,13);var value=Ui.Text("",11,true);var row=Ui.Pair(text,value);row.MinHeight=0;b.Content=row;b.HorizontalContentAlignment=HorizontalAlignment.Stretch;void Refresh(){value.Text=state();value.Foreground=value.Text.Contains("强制")?System.Windows.Media.Brushes.IndianRed:Ui.Brush("Muted");}summaries.Add(Refresh);Refresh();}
         void Group(StackPanel page,string title,Func<bool>? visible=null){var t=Ui.Text(title,12,true);t.Margin=new Thickness(2,8,0,6);page.Children.Add(t);if(visible!=null){void Refresh(){t.Visibility=visible()?Visibility.Visible:Visibility.Collapsed;}dependencies.Add(Refresh);Refresh();}}
         SettingCard Card(StackPanel page,string name,string note,bool? enabled=null,Func<RoleSettings,bool,RoleSettings>? setter=null,bool available=true,bool details=true,bool expanded=true,Func<bool>? dependency=null)
         {
@@ -56,7 +58,7 @@ internal sealed class RoleSettingsPage:UserControl
         var input=Card(main,"显示-交互","选择鼠标如何与桌宠交互。");
         var hit=new ComboBox{ItemsSource=new[]{"像素级命中","画布命中"},SelectedIndex=s.PixelHit?0:1,Width=160};hit.SelectionChanged+=(_,_)=>Set(r=>r with{PixelHit=hit.SelectedIndex==0});input.Add(Ui.Pair(Ui.Caption("命中模式","决定透明区域能否被点击"),hit));
         Flag(input,"点击穿透","开启后无法点击「"+petName+"」，按住 Ctrl 临时恢复",s.ClickThrough,(r,v)=>r with{ClickThrough=v});
-        var motion=Section("移动","「"+petName+"」的运动行为轨迹学");Summary(()=>MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
+        var motion=Section("移动","「"+petName+"」的运动行为轨迹学");Summary(()=>!Supports("standby/static_pool")?"强制开启":MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
         var move=Card(motion,"移动","关闭后，「"+petName+"」将会静悄悄地",MoveOn(),(r,v)=>r with{Move=v});if(!Supports("standby/static_pool"))move.ForceOn("素材包缺少静止待机池，移动强制开启");
         Number(move,"最大速度","「"+petName+"」能跑多快",s.MaxSpeed,100,10000,50,"px/s",(r,v)=>r with{MaxSpeed=v});Flag(move,"屏幕连接","允许自主跨屏移动，左右外缘循环；关闭后仍可手动拖动跨屏。",s.ScreenConnect,(r,v)=>r with{ScreenConnect=v});
         Group(motion,"重重重",MoveOn);
@@ -73,18 +75,23 @@ internal sealed class RoleSettingsPage:UserControl
         Number(forage,"觅食速度加成","加成后「"+petName+"」将飞速奔向食物",s.ForageMultiplier,.1,5,.05,"倍",(r,v)=>r with{ForageMultiplier=v});
         var leap=Card(motion,"飞跃",Supports("climb/leap/leap")?"起跳，起飞！":"素材包缺少飞跃动画",s.Leap&&Supports("climb/leap/leap"),(r,v)=>r with{Leap=v},Supports("climb/leap/leap"),dependency:()=>MoveOn()&&current().Settings.Climb);
         Number(leap,"飞跃概率","概率越高，越容易起飞",s.LeapProbability*100,0,100,1,"%",(r,v)=>r with{LeapProbability=v/100});Number(leap,"飞跃速度","飞向目标边缘的速度。",s.LeapSpeed,100,5000,25,"px/s",(r,v)=>r with{LeapSpeed=v});
-        var climbing=Section("吸附边缘","贴在边缘休息一会儿");Summary(()=>current().Settings.Snap&&Supports("snap/pool")?"已开启":"已关闭");
+        var climbing=Section("吸附边缘","贴在边缘休息一会儿");Summary(()=>!Supports("snap/pool")?"强制关闭":current().Settings.Snap?"已开启":"已关闭");
         var snap=Card(climbing,"吸附边缘",Supports("snap/pool")?"拖到屏幕边缘松手，会吸附边缘。按住鼠标拖出。":"素材包缺少吸附动画",s.Snap&&Supports("snap/pool"),(r,v)=>r with{Snap=v},Supports("snap/pool"));
         Number(snap,"吸附距离","数值越大，越容易被吸附在边缘",s.SnapDistance,0,500,5,"px",(r,v)=>r with{SnapDistance=v});Number(snap,"吸附速度","允许吸附的松手速度上限。",s.SnapSpeed,0,5000,25,"px/s",(r,v)=>r with{SnapSpeed=v});Directions(snap,"四边吸附","选择可以贴在哪些边缘",s.SnapEdges,(r,v)=>r with{SnapEdges=v});
-        var feeding=Section("投食","管理食物的刷新、外观和进食行为。");bool foodSupported=Supports("feed/food");Func<bool> foodOn=FoodOn;Summary(()=>FoodOn()?"已开启":"已关闭");Group(feeding,"吃吃吃");
+        var feeding=Section("投食","给「"+petName+"」喂点吃的");bool foodSupported=Supports("feed/food");Func<bool> foodOn=FoodOn;Summary(()=>!foodSupported?"强制关闭":FoodOn()?"已开启":"已关闭");Group(feeding,"吃吃吃");
         Card(feeding,"投食",foodSupported?"桌面上刷新食物，可以拖动喂给「"+petName+"」":"素材包缺少食物动画",s.Feed&&foodSupported,(r,v)=>r with{Feed=v},foodSupported,false);
-        var auto=Card(feeding,"自动刷新食物","隔一段时间，桌面上会出现新食物。",s.AutoFeed,(r,v)=>r with{AutoFeed=v},foodSupported,dependency:foodOn);
-        auto.Add(Ui.Pair(Ui.Caption("刷新间隔","在最短和最长时间之间随机等待。"),new RangeSlider(1,3600,s.FoodMinSeconds,s.FoodMaxSeconds,(lo,hi)=>Set(r=>r with{FoodMinSeconds=(int)lo,FoodMaxSeconds=(int)hi})),310));
+        Group(feeding,"显示",FoodOn);
         var food=Card(feeding,"食物显示","手动投食和随机掉落的食物共用这些设置",available:foodSupported,dependency:foodOn);
-        Number(food,"最大数量","同屏食物的上限",s.FoodLimit,1,100,1,"个",(r,v)=>r with{FoodLimit=(int)v});Number(food,"食物寿命","0 表示不会自动消失。",s.FoodLifetimeSeconds,0,86400,1,"秒",(r,v)=>r with{FoodLifetimeSeconds=(int)v});Number(food,"大小","食物的大小（新生成时生效）",s.FoodScale,.1,5,.05,"倍",(r,v)=>r with{FoodScale=v});Number(food,"透明度","食物的可见程度",s.FoodOpacity*100,5,100,1,"%",(r,v)=>r with{FoodOpacity=v/100});Flag(food,"沿边缘刷新","让食物出现在活动范围的边缘。",s.FoodAtEdge,(r,v)=>r with{FoodAtEdge=v});
-        var grow=Card(feeding,"投喂变大","投食成功后「"+petName+"」会变大",s.Grow,(r,v)=>r with{Grow=v},foodSupported,dependency:foodOn);
-        Number(grow,"变大系数","每次投喂后胖一圈",s.FeedGrowth*100,0,100,1,"%",(r,v)=>r with{FeedGrowth=v/100});Number(grow,"最大大小","限制投喂后的最大尺寸。",s.MaxScale,.5,10,.05,"倍",(r,v)=>r with{MaxScale=v});
-        var thinking=Section("碎碎念","「"+petName+"」的碎碎念");Summary(()=>globalThinking&&current().Settings.Thinking?"已开启":"已关闭");var thinkingSwitch=Card(thinking,"碎碎念总开关","开启后，按素材包中的文本策略播放。",globalThinking&&s.Thinking,(r,v)=>r with{Thinking=v},available:globalThinking,details:false);if(!globalThinking)thinkingSwitch.SetWarning("全局设置 > 碎碎念已关闭");
+        Number(food,"大小","「"+foodName+"」的大小（新生成时生效）",s.FoodScale,.1,5,.05,"倍",(r,v)=>r with{FoodScale=v});Number(food,"透明度","「"+foodName+"」的可见程度",s.FoodOpacity*100,5,100,1,"%",(r,v)=>r with{FoodOpacity=v/100});
+        Group(feeding,"刷新范围",FoodOn);var scope=Card(feeding,"刷新范围","决定食物会在哪里出现",dependency:foodOn);Flag(scope,"边缘刷新","开启后「"+foodName+"」出现在边缘",s.FoodAtEdge,(r,v)=>r with{FoodAtEdge=v});
+        Group(feeding,"投食变大",FoodOn);var grow=Card(feeding,"投喂变大","投食成功后「"+petName+"」会变大",s.Grow,(r,v)=>r with{Grow=v},foodSupported,dependency:foodOn);
+        Number(grow,"变大系数","每次投喂后胖一圈",s.FeedGrowth*100,0,100,1,"%",(r,v)=>r with{FeedGrowth=v/100});Number(grow,"最大大小","长大到这个大小就不会再变大",s.MaxScale,.5,10,.05,"倍",(r,v)=>r with{MaxScale=v});
+        Group(feeding,"随机掉落",FoodOn);var auto=Card(feeding,"自动刷新食物","隔一段时间，桌面上会出现「"+foodName+"」",s.AutoFeed,(r,v)=>r with{AutoFeed=v},foodSupported,dependency:foodOn);
+        auto.Add(Ui.Pair(Ui.Caption("频率","「"+foodName+"」的刷新间隔（秒）"),new RangeSlider(1,3600,s.FoodMinSeconds,s.FoodMaxSeconds,(lo,hi)=>Set(r=>r with{FoodMinSeconds=(int)lo,FoodMaxSeconds=(int)hi})),310));
+        var limit=Card(feeding,"最大数量","手动投食与随机掉落共同遵守数量上限",dependency:foodOn);Number(limit,"最大数量","同屏「"+foodName+"」的上限",s.FoodLimit,1,100,1,"个",(r,v)=>r with{FoodLimit=(int)v});
+        Group(feeding,"自动过期",FoodOn);var expiry=Card(feeding,"自动过期","一段时间后「"+foodName+"」会消失",dependency:foodOn);
+        Number(expiry,"过期时间","0 表示不会自动消失",s.FoodLifetimeSeconds,0,86400,1,"秒",(r,v)=>r with{FoodLifetimeSeconds=(int)v});
+        var thinking=Section("碎碎念","「"+petName+"」的碎碎念");Summary(()=>!globalThinking?"强制关闭":current().Settings.Thinking?"已开启":"已关闭");var thinkingSwitch=Card(thinking,"碎碎念总开关","开启后，按素材包中的文本策略播放。",globalThinking&&s.Thinking,(r,v)=>r with{Thinking=v},available:globalThinking,details:false);if(!globalThinking)thinkingSwitch.SetWarning("全局设置 > 碎碎念已关闭");
         var rest=Card(thinking,"休息间隔","轮播消息结束后随机等待一段时间。",dependency:()=>globalThinking&&current().Settings.Thinking);
         rest.Add(Ui.Pair(Ui.Caption("频率","每次休息的最短与最长时间。"),new RangeSlider(1,300,s.ThoughtRestMin,s.ThoughtRestMax,(lo,hi)=>Set(r=>r with{ThoughtRestMin=(int)lo,ThoughtRestMax=(int)hi})),310));
         ThinkingStyleSettings.Add(thinking,()=>current().Settings.ThoughtStyle,patch=>Set(r=>r with{ThoughtStyle=patch(r.ThoughtStyle)}),pack?.Texts.Values.FirstOrDefault(x=>!string.IsNullOrWhiteSpace(x))??"碎碎念预览",()=>globalThinking&&current().Settings.Thinking,dependencies);

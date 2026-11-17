@@ -36,7 +36,7 @@ internal static class Ui
         void Commit(){if(syncing)return;syncing=true;if(double.TryParse(box.Text,NumberStyles.Float,CultureInfo.InvariantCulture,out var v)&&double.IsFinite(v))slider.Value=Math.Clamp(v,min,max);box.Text=slider.Value.ToString("0.###",CultureInfo.InvariantCulture);syncing=false;Publish();}
         box.LostKeyboardFocus+=(_,_)=>Commit();box.KeyDown+=(_,e)=>{if(e.Key==System.Windows.Input.Key.Enter){Commit();e.Handled=true;}};
         var row=Pair(Caption(title,note),right,310);
-        row.SizeChanged+=(_,_)=>row.ColumnDefinitions[1].Width=new GridLength(Math.Clamp(row.ActualWidth*.57,220,430));
+        row.SizeChanged+=(_,_)=>{bool narrow=row.ActualWidth<400;row.ColumnDefinitions[1].Width=narrow?new GridLength(0):new GridLength(Math.Clamp(row.ActualWidth*.52,200,430));if(narrow){if(row.RowDefinitions.Count==0){row.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});row.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});}Grid.SetColumn(right,0);Grid.SetRow(right,1);right.Margin=new Thickness(0,5,0,4);}else{Grid.SetColumn(right,1);Grid.SetRow(right,0);right.Margin=new Thickness(0);}};
         return row;
     }
 }
