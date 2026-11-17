@@ -51,7 +51,7 @@ internal sealed class RoleSettingsPage:UserControl
         void Number(SettingCard c,string name,string note,double value,double min,double max,double step,string unit,Func<RoleSettings,double,RoleSettings> setter,string? key=null,double factor=1)
         {
             if(key!=null&&SettingLimits.Specs.FirstOrDefault(x=>x.Key==key) is NumericSetting spec){var limit=SettingLimits.Get(current().Settings,spec);min=limit.Min*factor;max=limit.Max*factor;}
-            var control=Ui.NumberRow(name,note,value,min,max,step,unit,v=>Set(r=>setter(r,v)));if(defaults&&applyHabits!=null&&key!=null)c.Add(Ui.Pair(control,Ui.Light("应用本项",()=>applyHabits("item:"+key))));else c.Add(control);
+            var control=Ui.NumberRow(name,note,value,min,max,step,unit,v=>Set(r=>setter(r,v)));if(defaults&&applyHabits!=null&&key!=null){var block=new DockPanel();var apply=Ui.Light("应用本项",()=>applyHabits("item:"+key));apply.HorizontalAlignment=HorizontalAlignment.Right;DockPanel.SetDock(apply,Dock.Top);block.Children.Add(apply);block.Children.Add(control);c.Add(block);}else c.Add(control);
         }
         void Flag(SettingCard c,string name,string note,bool value,Func<RoleSettings,bool,RoleSettings> setter){var sw=Ui.Switch(value);sw.Click+=(_,_)=>Set(r=>setter(r,sw.IsChecked==true));c.Add(Ui.Pair(Ui.Caption(name,note),sw));}
         void Directions(SettingCard c,string name,string note,Edge value,Func<RoleSettings,Edge,RoleSettings> setter,bool exclusive=false)
@@ -83,10 +83,11 @@ internal sealed class RoleSettingsPage:UserControl
         var thr=Card(motion,"抛掷",Supports("touch/roll")?"拖动「"+petName+"」，抛出去！":"素材包缺少抛掷动画",s.Throw&&Supports("touch/roll"),(r,v)=>r with{Throw=v},Supports("touch/roll"),dependency:MoveOn);
         Number(thr,"抛掷系数","抛出去的速度倍率",s.ThrowCoefficient,0,5,.05,"倍",(r,v)=>r with{ThrowCoefficient=v},"ThrowCoefficient",1);
         Group(motion,"攀攀攀",MoveOn);
-        var climb=Card(motion,"攀岩走壁","无视重力，踏壁而行，如履平地！",s.Climb,(r,v)=>r with{Climb=v},details:false,dependency:MoveOn);
+        var climb=Card(motion,"攀岩走壁","无视重力，踏壁而行，如履平地！",s.Climb,(r,v)=>r with{Climb=v},dependency:MoveOn);
         var forage=Card(motion,"自动觅食",Supports(PetEngine.ForagePath)?"「"+petName+"」会沿着边缘自己找吃的":"素材包缺少觅食动画",s.Forage&&Supports(PetEngine.ForagePath),(r,v)=>r with{Forage=v},Supports(PetEngine.ForagePath),dependency:()=>MoveOn()&&current().Settings.Climb);
         Number(forage,"觅食速度加成","加成后「"+petName+"」将飞速奔向食物",s.ForageMultiplier,.1,5,.05,"倍",(r,v)=>r with{ForageMultiplier=v},"ForageMultiplier",1);
         var leap=Card(motion,"飞跃",Supports("climb/leap/leap")?"起跳，起飞！":"素材包缺少飞跃动画",s.Leap&&Supports("climb/leap/leap"),(r,v)=>r with{Leap=v},Supports("climb/leap/leap"),dependency:()=>MoveOn()&&current().Settings.Climb);
+        motion.Children.Remove(forage);motion.Children.Remove(leap);climb.AddChild(forage);climb.AddChild(leap);
         Number(leap,"飞跃概率","概率越高，越容易起飞",s.LeapProbability*100,0,100,1,"%",(r,v)=>r with{LeapProbability=v/100},"LeapProbability",100);Number(leap,"飞跃速度","飞向目标边缘的速度。",s.LeapSpeed,100,5000,25,"px/s",(r,v)=>r with{LeapSpeed=v},"LeapSpeed",1);
         var climbing=Section("吸附边缘","贴在边缘休息一会儿");Summary(()=>!Supports("snap/pool")?"强制关闭":current().Settings.Snap?"已开启":"已关闭");
         var snap=Card(climbing,"吸附边缘",Supports("snap/pool")?"拖到屏幕边缘松手，会吸附边缘。按住鼠标拖出。":"素材包缺少吸附动画",s.Snap&&Supports("snap/pool"),(r,v)=>r with{Snap=v},Supports("snap/pool"));

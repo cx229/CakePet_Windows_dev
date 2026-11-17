@@ -21,7 +21,7 @@ internal static class Ui
     public static Grid Pair(FrameworkElement left,FrameworkElement right,double width=0)
     {
         var g=new Grid{MinHeight=48};g.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});g.ColumnDefinitions.Add(new ColumnDefinition{Width=width>0?new GridLength(width):GridLength.Auto});
-        left.Margin=new Thickness(0,0,16,0);left.VerticalAlignment=VerticalAlignment.Center;g.Children.Add(left);right.VerticalAlignment=VerticalAlignment.Center;Grid.SetColumn(right,1);g.Children.Add(right);return g;
+        left.Margin=new Thickness(0,0,16,0);left.VerticalAlignment=VerticalAlignment.Center;g.Children.Add(left);right.VerticalAlignment=VerticalAlignment.Center;Grid.SetColumn(right,1);g.Children.Add(right);if(right is RangeSlider){g.SizeChanged+=(_,_)=>{var narrow=g.ActualWidth<540;if(narrow){if(g.RowDefinitions.Count==0){g.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});g.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});}g.ColumnDefinitions[1].Width=new GridLength(0);Grid.SetColumn(right,0);Grid.SetRow(right,1);right.Margin=new Thickness(0,6,0,0);}else{g.ColumnDefinitions[1].Width=new GridLength(Math.Max(310,g.ActualWidth*.55));Grid.SetColumn(right,1);Grid.SetRow(right,0);right.Margin=new Thickness(0);}};}return g;
     }
     public static CheckBox Switch(bool value,bool enabled=true)=>new(){IsChecked=value,IsEnabled=enabled,Width=44,HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Center};
     public static FrameworkElement NumberRow(string title,string note,double value,double min,double max,double step,string unit,Action<double> changed)
@@ -52,7 +52,9 @@ internal sealed class SettingCard:Border
         if(collapsible){arrow=Ui.Light("⌄",()=>SetExpanded(!expanded));arrow.Width=30;arrow.Padding=new Thickness(4);arrow.Margin=new Thickness(8,0,0,0);arrow.Background=System.Windows.Media.Brushes.Transparent;controls.Children.Add(arrow);}
         var header=Ui.Pair(label,controls);if(collapsible){label.Cursor=System.Windows.Input.Cursors.Hand;label.MouseLeftButtonUp+=(_,e)=>{SetExpanded(!expanded);e.Handled=true;};}content.Children.Add(header);content.Children.Add(body);Child=content;SetExpanded(initiallyExpanded&&enabled!=false);SetAvailable(available);
     }
-    public void Add(FrameworkElement row){body.Children.Add(new Border{Height=1,Background=Ui.Brush("Line"),Margin=new Thickness(0,4,0,4)});body.Children.Add(row);}
+    public void Add(FrameworkElement row){var inset=new Border{Margin=new Thickness(16,0,0,0),Child=row};body.Children.Add(new Border{Height=1,Background=Ui.Brush("Line"),Margin=new Thickness(16,4,0,4)});body.Children.Add(inset);}
+    public void AddChild(SettingCard card){card.Margin=new Thickness(16,4,0,4);body.Children.Add(card);}
+    public void AddGroup(FrameworkElement label){label.Margin=new Thickness(16,8,0,4);body.Children.Add(label);}
     public void SetExpanded(bool value){requestedExpanded=value;UpdateFold();}
     private void UpdateFold(){expanded=permitted&&requestedExpanded;body.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;if(arrow!=null){arrow.Content=expanded?"⌃":"⌄";arrow.IsEnabled=permitted;}}
     public void ForceOn(string message){SetWarning(message);if(master!=null){master.IsChecked=true;master.IsEnabled=false;}}

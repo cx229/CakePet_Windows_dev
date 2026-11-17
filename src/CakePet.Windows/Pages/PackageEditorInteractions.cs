@@ -44,14 +44,15 @@ internal sealed partial class PackageEditorPage
     {
         var dialog=EditorDialog("选择"+type,660,620);var picked=initial.Where(x=>!string.IsNullOrWhiteSpace(x)).Distinct().ToList();var state=new HashSet<string>();var page=new StackPanel();var search=new TextBox{ToolTip="搜索"+type,Margin=new Thickness(0,0,0,8)};page.Children.Add(search);
         var count=Ui.Text("",12,true);page.Children.Add(count);var list=new StackPanel();page.Children.Add(list);
-        var checks=new Dictionary<string,List<CheckBox>>();bool updating=false;
+        var checks=new Dictionary<string,List<CheckBox>>();var counts=new List<(TextBlock Label,string[] Ids)>();bool updating=false;
+        void UpdateCounts(){count.Text="已选择 "+picked.Count+" 个";foreach(var (label,ids) in counts)label.Text=ids.Count(picked.Contains)+"/"+ids.Length;}
         void Refresh()
         {
-            list.Children.Clear();checks.Clear();count.Text="已选择 "+picked.Count+" 个";
+            list.Children.Clear();checks.Clear();counts.Clear();UpdateCounts();
             IEnumerable<(string Name,string[] Ids)> groups=type=="图片"?editor.Images().GroupBy(x=>x.Contains('/')?x[..x.LastIndexOf('/') ]:"未分组").Select(g=>(g.Key,g.ToArray())):editor.Grouped(type=="碎碎念");
             foreach(var group in groups){var ids=group.Ids.Where(id=>id.Contains(search.Text,StringComparison.OrdinalIgnoreCase)||(type=="碎碎念"&&(editor.Thinkings[id]?["text"]?.ToString()??"").Contains(search.Text,StringComparison.OrdinalIgnoreCase))).ToArray();if(search.Text.Length>0&&ids.Length==0)continue;var body=new StackPanel();foreach(var id in ids){var label=type=="碎碎念"?editor.Thinkings[id]?["text"]?.ToString()??id:id;var left=new StackPanel{Orientation=Orientation.Horizontal};if(type!="碎碎念"){var res=type=="图片"?id:editor.Frames(id).FirstOrDefault()?["res"]?.ToString();if(res!=null)left.Children.Add(Thumbnail(editor,res,40));}left.Children.Add(Ui.Caption(label));var check=ResourceCheck(picked.Contains(id));if(!checks.TryGetValue(id,out var copies))checks[id]=copies=new();copies.Add(check);
-                check.Click+=(_,_)=>{if(updating)return;if(check.IsChecked==true){if(!multi)picked.Clear();if(!picked.Contains(id))picked.Add(id);}else picked.Remove(id);updating=true;foreach(var kv in checks)foreach(var c in kv.Value)c.IsChecked=picked.Contains(kv.Key);updating=false;count.Text="已选择 "+picked.Count+" 个";};body.Children.Add(Ui.Card(Ui.Pair(left,check)));}
-                list.Children.Add(ResourceFolder(group.Name,group.Name,group.Ids.Count(picked.Contains)+"/"+group.Ids.Length,body,search:search.Text.Length>0,state:state));}
+                check.Click+=(_,_)=>{if(updating)return;if(check.IsChecked==true){if(!multi)picked.Clear();if(!picked.Contains(id))picked.Add(id);}else picked.Remove(id);updating=true;foreach(var kv in checks)foreach(var c in kv.Value)c.IsChecked=picked.Contains(kv.Key);updating=false;UpdateCounts();};body.Children.Add(Ui.Card(Ui.Pair(left,check)));}
+                var counter=Ui.Text(group.Ids.Count(picked.Contains)+"/"+group.Ids.Length,11,true);counts.Add((counter,group.Ids));list.Children.Add(ResourceFolder(group.Name,group.Name,"",body,counter,search:search.Text.Length>0,state:state));}
         }
         search.TextChanged+=(_,_)=>Refresh();page.Children.Add(Ui.Light("清空选择",()=>{picked.Clear();Refresh();}));Refresh();DialogBody(dialog,page,()=>dialog.DialogResult=true);return dialog.ShowDialog()==true?picked:null;
     }
