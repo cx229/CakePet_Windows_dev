@@ -2,21 +2,21 @@ using System.IO;
 using CakePet.Core;
 namespace CakePet.Windows;
 
-internal sealed class CatalogStorage
+internal sealed partial class CatalogStorage
 {
     private readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet");
     public string FilePath=>Path.Combine(root,"catalog.json");
-    public RoleCatalog Catalog {get;}
+    public RoleCatalog Catalog {get;private set;}
     public CatalogStorage(string bundled)
     {
         Catalog=RoleCatalog.Load(FilePath);
-        if(Catalog.Packs.Count==0&&File.Exists(Path.Combine(bundled,"modes.jsonc")))
+        if(!File.Exists(FilePath)&&Catalog.Packs.Count==0&&File.Exists(Path.Combine(bundled,"modes.jsonc")))
         {
             var p=Import(bundled);Catalog.AddRole(p.Id,p.Name);Save();
         }
     }
     public void Save()=>Catalog.Save(FilePath);
-    public string Resolve(PackEntry p)=>Path.Combine(root,"packs",p.Directory);
+    public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}
     public PackEntry Import(string source)
     {
         var pack=RolePackage.Load(source,WpfImageCache.IsReadable);
