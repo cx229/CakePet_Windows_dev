@@ -51,6 +51,26 @@ internal sealed class WpfImageCache(RolePackage pack)
         var cropped=source.ToDictionary(x=>x.Key,x=>{var b=new CroppedBitmap(x.Value,rect);b.Freeze();return (BitmapSource)b;});
         return foodVisuals[start]=new FoodVisual(cropped,rect.Width,rect.Height,rect.Width*(double)side/canvasSide,rect.Height*(double)side/canvasSide);
     }
+    private readonly Dictionary<Frame,FrameGeometry> geometries=new();
+    private readonly Dictionary<BitmapSource,byte[]> alpha=new();
+    public FrameGeometry Geometry(Frame frame)
+    {
+        if(geometries.TryGetValue(frame,out var g))return g;
+        var bitmap=Get(frame);var (w,h)=frame.Transform is "rotate90" or "rotate270"?(bitmap.PixelHeight,bitmap.PixelWidth):(bitmap.PixelWidth,bitmap.PixelHeight);
+        return geometries[frame]=FrameGeometry.Calculate(w,h,pack.AnchorRes,frame);
+    }
+    public bool OpaqueAt(Frame frame,double u,double v)
+    {
+        if(u<0||v<0||u>=1||v>=1)return false;
+        var bitmap=Get(frame);
+        if(!alpha.TryGetValue(bitmap,out var mask))
+        {
+            var converted=new FormatConvertedBitmap(bitmap,PixelFormats.Bgra32,null,0);
+            var bytes=new byte[checked(bitmap.PixelWidth*bitmap.PixelHeight*4)];converted.CopyPixels(bytes,bitmap.PixelWidth*4,0);
+            mask=new byte[bitmap.PixelWidth*bitmap.PixelHeight];for(int i=0;i<mask.Length;i++)mask[i]=bytes[4*i+3];alpha[bitmap]=mask;
+        }
+        return mask[(int)(v*bitmap.PixelHeight)*bitmap.PixelWidth+(int)(u*bitmap.PixelWidth)]>8;
+    }
     public BitmapSource Get(Frame frame)
     {
         var key=(frame.Resource,frame.Transform);

@@ -137,6 +137,18 @@ try
  Assert(DesktopGeometry.Nearest(screens,new Point(-100,50)).Id=="left","negative monitor origin");
  Assert(DesktopGeometry.Nearest(screens,new Point(200,100)).Id=="primary","monitor transition");
  Assert(DesktopGeometry.Fit(screens[0].Work,160,160)==new Bounds(-1920,0,-160,880),"physical work area");
+ var area=new Bounds(-1000,0,0,800);
+ var foot=new Point(80,120);
+ Assert(AnchorGeometry.WindowBounds(area,160,foot,Edge.Bottom).Bottom==680,"anchor bottom overhang");
+ var leftFoot=AnchorGeometry.Transform(foot,160,Edge.Left,1);
+ Assert(leftFoot==new Point(40,80)&&AnchorGeometry.WindowBounds(area,160,leftFoot,Edge.Left).Left==-1040,"rotated left anchor");
+ foreach(var side in SurfaceMotion.Sides)foreach(var face in new[]{-1,1})
+ Assert(AnchorGeometry.Inverse(AnchorGeometry.Transform(new Point(40,70),160,side,face),160,side,face)==new Point(40,70),"inverse hit geometry");
+ using var anchored=new PetEngine(new RoleRuntime(pack),new Bounds(0,0,800,600),128,new Point(200,200));
+ anchored.SetActivityArea(new Bounds(0,0,800,600),_=>new FrameGeometry(0,0,128,128,64,96));
+ var pos=anchored.Body.Position;anchored.RefreshGeometry();Assert(anchored.Body.Position==pos,"anchor no interior jump");
+ anchored.ReturnHome();Assert(anchored.Body.Position.Y+anchored.AnchorOffset.Y==600,"home foot contact");
+ anchored.Resize(160);Assert(anchored.Body.Position.Y+anchored.AnchorOffset.Y==600,"resized foot contact");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

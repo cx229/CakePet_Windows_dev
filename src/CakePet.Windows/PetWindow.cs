@@ -34,11 +34,22 @@ internal sealed class PetWindow : Window
     internal WpfImageCache Images=>images;
     private double renderedSize;
     private string monitorId;
-    private bool fullScreen,clickThrough;
+    private bool fullScreen,clickThrough,pixelHit=true;
+    private bool HitAt(P pointer)
+    {
+        var local=AnchorGeometry.Inverse(pointer-body.Position,Side,engine.RenderEdge,engine.Facing);
+        var g=images.Geometry(role.Animation.Current);var scale=Side/role.Package.AnchorRes;
+        return images.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
+    }
     private DesktopScreen Monitor=>DesktopPlatform.Resolve(monitorId,engine.Center);
     internal Bounds ActivityArea=>fullScreen?Monitor.Full:Monitor.Work;
     internal bool ClickThrough {get=>clickThrough;set{clickThrough=value;ApplyInputStyle();}}
-    private void ApplyInputStyle()=>NativeStyles.NonActivating(this,clickThrough&&!DesktopPlatform.ControlDown&&!pressed);
+    private void ApplyInputStyle()
+    {
+        var control=DesktopPlatform.ControlDown;
+        var pass=!pressed&&ContextMenu?.IsOpen!=true&&!control&&(clickThrough||(pixelHit&&!HitAt(DesktopPlatform.Cursor())));
+        NativeStyles.NonActivating(this,pass);
+    }
     public PetWindow(RoleRuntime role,WpfImageCache images,int index,FoodWorld world)
     {
         this.images=images;Title=role.Package.Name;
@@ -47,6 +58,7 @@ internal sealed class PetWindow : Window
         canvas.Children.Add(image);Content=canvas;
         var monitor=DesktopPlatform.Primary;monitorId=monitor.Id;
         var b=DesktopGeometry.Fit(monitor.Work,160,160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
+        engine.SetActivityArea(monitor.Work,images.Geometry);
         
         thoughtWindow=new Window{Width=360,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,
             AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false};
@@ -73,7 +85,8 @@ internal sealed class PetWindow : Window
         var grow=Add("投喂变大",()=>engine.GrowOnFeed=!engine.GrowOnFeed);grow.IsCheckable=true;
         Add("清除本角色食物",()=>world.Clear(engine));
         Add("恢复大小",()=>{engine.Resize(160);Render();});
-        var screen=Add("全屏活动范围（含任务栏）",()=>{fullScreen=!fullScreen;engine.UpdateBounds(CurrentBounds(Side));});screen.IsCheckable=true;
+        var screen=Add("全屏活动范围（含任务栏）",()=>{fullScreen=!fullScreen;engine.SetActivityArea(ActivityArea,images.Geometry);});screen.IsCheckable=true;
+        var pixel=Add("像素级命中",()=>{pixelHit=!pixelHit;ApplyInputStyle();});pixel.IsCheckable=true;
         var through=Add("点击穿透（Ctrl 临时恢复）",()=>ClickThrough=!ClickThrough);through.IsCheckable=true;
         Add("召回",Close);
         menu.Opened+=(_,_)=>{
@@ -82,7 +95,7 @@ internal sealed class PetWindow : Window
             leapTest.IsEnabled=engine.ClimbEnabled&&engine.LeapEnabled;
             feed.IsEnabled=automatic.IsEnabled=role.Package.Supports("feed/food");automatic.IsChecked=world.IsAutomatic(engine);
             forage.IsEnabled=engine.ClimbEnabled&&role.Package.Supports(PetEngine.ForagePath);forage.IsChecked=engine.AutoForageEnabled;
-            grow.IsChecked=engine.GrowOnFeed;screen.IsChecked=fullScreen;through.IsChecked=ClickThrough;
+            grow.IsChecked=engine.GrowOnFeed;screen.IsChecked=fullScreen;through.IsChecked=ClickThrough;pixel.IsChecked=pixelHit;
         };
         ContextMenu=menu;
         MenuItem Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);return item;}
@@ -92,7 +105,6 @@ internal sealed class PetWindow : Window
         Loaded+=(_,_)=>Render();
         Closed+=(_,_)=>{closed=true;engine.Dispose();thoughtWindow.Close();};
     }
-    private Bounds CurrentBounds(double side)=>DesktopGeometry.Fit(ActivityArea,side,side);
     private WPoint Screen(MouseEventArgs e){var p=DesktopPlatform.Cursor();return new WPoint(p.X,p.Y);}
     private void OnDown(object sender,MouseButtonEventArgs e)
     {
@@ -137,12 +149,11 @@ internal sealed class PetWindow : Window
         if(rendered!=frame||renderedSize!=dipSide)
         {
             var bitmap=images.Get(frame);
-            // Bitmap has already been transformed. Recover the unrotated dimensions for the logical geometry.
-            var (w,h)=frame.Transform is "rotate90" or "rotate270"?(bitmap.PixelHeight,bitmap.PixelWidth):(bitmap.PixelWidth,bitmap.PixelHeight);
-            var g=FrameGeometry.Calculate(w,h,role.Package.AnchorRes,frame);var scale=dipSide/role.Package.AnchorRes;
+            var g=images.Geometry(frame);var scale=dipSide/role.Package.AnchorRes;
             image.Source=bitmap;image.Width=g.Width*scale;image.Height=g.Height*scale;
             Canvas.SetLeft(image,g.Left*scale);Canvas.SetTop(image,g.Top*scale);rendered=frame;renderedSize=dipSide;
         }
+        ApplyInputStyle();
         var facing=engine.Facing;
         var angle=engine.RenderEdge switch{Edge.Left=>90,Edge.Right=>-90,Edge.Top=>180,_=>0};
         if(canvas.RenderTransform is not TransformGroup group||((ScaleTransform)group.Children[0]).ScaleX!=facing||((RotateTransform)group.Children[1]).Angle!=angle)

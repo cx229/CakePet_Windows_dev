@@ -8,6 +8,22 @@ public sealed class PetEngine : IDisposable
     public RoleRuntime Role { get; }
     public PhysicsBody Body { get; }
     public Bounds Bounds { get; private set; }
+    public Bounds? ActivityArea {get;private set;}
+    private Func<Frame,FrameGeometry>? geometryProvider;
+    public Point AnchorOffset=>AnchorAt(DisplaySize);
+    private Point AnchorAt(double size)
+    {
+        if(geometryProvider==null)return AnchorGeometry.Transform(new Point(size/2,size),size,RenderEdge,Facing);
+        var g=geometryProvider(Role.Animation.Current);var scale=size/Role.Package.AnchorRes;
+        return AnchorGeometry.Transform(new Point(g.AnchorX*scale,g.AnchorY*scale),size,RenderEdge,Facing);
+    }
+    public void SetActivityArea(Bounds area,Func<Frame,FrameGeometry> geometry)
+    {ActivityArea=area;geometryProvider=geometry;RefreshGeometry();}
+    public void RefreshGeometry()
+    {
+        if(ActivityArea is Bounds area&&geometryProvider!=null)
+            UpdateBounds(AnchorGeometry.WindowBounds(area,DisplaySize,AnchorOffset,RenderEdge));
+    }
     public double DisplaySize { get; private set; }
     public double MaxDisplaySize { get; set; }=400;
     public Point Center=>Body.Position+new Point(DisplaySize/2,DisplaySize/2);
@@ -40,7 +56,7 @@ public sealed class PetEngine : IDisposable
         Role=role;Bounds=bounds;DisplaySize=displaySize;this.random=random??new Random();
         Body=new PhysicsBody(position){SnapEnabled=role.Package.Supports("snap/pool"),ThrowEnabled=role.Package.Supports("touch/roll"),MotionEnabled=!role.StaticStandby};
         Body.Constrain(bounds);
-        Role.FrameEntered+=ApplyFrameMotion;
+        Role.FrameEntered+=OnFrame;
         Role.ChooseAutomaticFunction=()=> (CanForage&&ChooseForage?.Invoke()==true) || (CanStartLeap()&&this.random.NextDouble()<Math.Clamp(LeapProbability,0,1)&&TryStartLeap());
         ApplyFrameMotion(Role.Animation.Current);
     }
@@ -68,19 +84,20 @@ public sealed class PetEngine : IDisposable
         Role.SetStaticStandby(enabled);
         if(!enabled)TryAttachCurrent();
     }
-    public void BeginDrag(){forageTarget=null;Body.Grab();Role.SetEnvironment(false,PhysicalState.Dragging);}
+    public void BeginDrag(){forageTarget=null;Body.Grab();Role.SetEnvironment(false,PhysicalState.Dragging);RefreshGeometry();}
     public void DragTo(Point p,double velocityX){Body.DragTo(p);Role.UpdateDragCondition(velocityX,DisplaySize);}
     public void EndDrag(Point velocity)
     {
         if(Body.State!=PhysicalState.Dragging)return;
-        Body.Release(velocity,Bounds);Role.SetEnvironment(Body.SnappedEdge!=Edge.None,Body.State);
-        TryAttachCurrent();
+        Body.Release(velocity,Bounds,ActivityArea,AnchorOffset);Role.SetEnvironment(Body.SnappedEdge!=Edge.None,Body.State);
+        RefreshGeometry();TryAttachCurrent();
     }
     public void ReturnHome()
     {
         forageTarget=null;
-        Body.Reset(new Point((Bounds.Left+Bounds.Right)/2,Bounds.Bottom),Bounds);
-        Role.ResetToStandby();TryAttachCurrent();
+        Body.Reset(Body.Position);
+        Role.ResetToStandby();RefreshGeometry();
+        Body.Reset(new Point((Bounds.Left+Bounds.Right)/2,Bounds.Bottom),Bounds);TryAttachCurrent();RefreshGeometry();
     }
     public bool PatHead()=>Role.Trigger(Body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head");
     public bool MenuAction()=>Role.Trigger("menu/pool");
@@ -125,10 +142,15 @@ public sealed class PetEngine : IDisposable
     public void Resize(double size)
     {
         if(!double.IsFinite(size)||size<=0||size==DisplaySize)return;
-        var diff=size-DisplaySize;var old=Body.Position;
+        var diff=size-DisplaySize;var old=Body.Position;var oldAnchor=AnchorAt(DisplaySize);
         var offset=Body.State is PhysicalState.Dragging or PhysicalState.Throwing?default:RenderEdge switch
         {Edge.Left=>new Point(0,-diff/2),Edge.Right=>new Point(-diff,-diff/2),Edge.Top=>new Point(-diff/2,0),_=>new Point(-diff/2,-diff)};
         DisplaySize=size;
+        if(geometryProvider!=null&&ActivityArea!=null)
+        {
+            Body.SetPosition(old+(Body.State is PhysicalState.Dragging or PhysicalState.Throwing?default:oldAnchor-AnchorAt(size)));
+            RefreshGeometry();return;
+        }
         // Window bounds are refreshed by the host; preserve the support-side anchor approximately.
         Bounds=new Bounds(Bounds.Left,Bounds.Top,Math.Max(Bounds.Left,Bounds.Right-diff),Math.Max(Bounds.Top,Bounds.Bottom-diff));
         Body.SetPosition(old+offset);Body.Constrain(Bounds);
@@ -159,15 +181,16 @@ public sealed class PetEngine : IDisposable
             Bounds.Top+random.NextDouble()*(Bounds.Bottom-Bounds.Top));
         if(!Body.BeginLeap(side,p,Bounds,LeapSpeed))return false;
         if(Body.Velocity.X!=0)Facing=Body.Velocity.X<0?-1:1;
-        Role.SetEnvironment(false,PhysicalState.Flying);return true;
+        Role.SetEnvironment(false,PhysicalState.Flying);RefreshGeometry();return true;
     }
     private void TryAttachCurrent()
     {
         if(!ClimbEnabled||Role.StaticStandby||Body.State!=PhysicalState.Free||Body.SnappedEdge!=Edge.None)return;
         var touched=SurfaceMotion.Touching(Body.Position,Bounds);
         var side=SurfaceMotion.Sides.FirstOrDefault(x=>touched.HasFlag(x));
-        if(Body.TryAttach(side,Bounds))Role.SetClimbing(true);
+        if(Body.TryAttach(side,Bounds)){Role.SetClimbing(true);RefreshGeometry();}
     }
+    private void OnFrame(Frame frame){RefreshGeometry();ApplyFrameMotion(frame);RefreshGeometry();}
     private void ApplyFrameMotion(Frame frame)
     {
         if(Role.StaticStandby||Body.SnappedEdge!=Edge.None||
@@ -194,14 +217,14 @@ public sealed class PetEngine : IDisposable
             var atEnd=side is Edge.Top or Edge.Bottom
                 ? (delta.X<0&&next.X<=Bounds.Left)||(delta.X>0&&next.X>=Bounds.Right)
                 : (delta.Y<0&&next.Y<=Bounds.Top)||(delta.Y>0&&next.Y>=Bounds.Bottom);
-            if(atEnd)Body.TryAttach(SurfaceMotion.NextWall(side,delta),Bounds);
+            if(atEnd&&Body.TryAttach(SurfaceMotion.NextWall(side,delta),Bounds))RefreshGeometry();
         }
         else if(hit&&local.X!=0)Facing=-Facing;
     }
     public void Step(long milliseconds)
     {
         if(milliseconds<0)throw new ArgumentOutOfRangeException(nameof(milliseconds));
-        var previous=Body.State;
+        RefreshGeometry();var previous=Body.State;
         if(Body.Advance(milliseconds/1000.0,Bounds))
         {
             if(ClimbEnabled&&!Role.StaticStandby&&Body.TryAttach(Body.LastImpactEdge,Bounds)){}
@@ -213,6 +236,6 @@ public sealed class PetEngine : IDisposable
     }
     public void Dispose()
     {
-        Role.FrameEntered-=ApplyFrameMotion;Role.ChooseAutomaticFunction=null;ChooseForage=null;
+        Role.FrameEntered-=OnFrame;Role.ChooseAutomaticFunction=null;ChooseForage=null;
     }
 }

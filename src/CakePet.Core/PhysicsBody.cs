@@ -80,15 +80,17 @@ public sealed class PhysicsBody
         if(ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,b,ClimbEdge);
         if(LeapTarget is Point target)LeapTarget=SurfaceMotion.OnEdge(Clamp(target,b),b,LeapTargetEdge);
     }
-    public void Release(Point velocity,Bounds? bounds=null)
+    public void Release(Point velocity,Bounds? bounds=null,Bounds? activity=null,Point anchor=default)
     {
         ClearPhysicalState();
         if(bounds is Bounds b)
         {
+            var original=Position;
             Position=Clamp(Position,b);
             if(SnapEnabled&&(MotionEnabled?velocity.Length:0)<=SnapSpeed)
             {
-                var sides=new[]{(Edge.Bottom,b.Bottom-Position.Y),(Edge.Left,Position.X-b.Left),(Edge.Right,b.Right-Position.X),(Edge.Top,Position.Y-b.Top)};
+                var p=activity.HasValue?original+anchor:Position;var rect=activity??b;
+                var sides=new[]{(Edge.Bottom,Math.Abs(rect.Bottom-p.Y)),(Edge.Left,Math.Abs(p.X-rect.Left)),(Edge.Right,Math.Abs(rect.Right-p.X)),(Edge.Top,Math.Abs(p.Y-rect.Top))};
                 var nearest=sides.Where(x=>SnapEdges.HasFlag(x.Item1)&&x.Item2<=SnapDistance).OrderBy(x=>x.Item2).FirstOrDefault();
                 if(nearest.Item1!=Edge.None)
                 {

@@ -117,7 +117,8 @@ public sealed class FoodWorld
     }
     private static bool InRange(PetEngine pet,FoodInstance f)
     {
-        var b=pet.Bounds;return f.Center.X>=b.Left&&f.Center.X<=b.Right+pet.DisplaySize&&f.Center.Y>=b.Top&&f.Center.Y<=b.Bottom+pet.DisplaySize;
+        var b=pet.ActivityArea??new Bounds(pet.Bounds.Left,pet.Bounds.Top,pet.Bounds.Right+pet.DisplaySize,pet.Bounds.Bottom+pet.DisplaySize);
+        return f.Center.X>=b.Left&&f.Center.X<=b.Right&&f.Center.Y>=b.Top&&f.Center.Y<=b.Bottom;
     }
     private FoodInstance? BestForage(PetEngine pet)=>foods.Where(f=>InRange(pet,f)).MinBy(f=>
         PerimeterRoute.Calculate(pet.Bounds,pet.Body.Position,pet.Body.ClimbEdge==Edge.None?pet.RenderEdge:pet.Body.ClimbEdge,
