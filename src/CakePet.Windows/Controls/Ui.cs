@@ -13,9 +13,11 @@ internal static class Ui
         var p=new StackPanel{VerticalAlignment=VerticalAlignment.Center};var t=Text(title,main?16:14);if(main)t.FontWeight=FontWeights.SemiBold;p.Children.Add(t);
         if(note.Length>0){var n=Text(note,12,true);n.Margin=new Thickness(0,4,0,0);p.Children.Add(n);}return p;
     }
-    public static Border Card(UIElement child)=>new(){Background=Brush("Surface"),BorderBrush=Brush("Line"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(12),Padding=new Thickness(16),Margin=new Thickness(0,0,0,12),Child=child};
+    public static Border Card(UIElement child)=>new(){Background=Brush("Surface"),BorderBrush=Brush("Line"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),Padding=new Thickness(14,8,14,8),Margin=new Thickness(0,0,0,8),Child=child};
     public static Button Button(string text,Action action,bool primary=false)
-    {var b=new Button{Content=text,Margin=new Thickness(0,0,8,0),HorizontalContentAlignment=HorizontalAlignment.Center};if(primary)b.Style=(Style)Application.Current.FindResource("PrimaryButton");b.Click+=(_,_)=>action();return b;}
+    {var b=new Button{Content=text,Margin=new Thickness(0,0,8,0),HorizontalAlignment=HorizontalAlignment.Left,HorizontalContentAlignment=HorizontalAlignment.Center};if(primary)b.Style=(Style)Application.Current.FindResource("PrimaryButton");b.Click+=(_,_)=>action();return b;}
+    public static Button Nav(string text,Action action){var b=Button(text,action);b.Style=(Style)Application.Current.FindResource("NavButton");b.HorizontalAlignment=HorizontalAlignment.Stretch;b.HorizontalContentAlignment=HorizontalAlignment.Left;b.Margin=new Thickness(0,2,0,2);return b;}
+    public static Button Light(string text,Action action){var b=Button(text,action);b.Style=(Style)Application.Current.FindResource("LightButton");return b;}
     public static Grid Pair(FrameworkElement left,FrameworkElement right,double width=0)
     {
         var g=new Grid{MinHeight=48};g.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});g.ColumnDefinitions.Add(new ColumnDefinition{Width=width>0?new GridLength(width):GridLength.Auto});
@@ -40,18 +42,20 @@ internal static class Ui
 }
 internal sealed class SettingCard:Border
 {
-    private readonly StackPanel body=new();private readonly StackPanel content=new();private readonly TextBlock remark;private readonly TextBlock heading;private readonly Button? arrow;private bool expanded;
+    private readonly StackPanel body=new();private readonly StackPanel content=new();private readonly TextBlock remark;private readonly TextBlock heading;private readonly Button? arrow;private readonly CheckBox? master;private bool expanded;private bool requestedExpanded;private bool permitted=true;
     public SettingCard(string title,string note,bool? enabled=null,Action<bool>? toggle=null,bool available=true,bool collapsible=true,bool initiallyExpanded=true)
     {
-        Background=Ui.Brush("Surface");BorderBrush=Ui.Brush("Line");BorderThickness=new Thickness(1);CornerRadius=new CornerRadius(12);Padding=new Thickness(16);Margin=new Thickness(0,0,0,12);
+        Background=Ui.Brush("Surface");BorderBrush=Ui.Brush("Line");BorderThickness=new Thickness(1);CornerRadius=new CornerRadius(7);Padding=new Thickness(14,8,14,8);Margin=new Thickness(0,0,0,8);
         var label=Ui.Caption(title,note,true);heading=(TextBlock)label.Children[0];remark=(TextBlock)label.Children[label.Children.Count-1];
         var controls=new StackPanel{Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
-        if(enabled.HasValue){var sw=Ui.Switch(enabled.Value,available);sw.Click+=(_,_)=>toggle?.Invoke(sw.IsChecked==true);controls.Children.Add(sw);}
-        if(collapsible){arrow=Ui.Button("⌄",()=>SetExpanded(!expanded));arrow.Width=30;arrow.Padding=new Thickness(4);arrow.Margin=new Thickness(8,0,0,0);arrow.Background=Ui.Brush("Canvas");controls.Children.Add(arrow);}
-        content.Children.Add(Ui.Pair(label,controls));content.Children.Add(body);Child=content;SetExpanded(initiallyExpanded);IsEnabled=available;
+        if(enabled.HasValue){master=Ui.Switch(enabled.Value,available);master.Click+=(_,_)=>{toggle?.Invoke(master.IsChecked==true);SetExpanded(master.IsChecked==true);};controls.Children.Add(master);}
+        if(collapsible){arrow=Ui.Light("⌄",()=>SetExpanded(!expanded));arrow.Width=30;arrow.Padding=new Thickness(4);arrow.Margin=new Thickness(8,0,0,0);arrow.Background=System.Windows.Media.Brushes.Transparent;controls.Children.Add(arrow);}
+        var header=Ui.Pair(label,controls);if(collapsible){label.Cursor=System.Windows.Input.Cursors.Hand;label.MouseLeftButtonUp+=(_,e)=>{SetExpanded(!expanded);e.Handled=true;};}content.Children.Add(header);content.Children.Add(body);Child=content;SetExpanded(initiallyExpanded&&enabled!=false);SetAvailable(available);
     }
-    public void Add(FrameworkElement row){body.Children.Add(new Border{Height=1,Background=Ui.Brush("Line"),Margin=new Thickness(0,10,0,10)});body.Children.Add(row);}
-    public void SetExpanded(bool value){expanded=value;body.Visibility=value?Visibility.Visible:Visibility.Collapsed;if(arrow!=null)arrow.Content=value?"⌃":"⌄";}
+    public void Add(FrameworkElement row){body.Children.Add(new Border{Height=1,Background=Ui.Brush("Line"),Margin=new Thickness(0,4,0,4)});body.Children.Add(row);}
+    public void SetExpanded(bool value){requestedExpanded=value;UpdateFold();}
+    private void UpdateFold(){expanded=permitted&&requestedExpanded;body.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;if(arrow!=null){arrow.Content=expanded?"⌃":"⌄";arrow.IsEnabled=permitted;}}
+    public void ForceOn(string message){SetWarning(message);if(master!=null){master.IsChecked=true;master.IsEnabled=false;}}
     public void SetWarning(string message){heading.Foreground=Brushes.IndianRed;remark.Foreground=Brushes.IndianRed;remark.Text=message;}
-    public void SetAvailable(bool value){IsEnabled=value;Opacity=value?1:.65;}
+    public void SetAvailable(bool value){permitted=value;IsEnabled=value;Opacity=value?1:.8;UpdateFold();}
 }
