@@ -82,9 +82,9 @@ internal sealed partial class PackageEditorPage:UserControl
     {
         animationDetail=null;animationList=null;
         var layout=new DockPanel();var title=Ui.Caption("功能映射","选择一个功能，再为它绑定动画。",true);((TextBlock)title.Children[0]).FontSize=24;title.Margin=new Thickness(0,0,0,12);DockPanel.SetDock(title,Dock.Top);layout.Children.Add(title);
-        var grid=new Grid();grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(190)});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        var grid=new Grid();grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(220),MinWidth=160});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
         var tree=new StackPanel{Margin=new Thickness(0,0,12,0)};grid.Children.Add(new ScrollViewer{Content=tree,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
-        var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);layout.Children.Add(grid);host.Content=layout;
+        var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);AddResourceSplitter(grid);layout.Children.Add(grid);host.Content=layout;
         var paths=requiredPaths.Concat(editor.FunctionPaths()).Distinct().ToArray();
         var ordered=new[]{"standby","pat_head","snap","feed","touch","climb","menu"};
         var groups=ordered.Select(x=>(Name:FunctionTitle(x),Paths:paths.Where(p=>p.Split('/')[0]==x&&requiredPaths.Contains(p)).ToArray())).Concat(new[]{(Name:"未定义",Paths:paths.Where(p=>!requiredPaths.Contains(p)).ToArray())});
@@ -106,9 +106,9 @@ internal sealed partial class PackageEditorPage:UserControl
         }
         detail.Content=Ui.Caption("选择功能","展开左侧文件夹，选择要编辑的功能。",true);
     }
-    private FrameworkElement GroupToolbar(bool thinking,Action refresh)
+    private void CreateGroup(bool thinking,Action refresh)
     {
-        var panel=new DockPanel{Margin=new Thickness(0,0,0,8)};var name=new TextBox{ToolTip="分组名称",Margin=new Thickness(0,0,5,0)};var add=Ui.Button("＋ 分组",()=>Safe(()=>{editor.AddGroup(thinking,name.Text);Changed();refresh();}));DockPanel.SetDock(add,Dock.Right);panel.Children.Add(add);panel.Children.Add(name);return panel;
+        var name=AskName("新建分组","分组名称");if(name==null)return;Safe(()=>{editor.AddGroup(thinking,name);Changed();refresh();});
     }
     private void GroupList(StackPanel list,bool thinking,string filter,string? selected,Action<string> select,Action refresh)
     {
@@ -119,7 +119,7 @@ internal sealed partial class PackageEditorPage:UserControl
             var head=new DockPanel();if(group.Name!="未分组"){var more=Ui.Light("⋯",()=>{});var menu=new ContextMenu();foreach(var (label,action) in new (string,Action)[]{("上移",()=>editor.MoveGroup(thinking,group.Name,-1)),("下移",()=>editor.MoveGroup(thinking,group.Name,1)),("解散",()=>{if(MessageBox.Show("解散分组？资源会保留。","解散",MessageBoxButton.YesNo)==MessageBoxResult.Yes)editor.DissolveGroup(thinking,group.Name);})}){var item=new MenuItem{Header=label};item.Click+=(_,_)=>Safe(()=>{action();Changed();refresh();});menu.Items.Add(item);}more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;DockPanel.SetDock(more,Dock.Right);head.Children.Add(more);}
             
             var body=new StackPanel();var folder=ResourceFolder((thinking?"text:":"animation:")+group.Name,group.Name,group.Ids.Length+" 个",body,head,filter.Length>0);
-            foreach(var id in ids){var label=thinking?(editor.Thinkings[id]?["text"]?.ToString()??id):id+" · "+editor.Frames(id).Count+" 帧";var button=Ui.Nav(label,()=>{select(id);Highlight(list,id);});button.Tag=id;button.ToolTip=label;button.Background=Ui.Brush(id==selected?"AccentSoft":"Sidebar");if(!thinking){var row=new StackPanel{Orientation=Orientation.Horizontal};var res=editor.Frames(id).FirstOrDefault()?["res"]?.ToString();if(res!=null)row.Children.Add(Thumbnail(editor,res,32));row.Children.Add(Ui.Caption(id,editor.Frames(id).Count+" 帧"));button.Content=row;}else{var labelText=Ui.Text(label,13);labelText.MaxHeight=44;labelText.TextTrimming=TextTrimming.CharacterEllipsis;button.Content=labelText;}body.Children.Add(Ui.Card(button));}
+            LoadOnExpand(folder,()=>{foreach(var id in ids){var label=thinking?(editor.Thinkings[id]?["text"]?.ToString()??id):id;var res=thinking?null:editor.Frames(id).FirstOrDefault()?["res"]?.ToString();var button=ResourceRow(label,thinking?"":editor.Frames(id).Count+" 帧 · "+LoopTitle(editor.Mode(id)["loopMode"]?.ToString()),res==null?null:Thumbnail(editor,res,32),null,()=>{select(id);Highlight(list,id);});button.Tag=id;button.Background=Ui.Brush(id==(thinking?selectedText:selectedAnimation)?"AccentSoft":"Surface");body.Children.Add(button);}});
             list.Children.Add(folder);
         }
     }
@@ -134,11 +134,11 @@ internal sealed partial class PackageEditorPage:UserControl
     private void Animations()
     {
         var layout=new DockPanel();var header=Ui.Caption("动画","选择动画，在右侧修改播放循环、后续动画与逐帧属性。",true);((TextBlock)header.Children[0]).FontSize=24;header.Margin=new Thickness(0,0,0,12);DockPanel.SetDock(header,Dock.Top);layout.Children.Add(header);
-        var grid=new Grid();grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(185)});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        var grid=new Grid();grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(220),MinWidth=160});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
         var left=new DockPanel{Margin=new Thickness(0,0,12,0)};var search=new TextBox{Margin=new Thickness(0,0,0,6),ToolTip="搜索动画"};DockPanel.SetDock(search,Dock.Top);left.Children.Add(search);
-        var add=new TextBox{Margin=new Thickness(0,0,0,4),ToolTip="新动画名称"};var toolbar=new StackPanel{Margin=new Thickness(0,0,0,8)};toolbar.Children.Add(add);toolbar.Children.Add(Ui.Button("＋ 新建动画",()=>Safe(()=>{var image=editor.Images().FirstOrDefault()??throw new InvalidDataException("请先导入图片。");editor.AddMode(add.Text.Trim(),image);selectedAnimation=add.Text.Trim();Changed();Animations();}),true));toolbar.Children.Add(Ui.Light("从其他素材包导入",()=>ChooseExternal("动画",(source,id)=>{selectedAnimation=editor.ImportAnimation(source,id,"导入");Changed();Animations();})));toolbar.Children.Add(GroupToolbar(false,Animations));DockPanel.SetDock(toolbar,Dock.Top);left.Children.Add(toolbar);
+        var toolbar=ResourceToolbar("动画",()=>Safe(()=>{var name=AskName("新建动画","动画名称");if(name==null)return;if(editor.Modes.ContainsKey(name))throw new InvalidDataException("动画名称重复。");var images=PickResources("图片",Array.Empty<string>(),false);if(images==null||images.Count==0)return;editor.AddMode(name,images[0]);selectedAnimation=name;Changed();Animations();}),()=>CreateGroup(false,Animations),()=>ChooseExternal("动画",(source,id)=>{selectedAnimation=editor.ImportAnimation(source,id,"导入");Changed();Animations();}));DockPanel.SetDock(toolbar,Dock.Top);left.Children.Add(toolbar);
         animationList=new StackPanel();left.Children.Add(new ScrollViewer{Content=animationList,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});grid.Children.Add(left);
-        animationDetail=new ContentControl();Grid.SetColumn(animationDetail,1);grid.Children.Add(animationDetail);layout.Children.Add(grid);host.Content=layout;
+        animationDetail=new ContentControl();Grid.SetColumn(animationDetail,1);grid.Children.Add(animationDetail);AddResourceSplitter(grid);layout.Children.Add(grid);host.Content=layout;
         void RefreshList()=>GroupList(animationList,false,search.Text,selectedAnimation,Animation,Animations);
         search.TextChanged+=(_,_)=>RefreshList();
         if(selectedAnimation!=null&&!editor.Modes.ContainsKey(selectedAnimation))selectedAnimation=null;
@@ -172,53 +172,47 @@ internal sealed partial class PackageEditorPage:UserControl
     }
     private void ChooseExternal(string type,Action<PackageEditor,string> accept)
     {
-        if(otherPacks.Count==0){MessageBox.Show("没有其他素材包可以选择。");return;}
-        var dialog=new Window{Title="从其他素材包选择"+type,Width=620,Height=540,MinWidth=440,MinHeight=360,Background=Ui.Brush("Canvas"),Owner=Window.GetWindow(this),WindowStartupLocation=WindowStartupLocation.CenterOwner};
-        var dock=new DockPanel{Margin=new Thickness(16)};dialog.Content=dock;var packs=new ComboBox{ItemsSource=otherPacks.Select(x=>x.Name).ToArray(),SelectedIndex=0,Margin=new Thickness(0,0,0,8)};DockPanel.SetDock(packs,Dock.Top);dock.Children.Add(packs);
-        var search=new TextBox{ToolTip="搜索资源",Margin=new Thickness(0,0,0,8)};DockPanel.SetDock(search,Dock.Top);dock.Children.Add(search);var list=new StackPanel();dock.Children.Add(new ScrollViewer{Content=list,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
-        void Refresh(){list.Children.Clear();if(packs.SelectedIndex<0)return;try{var source=new PackageEditor(otherPacks[packs.SelectedIndex].Root);var ids=type=="图片"?source.Images():type=="动画"?source.Modes.Select(x=>x.Key).ToArray():source.Thinkings.Select(x=>x.Key).ToArray();
-            foreach(var id in ids){var label=type=="碎碎念"?source.Thinkings[id]?["text"]?.ToString()??id:id;if(!label.Contains(search.Text,StringComparison.OrdinalIgnoreCase))continue;var left=new StackPanel{Orientation=Orientation.Horizontal};if(type!="碎碎念"){var res=type=="图片"?id:source.Frames(id).FirstOrDefault()?["res"]?.ToString();if(res!=null)left.Children.Add(Thumbnail(source,res,40));}left.Children.Add(Ui.Caption(label));list.Children.Add(Ui.Card(Ui.Pair(left,Ui.Button("选择",()=>{try{accept(source,id);dialog.Close();}catch(Exception e){MessageBox.Show(dialog,e.Message,"导入失败");}}))));}
-        }catch(Exception e){list.Children.Add(Ui.Text(e.Message));}}
-        packs.SelectionChanged+=(_,_)=>Refresh();search.TextChanged+=(_,_)=>Refresh();Refresh();dialog.ShowDialog();
+        var chosen=BrowseResources(type,Array.Empty<string>(),false,true);if(chosen==null||chosen.Count==0)return;Safe(()=>accept(chosen[0].Source,chosen[0].Id));
     }
-    private static Image Thumbnail(PackageEditor source,string res,int size)
+    private readonly Dictionary<string,BitmapSource> thumbnailCache=new(StringComparer.OrdinalIgnoreCase);
+    private Image Thumbnail(PackageEditor source,string res,int size)
     {
-        var image=new Image{Width=size,Height=size,Stretch=Stretch.Uniform,Margin=new Thickness(0,0,8,0)};try{var b=new BitmapImage();b.BeginInit();b.CacheOption=BitmapCacheOption.OnLoad;b.DecodePixelWidth=128;b.UriSource=new Uri(source.ResourcePath(res));b.EndInit();image.Source=b;}catch{}return image;
+        var image=new Image{Width=size,Height=size,Stretch=Stretch.Uniform,Margin=new Thickness(0,0,8,0)};try{var path=source.ResourcePath(res);var key=path+"|"+File.GetLastWriteTimeUtc(path).Ticks;if(!thumbnailCache.TryGetValue(key,out var bitmap)){var b=new BitmapImage();b.BeginInit();b.CacheOption=BitmapCacheOption.OnLoad;b.DecodePixelWidth=128;b.UriSource=new Uri(path);b.EndInit();b.Freeze();bitmap=b;if(thumbnailCache.Count>=512)thumbnailCache.Clear();thumbnailCache[key]=bitmap;}image.Source=bitmap;}catch{}return image;
     }
     private void Images()
     {
         animationDetail=null;animationList=null;
         var layout=new DockPanel();var title=Ui.Caption("图片资源","按文件夹查看图片；已引用的图片需要先替换引用。",true);((TextBlock)title.Children[0]).FontSize=24;DockPanel.SetDock(title,Dock.Top);layout.Children.Add(title);
-        var grid=new Grid{Margin=new Thickness(0,12,0,0)};grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(180)});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(grid);
-        var tree=new StackPanel{Margin=new Thickness(0,0,10,0)};grid.Children.Add(new ScrollViewer{Content=tree,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);host.Content=layout;
+        var grid=new Grid{Margin=new Thickness(0,12,0,0)};grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(220),MinWidth=160});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(grid);
+        var tree=new StackPanel{Margin=new Thickness(0,0,10,0)};grid.Children.Add(new ScrollViewer{Content=tree,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);AddResourceSplitter(grid);host.Content=layout;
         void Show(string folder)
         {
             selectedFolder=folder;var page=new StackPanel();var actions=new WrapPanel();
             actions.Children.Add(Ui.Button("导入图片",()=>Safe(()=>{var d=new OpenFileDialog{Filter="图片|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp",Multiselect=true};if(d.ShowDialog()!=true)return;foreach(var file in d.FileNames)if(WpfImageCache.IsReadable(file))editor.CopyImageFile(file,folder);Changed();Images();}),true));
             actions.Children.Add(Ui.Button("从其他素材包导入",()=>ChooseExternal("图片",(source,id)=>{editor.CopyImageFrom(source.Root,id,folder);Changed();Images();})));
             page.Children.Add(Ui.Pair(Ui.Caption(folder.Length==0?"未分组":folder,"图片资源",true),actions));
-            var newFolder=new TextBox{ToolTip="新文件夹名称",Width=130};var create=new WrapPanel();create.Children.Add(newFolder);create.Children.Add(Ui.Button("＋ 文件夹",()=>Safe(()=>{selectedFolder=editor.NewFolder(folder,newFolder.Text);Changed();Images();})));page.Children.Add(create);
+            page.Children.Add(Ui.Light("＋ 文件夹",()=>Safe(()=>{var name=AskName("新建文件夹","文件夹名称");if(name==null)return;selectedFolder=editor.NewFolder(folder,name);Changed();Images();})));
             foreach(var res in editor.Images().Where(x=>string.Equals(x.Contains('/')?x[..x.LastIndexOf('/') ]:"",folder,StringComparison.OrdinalIgnoreCase)))
             {
                 var left=new StackPanel{Orientation=Orientation.Horizontal};left.Children.Add(Thumbnail(editor,res,64));var refs=editor.ImageReferences(res);left.Children.Add(Ui.Caption(Path.GetFileName(res),refs.Count+" 处引用",true));var buttons=new WrapPanel();
                 buttons.Children.Add(Ui.Light("引用",()=>MessageBox.Show(refs.Count==0?"没有引用":string.Join(Environment.NewLine,refs),"图片引用")));
-                buttons.Children.Add(Ui.Light("替换引用",()=>{var options=editor.Images().Where(x=>x!=res).ToArray();if(options.Length==0)return;var d=new Window{Title="选择替换图片",Width=460,Height=230,Owner=Window.GetWindow(this),WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=Ui.Brush("Canvas")};var panel=new StackPanel{Margin=new Thickness(16)};var choice=new ComboBox{ItemsSource=options,SelectedIndex=0};panel.Children.Add(choice);panel.Children.Add(Ui.Button("确认替换",()=>{editor.ReplaceImageReferences(res,(string)choice.SelectedItem);Changed();d.Close();Images();},true));d.Content=panel;d.ShowDialog();}));
+                buttons.Children.Add(Ui.Light("替换引用",()=>{var chosen=PickResources("图片",Array.Empty<string>(),false,folder,res);if(chosen==null||chosen.Count==0)return;editor.ReplaceImageReferences(res,chosen[0]);Changed();Images();}));
                 var del=Ui.Light("删除",()=>Safe(()=>{if(editor.ImageReferenced(res))throw new InvalidDataException("图片仍被已保存或正在编辑的动画引用，请先替换并保存。");if(MessageBox.Show("永久删除图片？","删除",MessageBoxButton.YesNo)==MessageBoxResult.Yes){File.Delete(editor.ResourcePath(res));Images();}}));del.IsEnabled=refs.Count==0;buttons.Children.Add(del);page.Children.Add(Ui.Card(Ui.Pair(left,buttons)));
             }
             detail.Content=new ScrollViewer{Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
         }
-        void AddFolders(StackPanel target,string parent){foreach(var name in editor.Folders(parent)){var path=parent.Length==0?name:parent+"/"+name;var head=new DockPanel();var select=Ui.Light("查看",()=>Show(path));select.ToolTip=path;head.Children.Add(select);var body=new StackPanel();AddFolders(body,path);var exp=ResourceFolder("image:"+path,name,"",body,head);var menu=new ContextMenu();foreach(var (label,delta) in new[]{("上移",-1),("下移",1)}){var item=new MenuItem{Header=label};item.Click+=(_,_)=>{editor.MoveFolderOrder(parent,name,delta);Changed();Images();};menu.Items.Add(item);}exp.ContextMenu=menu;target.Children.Add(exp);}}
+        void AddFolders(StackPanel target,string parent){foreach(var name in editor.Folders(parent)){var path=parent.Length==0?name:parent+"/"+name;var head=new DockPanel();var select=Ui.Light("查看",()=>Show(path));select.ToolTip=path;head.Children.Add(select);var body=new StackPanel();var exp=ResourceFolder("image:"+path,name,"",body,head);LoadOnExpand(exp,()=>AddFolders(body,path));var menu=new ContextMenu();foreach(var (label,delta) in new[]{("上移",-1),("下移",1)}){var item=new MenuItem{Header=label};item.Click+=(_,_)=>{editor.MoveFolderOrder(parent,name,delta);Changed();Images();};menu.Items.Add(item);}exp.ContextMenu=menu;target.Children.Add(exp);}}
         tree.Children.Add(Ui.Nav("未分组",()=>Show("")));AddFolders(tree,"");if(!Directory.Exists(editor.ResourcePath(selectedFolder)))selectedFolder="";Show(selectedFolder);
     }
     private void Thinking()
     {
         animationDetail=null;animationList=null;
         var layout=new DockPanel();var heading=Ui.Caption("碎碎念文本","按分组选择文本，在右侧修改内容和所属分组。",true);((TextBlock)heading.Children[0]).FontSize=24;DockPanel.SetDock(heading,Dock.Top);layout.Children.Add(heading);
-        var grid=new Grid{Margin=new Thickness(0,12,0,0)};grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(205)});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(grid);
+        var grid=new Grid{Margin=new Thickness(0,12,0,0)};grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(220),MinWidth=160});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(grid);
         var left=new DockPanel{Margin=new Thickness(0,0,12,0)};var search=new TextBox{ToolTip="搜索文本",Margin=new Thickness(0,0,0,6)};DockPanel.SetDock(search,Dock.Top);left.Children.Add(search);
-        var toolbar=new StackPanel();toolbar.Children.Add(Ui.Button("＋ 新建文本",()=>{selectedText="t"+Guid.NewGuid().ToString("N").Substring(0,8);editor.Thinkings[selectedText]=new JsonObject{["text"]=""};Changed();Thinking();},true));toolbar.Children.Add(Ui.Light("从其他素材包导入",()=>ChooseExternal("碎碎念",(source,id)=>{selectedText=editor.ImportText(source,id);Changed();Thinking();})));toolbar.Children.Add(GroupToolbar(true,Thinking));DockPanel.SetDock(toolbar,Dock.Top);left.Children.Add(toolbar);
+        var toolbar=ResourceToolbar("碎碎念",()=>{var text=AskName("新建碎碎念","文本内容");if(text==null)return;selectedText="t"+Guid.NewGuid().ToString("N").Substring(0,8);editor.Thinkings[selectedText]=new JsonObject{["text"]=text};Changed();Thinking();},()=>CreateGroup(true,Thinking),()=>ChooseExternal("碎碎念",(source,id)=>{selectedText=editor.ImportText(source,id);Changed();Thinking();}));DockPanel.SetDock(toolbar,Dock.Top);left.Children.Add(toolbar);
         var list=new StackPanel();left.Children.Add(new ScrollViewer{Content=list,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});grid.Children.Add(left);
-        var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);host.Content=layout;
+        var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);AddResourceSplitter(grid);host.Content=layout;
         void Show(string id){selectedText=id;var node=editor.Thinkings[id]!.AsObject();var page=new StackPanel();page.Children.Add(Ui.Caption("碎碎念文本",id,true));Field(page,"文本",node["text"]?.ToString()??"",v=>node["text"]=v,true);MembershipEditor(page,true,id,Thinking);var refs=editor.ThinkingReferences(id).ToArray();var references=new SettingCard("引用位置",refs.Length+" 处引用",initiallyExpanded:false);foreach(var reference in refs){var check=new CheckBox{IsChecked=true,Style=(Style)Application.Current.FindResource("ResourceCheck")};var snapshot=reference.Node["thinking"]!["pool"]![id]!.DeepClone();check.Click+=(_,_)=>{var pool=reference.Node["thinking"]!["pool"]!.AsObject();if(check.IsChecked==true)pool[id]=snapshot.DeepClone();else pool.Remove(id);Changed();};references.Add(Ui.Pair(Ui.Caption(reference.Label),check));}page.Children.Add(references);page.Children.Add(Ui.Light("删除文本",()=>{if(MessageBox.Show("删除文本并取消引用？","删除",MessageBoxButton.YesNo)==MessageBoxResult.Yes){editor.DeleteThinking(id);Changed();Thinking();}}));detail.Content=new ScrollViewer{Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};}
         void Refresh()=>GroupList(list,true,search.Text,selectedText,Show,Thinking);
         if(selectedText!=null&&!editor.Thinkings.ContainsKey(selectedText))selectedText=null;
