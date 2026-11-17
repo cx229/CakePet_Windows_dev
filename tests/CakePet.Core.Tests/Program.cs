@@ -149,6 +149,12 @@ try
  var pos=anchored.Body.Position;anchored.RefreshGeometry();Assert(anchored.Body.Position==pos,"anchor no interior jump");
  anchored.ReturnHome();Assert(anchored.Body.Position.Y+anchored.AnchorOffset.Y==600,"home foot contact");
  anchored.Resize(160);Assert(anchored.Body.Position.Y+anchored.AnchorOffset.Y==600,"resized foot contact");
+ var catalog=new RoleCatalog();var packEntry=new PackEntry(Guid.NewGuid(),"test","test");catalog.Packs.Add(packEntry);
+ var firstRole=catalog.AddRole(packEntry.Id,"A");var anotherRole=catalog.AddRole(packEntry.Id,"B");
+ catalog.Update(firstRole with{Settings=firstRole.Settings with{Count=3,Scale=2}});
+ var catalogPath=Path.Combine(root,"catalog.json");catalog.Save(catalogPath);var restored=RoleCatalog.Load(catalogPath);
+ Assert(restored.Roles.Count==2&&restored.Roles[0].Settings.Count==3&&restored.Roles[1].Settings.Count==1,"independent persistent roles");
+ Assert(restored.Roles.All(x=>x.PackId==packEntry.Id),"shared pack references");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

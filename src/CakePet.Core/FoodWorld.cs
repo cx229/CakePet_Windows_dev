@@ -24,6 +24,9 @@ public sealed class FoodWorld
 {
     private readonly Random random;
     private readonly List<PetEngine> pets=new();
+    private readonly Dictionary<PetEngine,Guid> owners=new();
+    private Guid Group(PetEngine p)=>owners.GetValueOrDefault(p);
+    private bool SameOwner(PetEngine a,PetEngine b)=>a==b||(Group(a)!=Guid.Empty&&Group(a)==Group(b));
     private readonly List<FoodInstance> foods=new();
     private readonly Dictionary<PetEngine,FoodInstance> lures=new();
     private readonly Dictionary<PetEngine,FoodInstance> forage=new();
@@ -43,20 +46,20 @@ public sealed class FoodWorld
     public event Action<FoodInstance>? Spawned;
     public event Action<FoodInstance>? Removed;
     public FoodWorld(Random? random=null)=>this.random=random??new Random();
-    public void Add(PetEngine pet)
+    public void Add(PetEngine pet,Guid ownerId=default)
     {
         if(pets.Contains(pet))return;
-        pets.Add(pet);pet.ChooseForage=()=>ChooseForage(pet);
+        pets.Add(pet);owners[pet]=ownerId;pet.ChooseForage=()=>ChooseForage(pet);
     }
     public void Remove(PetEngine pet)
     {
         if(!pets.Remove(pet))return;
-        schedules.Remove(pet);foreach(var set in contacts.Values)set.Remove(pet);pet.ChooseForage=null;lures.Remove(pet);forage.Remove(pet);pet.EndLure(false);pet.StopForage();
+        schedules.Remove(pet);owners.Remove(pet);foreach(var set in contacts.Values)set.Remove(pet);pet.ChooseForage=null;lures.Remove(pet);forage.Remove(pet);pet.EndLure(false);pet.StopForage();
         foreach(var food in foods.Where(f=>f.Owner==pet).ToArray())Remove(food);
     }
     public FoodInstance? Spawn(PetEngine owner,Bounds area,double size=48,long? lifetimeMs=60000,bool edge=true,int maximum=10,Func<string,FoodExtent>? dimensions=null)
     {
-        if(!pets.Contains(owner)||!owner.FeedingEnabled||foods.Count(f=>f.Owner==owner)>=maximum)return null;
+        if(!pets.Contains(owner)||!owner.FeedingEnabled||foods.Count(f=>SameOwner(f.Owner,owner))>=maximum)return null;
         var candidates=owner.Role.Package.Candidates("feed/food");
         if(candidates.Count==0||!double.IsFinite(size)||size<=0||lifetimeMs<=0)return null;
         var selected=candidates[random.Next(candidates.Count)];
