@@ -71,19 +71,22 @@ internal sealed class RoleSettingsPage:UserControl
         var input=Card(main,"显示-交互","选择鼠标如何与桌宠交互。");
         var hit=new ComboBox{ItemsSource=new[]{"像素级命中","画布命中"},SelectedIndex=s.PixelHit?0:1,Width=160};hit.SelectionChanged+=(_,_)=>Set(r=>r with{PixelHit=hit.SelectedIndex==0});input.Add(Ui.Pair(Ui.Caption("命中模式","决定透明区域能否被点击"),hit));
         Flag(input,"点击穿透","开启后无法点击「"+petName+"」，按住 Ctrl 临时恢复",s.ClickThrough,(r,v)=>r with{ClickThrough=v});
-        var motion=Section("移动","「"+petName+"」的运动行为轨迹学");Summary(()=>!Supports("standby/static_pool")?"强制开启":MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
+        var motion=Section("移动","调整「"+petName+"」在桌面上的移动行为");Summary(()=>!Supports("standby/static_pool")?"强制开启":MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
         var move=Card(motion,"移动","关闭后，「"+petName+"」将会静悄悄地",MoveOn(),(r,v)=>r with{Move=v});if(!Supports("standby/static_pool"))move.ForceOn("素材包缺少静止待机池，移动强制开启");
         Number(move,"最大速度","「"+petName+"」能跑多快",s.MaxSpeed,100,10000,50,"px/s",(r,v)=>r with{MaxSpeed=v},"MaxSpeed",1);Flag(move,"屏幕连接","允许自主跨屏移动，左右外缘循环；关闭后仍可手动拖动跨屏。",s.ScreenConnect,(r,v)=>r with{ScreenConnect=v});
-        Group(motion,"重重重",MoveOn);
+        move.AddGroup(Ui.Text("重重重",12,true));
         var gravity=Card(motion,"重力","万有引力，来自地心的吸引",s.GravityEnabled,(r,v)=>r with{GravityEnabled=v},dependency:MoveOn);
+        motion.Children.Remove(gravity);move.AddChild(gravity);
         Number(gravity,"重力强度","重力越大，下坠越快",s.Gravity,0,10000,50,"px/s²",(r,v)=>r with{Gravity=v},"Gravity",1);Directions(gravity,"四边重力","上下互斥，左右互斥",s.GravityEdges,(r,v)=>r with{GravityEdges=v},true);
-        Group(motion,"弹弹弹",MoveOn);
-        var bounce=Card(motion,"边缘反弹","「"+petName+"」撞墙会反弹",s.BounceEnabled,(r,v)=>r with{BounceEnabled=v},dependency:MoveOn);Number(bounce,"反弹系数","撞墙后弹回的力道",s.Bounce,0,1,.01,"",(r,v)=>r with{Bounce=v},"Bounce",1);Directions(bounce,"四边反弹","触碰边界时触发反弹",s.BounceEdges,(r,v)=>r with{BounceEdges=v});
-        Group(motion,"抛抛抛",MoveOn);
+        move.AddGroup(Ui.Text("弹弹弹",12,true));
+        var bounce=Card(motion,"边缘反弹","「"+petName+"」撞墙会反弹",s.BounceEnabled,(r,v)=>r with{BounceEnabled=v},dependency:MoveOn);motion.Children.Remove(bounce);move.AddChild(bounce);Number(bounce,"反弹系数","撞墙后弹回的力道",s.Bounce,0,1,.01,"",(r,v)=>r with{Bounce=v},"Bounce",1);Directions(bounce,"四边反弹","触碰边界时触发反弹",s.BounceEdges,(r,v)=>r with{BounceEdges=v});
+        move.AddGroup(Ui.Text("抛抛抛",12,true));
         var thr=Card(motion,"抛掷",Supports("touch/roll")?"拖动「"+petName+"」，抛出去！":"素材包缺少抛掷动画",s.Throw&&Supports("touch/roll"),(r,v)=>r with{Throw=v},Supports("touch/roll"),dependency:MoveOn);
+        motion.Children.Remove(thr);move.AddChild(thr);
         Number(thr,"抛掷系数","抛出去的速度倍率",s.ThrowCoefficient,0,5,.05,"倍",(r,v)=>r with{ThrowCoefficient=v},"ThrowCoefficient",1);
-        Group(motion,"攀攀攀",MoveOn);
+        move.AddGroup(Ui.Text("攀攀攀",12,true));
         var climb=Card(motion,"攀岩走壁","无视重力，踏壁而行，如履平地！",s.Climb,(r,v)=>r with{Climb=v},dependency:MoveOn);
+        motion.Children.Remove(climb);move.AddChild(climb);
         var forage=Card(motion,"自动觅食",Supports(PetEngine.ForagePath)?"「"+petName+"」会沿着边缘自己找吃的":"素材包缺少觅食动画",s.Forage&&Supports(PetEngine.ForagePath),(r,v)=>r with{Forage=v},Supports(PetEngine.ForagePath),dependency:()=>MoveOn()&&current().Settings.Climb);
         Number(forage,"觅食速度加成","加成后「"+petName+"」将飞速奔向食物",s.ForageMultiplier,.1,5,.05,"倍",(r,v)=>r with{ForageMultiplier=v},"ForageMultiplier",1);
         var leap=Card(motion,"飞跃",Supports("climb/leap/leap")?"起跳，起飞！":"素材包缺少飞跃动画",s.Leap&&Supports("climb/leap/leap"),(r,v)=>r with{Leap=v},Supports("climb/leap/leap"),dependency:()=>MoveOn()&&current().Settings.Climb);
@@ -93,7 +96,7 @@ internal sealed class RoleSettingsPage:UserControl
         var snap=Card(climbing,"吸附边缘",Supports("snap/pool")?"拖到屏幕边缘松手，会吸附边缘。按住鼠标拖出。":"素材包缺少吸附动画",s.Snap&&Supports("snap/pool"),(r,v)=>r with{Snap=v},Supports("snap/pool"));
         Number(snap,"吸附距离","数值越大，越容易被吸附在边缘",s.SnapDistance,0,500,5,"px",(r,v)=>r with{SnapDistance=v},"SnapDistance",1);Number(snap,"吸附速度","允许吸附的松手速度上限。",s.SnapSpeed,0,5000,25,"px/s",(r,v)=>r with{SnapSpeed=v},"SnapSpeed",1);Directions(snap,"四边吸附","选择可以贴在哪些边缘",s.SnapEdges,(r,v)=>r with{SnapEdges=v});
         var feeding=Section("投食","给「"+petName+"」喂点吃的");bool foodSupported=Supports("feed/food");Func<bool> foodOn=FoodOn;Summary(()=>!foodSupported?"强制关闭":FoodOn()?"已开启":"已关闭");Group(feeding,"吃吃吃");
-        Card(feeding,"投食",foodSupported?"桌面上刷新食物，可以拖动喂给「"+petName+"」":"素材包缺少食物动画",s.Feed&&foodSupported,(r,v)=>r with{Feed=v},foodSupported,false);
+        var feedMaster=Card(feeding,"投食",foodSupported?"桌面上刷新食物，可以拖动喂给「"+petName+"」":"素材包缺少食物动画",s.Feed&&foodSupported,(r,v)=>r with{Feed=v},foodSupported);
         Group(feeding,"显示",FoodOn);
         var food=Card(feeding,"食物显示","手动投食和随机掉落的食物共用这些设置",available:foodSupported,dependency:foodOn);
         Number(food,"大小","「"+foodName+"」的大小（新生成时生效）",s.FoodScale,.1,5,.05,"倍",(r,v)=>r with{FoodScale=v},"FoodScale",1);Number(food,"透明度","「"+foodName+"」的可见程度",s.FoodOpacity*100,5,100,1,"%",(r,v)=>r with{FoodOpacity=v/100},"FoodOpacity",100);
@@ -105,31 +108,34 @@ internal sealed class RoleSettingsPage:UserControl
         var limit=Card(feeding,"最大数量","手动投食与随机掉落共同遵守数量上限",dependency:foodOn);Number(limit,"最大数量","同屏「"+foodName+"」的上限",s.FoodLimit,1,100,1,"个",(r,v)=>r with{FoodLimit=(int)v},"FoodLimit",1);
         Group(feeding,"自动过期",FoodOn);var expiry=Card(feeding,"自动过期","一段时间后「"+foodName+"」会消失",dependency:foodOn);
         Number(expiry,"过期时间","0 表示不会自动消失",s.FoodLifetimeSeconds,0,86400,1,"秒",(r,v)=>r with{FoodLifetimeSeconds=(int)v},"FoodLifetimeSeconds",1);
-        var thinking=Section("碎碎念","「"+petName+"」的碎碎念");Summary(()=>!globalThinking?"强制关闭":current().Settings.Thinking?"已开启":"已关闭");var thinkingSwitch=Card(thinking,"碎碎念总开关","开启后，按素材包中的文本策略播放。",globalThinking&&s.Thinking,(r,v)=>r with{Thinking=v},available:globalThinking,details:false);if(!globalThinking)thinkingSwitch.SetWarning("全局设置 > 碎碎念已关闭");
+        foreach(var child in feeding.Children.OfType<FrameworkElement>().SkipWhile(x=>!ReferenceEquals(x,feedMaster)).Skip(1).ToArray()){feeding.Children.Remove(child);if(child is SettingCard setting)feedMaster.AddChild(setting);else feedMaster.AddGroup(child);}
+        var thinking=Section("碎碎念","「"+petName+"」的碎碎念");Summary(()=>!globalThinking?"强制关闭":current().Settings.Thinking?"已开启":"已关闭");var thinkingSwitch=Card(thinking,"碎碎念总开关","开启后，按素材包中的文本策略播放。",globalThinking&&s.Thinking,(r,v)=>r with{Thinking=v},available:globalThinking);if(!globalThinking)thinkingSwitch.SetWarning("全局设置 > 碎碎念已关闭");
         var rest=Card(thinking,"休息间隔","轮播消息结束后随机等待一段时间。",dependency:()=>globalThinking&&current().Settings.Thinking);
         rest.Add(Ui.Pair(Ui.Caption("频率","每次休息的最短与最长时间。"),new RangeSlider(1,300,s.ThoughtRestMin,s.ThoughtRestMax,(lo,hi)=>Set(r=>r with{ThoughtRestMin=(int)lo,ThoughtRestMax=(int)hi})),310));
         ThinkingStyleSettings.Add(thinking,()=>current().Settings.ThoughtStyle,patch=>Set(r=>r with{ThoughtStyle=patch(r.ThoughtStyle)}),pack?.Texts.Values.FirstOrDefault(x=>!string.IsNullOrWhiteSpace(x))??"碎碎念预览",()=>globalThinking&&current().Settings.Thinking,dependencies,()=>current().Settings,defaults&&applyHabits!=null?key=>applyHabits("item:"+key):null);
+        foreach(var child in thinking.Children.OfType<FrameworkElement>().Where(x=>!ReferenceEquals(x,thinkingSwitch)).ToArray()){thinking.Children.Remove(child);if(child is SettingCard setting)thinkingSwitch.AddChild(setting);else thinkingSwitch.AddGroup(child);}
         var area=Section("屏幕适应","选择「"+petName+"」可以活动的屏幕范围");
         var display=Card(area,"显示器","拖动角色时仍可跨屏。");var options=new[]{new Option("","自动 / 主显示器")}.Concat(DesktopPlatform.Screens.Select(x=>new Option(x.Id,x.Id+(x.Primary?"（主显示器）":"")))).ToList();if(!options.Any(x=>x.Id==s.MonitorId))options.Add(new Option(s.MonitorId,s.MonitorId+"（未连接）"));
         var monitor=new ComboBox{ItemsSource=options,DisplayMemberPath="Label",SelectedValuePath="Id",SelectedValue=s.MonitorId,Width=190};monitor.SelectionChanged+=(_,_)=>Set(r=>r with{MonitorId=monitor.SelectedValue as string??""});display.Add(Ui.Pair(Ui.Caption("首选显示器","召唤时优先使用。"),monitor));
         Flag(display,"包含任务栏","允许角色活动到任务栏所在区域。",s.FullScreen,(r,v)=>r with{FullScreen=v});
         var offsets=Card(area,"四边偏移","正值向内收缩，负值向外扩展。");Number(offsets,"左侧","",s.OffsetLeft,-500,500,1,"px",(r,v)=>r with{OffsetLeft=v},"OffsetLeft",1);Number(offsets,"右侧","",s.OffsetRight,-500,500,1,"px",(r,v)=>r with{OffsetRight=v},"OffsetRight",1);Number(offsets,"顶部","",s.OffsetTop,-500,500,1,"px",(r,v)=>r with{OffsetTop=v},"OffsetTop",1);Number(offsets,"底部","",s.OffsetBottom,-500,500,1,"px",(r,v)=>r with{OffsetBottom=v},"OffsetBottom",1);
         var random=Section("随机模式","「"+petName+"」的行为会偷偷改变");Summary(()=>current().Settings.RandomMode.Enabled?"已开启":"已关闭");Group(random,"变变变");
-        var randomConfig=s.RandomMode;Card(random,"随机模式","开启后，选中的设置会隔一段时间随机改变",randomConfig.Enabled,(r,v)=>r with{RandomMode=r.RandomMode with{Enabled=v}},details:false);
+        var randomConfig=s.RandomMode;var randomMaster=Card(random,"随机模式","开启后，选中的设置会隔一段时间随机改变",randomConfig.Enabled,(r,v)=>r with{RandomMode=r.RandomMode with{Enabled=v}});
         bool RandomOn()=>current().Settings.RandomMode.Enabled;
         Group(random,"随机项",RandomOn);var randomItems=Card(random,"随机项","只改变勾选的设置",dependency:RandomOn);
         foreach(var (flag,label,note) in new (RandomItems,string,string)[]{(RandomItems.Scale,"大小","0.6–2 倍"),(RandomItems.Opacity,"透明度","30%–100%"),(RandomItems.GravityEnabled,"重力","随机开启或关闭"),(RandomItems.MaxSpeed,"最大速度","500–6000 px/s"),(RandomItems.Gravity,"重力强度","250–3500 px/s²"),(RandomItems.Bounce,"反弹系数","0.45–0.95"),(RandomItems.VerticalGravity,"四边重力 · 上下",""),(RandomItems.HorizontalGravity,"四边重力 · 左右",""),(RandomItems.BounceTop,"四边反弹 · 上",""),(RandomItems.BounceBottom,"四边反弹 · 下",""),(RandomItems.BounceLeft,"四边反弹 · 左",""),(RandomItems.BounceRight,"四边反弹 · 右","")})
             Flag(randomItems,label,note,randomConfig.Items.HasFlag(flag),(r,v)=>r with{RandomMode=r.RandomMode with{Items=v?r.RandomMode.Items|flag:r.RandomMode.Items&~flag}});
         Group(random,"周期",RandomOn);var period=Card(random,"周期","两次随机之间的等待时间",dependency:RandomOn);period.Add(Ui.Pair(Ui.Caption("随机间隔","在最短和最长时间之间随机等待"),new RangeSlider(1,144,randomConfig.MinMinutes,randomConfig.MaxMinutes,(lo,hi)=>Set(r=>r with{RandomMode=r.RandomMode with{MinMinutes=(int)lo,MaxMinutes=(int)hi}}),"分钟"),310));
+        foreach(var child in random.Children.OfType<FrameworkElement>().SkipWhile(x=>!ReferenceEquals(x,randomMaster)).Skip(1).ToArray()){random.Children.Remove(child);if(child is SettingCard setting)randomMaster.AddChild(setting);else randomMaster.AddGroup(child);}
         var limitsPage=Section("设置阈值",defaults?"新角色可以调整的数值范围":"限制当前角色设置中可调整的范围");
         foreach(var group in SettingLimits.Specs.GroupBy(x=>x.Group))
         {
             Group(limitsPage,group.Key);var limitsCard=Card(limitsPage,group.Key,"修改范围后，当前值会被限制在新范围内。",expanded:false);
             foreach(var spec in group)
             {
-                var threshold=SettingLimits.Get(current().Settings,spec);var values=new StackPanel{Orientation=Orientation.Horizontal};var lo=new TextBox{Text=threshold.Min.ToString(System.Globalization.CultureInfo.InvariantCulture),Width=76};var hi=new TextBox{Text=threshold.Max.ToString(System.Globalization.CultureInfo.InvariantCulture),Width=76};values.Children.Add(lo);values.Children.Add(Ui.Text(" — "));values.Children.Add(hi);
-                values.Children.Add(Ui.Light("应用",()=>{if(!double.TryParse(lo.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var a)||!double.TryParse(hi.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var b)||!double.IsFinite(a)||!double.IsFinite(b)||a<spec.Min||b>spec.Max||b-a<spec.Step-1e-9){MessageBox.Show("请输入有效范围："+spec.Min+"–"+spec.Max);return;}Set(r=>{var map=new Dictionary<string,SettingLimit>(r.Limits??new());map[spec.Key]=new(a,b);return SettingLimits.Clamp(r with{Limits=map});});reopen?.Invoke(selectedSection);}));
-                limitsCard.Add(Ui.Pair(Ui.Caption(spec.Label,spec.Min+"–"+spec.Max+" "+spec.Unit),values));
+                var threshold=SettingLimits.Get(current().Settings,spec);var values=new StackPanel{Orientation=Orientation.Horizontal};double factor=spec.Key is "Opacity" or "FoodOpacity" or "FeedGrowth" or "LeapProbability" or "ThoughtStyle.Alpha" or "ThoughtStyle.BackgroundAlpha"?100:1;var lo=Ui.NumericBox(threshold.Min*factor);var hi=Ui.NumericBox(threshold.Max*factor);values.Children.Add(lo);values.Children.Add(Ui.Text(" — "));values.Children.Add(hi);
+                values.Children.Add(Ui.Light("应用",()=>{if(!double.TryParse(lo.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var a)||!double.TryParse(hi.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var b)||!double.IsFinite(a)||!double.IsFinite(b)||a/factor<spec.Min||b/factor>spec.Max||(b-a)/factor<spec.Step-1e-9){MessageBox.Show("请输入有效范围："+spec.Min+"–"+spec.Max);return;}Set(r=>{var map=new Dictionary<string,SettingLimit>(r.Limits??new());map[spec.Key]=new(a/factor,b/factor);return SettingLimits.Clamp(r with{Limits=map});});reopen?.Invoke(selectedSection);}));
+                limitsCard.Add(Ui.Pair(Ui.Caption(spec.Label,(spec.Min*factor)+"–"+(spec.Max*factor)+" "+(factor==100?"%":spec.Unit)),values));
             }
         }
         Select(Math.Clamp(initialSection,0,sections.Count-1));
