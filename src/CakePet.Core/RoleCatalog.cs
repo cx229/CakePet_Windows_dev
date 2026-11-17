@@ -75,7 +75,8 @@ public sealed class RoleCatalog
 {
     public List<PackEntry> Packs {get;init;}=new();
     public List<RoleEntry> Roles {get;init;}=new();
-    public bool SingleThinking {get;set;}=true;
+    public ThinkingDisplayPolicy ThinkingPolicy {get;set;}=ThinkingDisplayPolicy.Latest;
+    public bool SingleThinking {set=>ThinkingPolicy=value?ThinkingDisplayPolicy.Latest:ThinkingDisplayPolicy.Overlap;}
     public TypingSettings Typing {get;set;}=new();
     public string TypingDay {get;set;}="";
     public long TypingToday {get;set;}

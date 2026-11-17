@@ -40,11 +40,11 @@ internal static class Ui
 }
 internal sealed class SettingCard:Border
 {
-    private readonly StackPanel body=new();private readonly StackPanel content=new();private readonly TextBlock remark;private readonly Button? arrow;private bool expanded;
+    private readonly StackPanel body=new();private readonly StackPanel content=new();private readonly TextBlock remark;private readonly TextBlock heading;private readonly Button? arrow;private bool expanded;
     public SettingCard(string title,string note,bool? enabled=null,Action<bool>? toggle=null,bool available=true,bool collapsible=true,bool initiallyExpanded=true)
     {
         Background=Ui.Brush("Surface");BorderBrush=Ui.Brush("Line");BorderThickness=new Thickness(1);CornerRadius=new CornerRadius(12);Padding=new Thickness(16);Margin=new Thickness(0,0,0,12);
-        var label=Ui.Caption(title,note,true);remark=(TextBlock)label.Children[label.Children.Count-1];
+        var label=Ui.Caption(title,note,true);heading=(TextBlock)label.Children[0];remark=(TextBlock)label.Children[label.Children.Count-1];
         var controls=new StackPanel{Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
         if(enabled.HasValue){var sw=Ui.Switch(enabled.Value,available);sw.Click+=(_,_)=>toggle?.Invoke(sw.IsChecked==true);controls.Children.Add(sw);}
         if(collapsible){arrow=Ui.Button("⌄",()=>SetExpanded(!expanded));arrow.Width=30;arrow.Padding=new Thickness(4);arrow.Margin=new Thickness(8,0,0,0);arrow.Background=Ui.Brush("Canvas");controls.Children.Add(arrow);}
@@ -52,5 +52,6 @@ internal sealed class SettingCard:Border
     }
     public void Add(FrameworkElement row){body.Children.Add(new Border{Height=1,Background=Ui.Brush("Line"),Margin=new Thickness(0,10,0,10)});body.Children.Add(row);}
     public void SetExpanded(bool value){expanded=value;body.Visibility=value?Visibility.Visible:Visibility.Collapsed;if(arrow!=null)arrow.Content=value?"⌃":"⌄";}
+    public void SetWarning(string message){heading.Foreground=Brushes.IndianRed;remark.Foreground=Brushes.IndianRed;remark.Text=message;}
     public void SetAvailable(bool value){IsEnabled=value;Opacity=value?1:.65;}
 }

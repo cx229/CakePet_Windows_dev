@@ -70,9 +70,9 @@ internal sealed class Launcher : Window
     private bool typingDirty;
     private string Today()=>DateTime.Now.ToString("yyyy-MM-dd");
     private void SaveTyping(){if(!typingDirty)return;catalog.TypingDay=typing.Day;catalog.TypingToday=typing.Today;storage.Save();typingDirty=false;lastTypingSave=clock.ElapsedMilliseconds;}
-    private void OnTyping(){if(!catalog.Typing.Enabled)return;typing.Press(clock.ElapsedMilliseconds,Today(),catalog.Typing);typingDirty=true;}
-    private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;try{typingInput.SetEnabled(catalog.Typing.Enabled);}catch(Exception e){catalog.Typing=catalog.Typing with{Enabled=false};storage.Save();MessageBox.Show(e.Message,"无法启用打字统计");}}
-    private void ChangeTyping(Func<TypingSettings,TypingSettings> patch){var next=patch(catalog.Typing).Normalize();if(next.Enabled!=catalog.Typing.Enabled){typingInput.SetEnabled(next.Enabled);if(!next.Enabled){typing.Stop();SaveTyping();}}catalog.Typing=next;QueueSave();}
+    private void OnTyping(){if(!catalog.Typing.Enabled||catalog.ThinkingPolicy==ThinkingDisplayPolicy.None)return;typing.Press(clock.ElapsedMilliseconds,Today(),catalog.Typing);typingDirty=true;}
+    private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){catalog.Typing=catalog.Typing with{Enabled=false};storage.Save();MessageBox.Show(e.Message,"无法启用打字统计");}}
+    private void ChangeTyping(Func<TypingSettings,TypingSettings> patch){var next=patch(catalog.Typing).Normalize();if(next.Enabled!=catalog.Typing.Enabled){typingInput.SetEnabled(next.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);if(!next.Enabled){typing.Stop();SaveTyping();}}catalog.Typing=next;QueueSave();}
     private readonly FoodWorld world=new();
     private readonly Dictionary<FoodInstance,FoodWindow> foodWindows=new();
     private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
@@ -99,13 +99,27 @@ internal sealed class Launcher : Window
         
         var materials=new DockPanel{Margin=new Thickness(12)};var materialsTitle=Ui.Text("素材包管理",26);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);var importRow=new WrapPanel();importRow.Children.Add(Ui.Button("导入 ZIP",ImportArchive,true));importRow.Children.Add(Ui.Button("导入目录",ImportPack));importRow.Children.Add(Ui.Button("从模板新建",()=>Safe(()=>{var pack=storage.Import(defaultRoot);RefreshCards();EditPack(pack);})));DockPanel.SetDock(importRow,Dock.Top);materials.Children.Add(importRow);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var global=new StackPanel{Margin=new Thickness(20),MaxWidth=850};global.Children.Add(Ui.Text("全局设置",26));
-        var single=new CheckBox{Content="仅显示最新一条碎碎念",IsChecked=catalog.SingleThinking,Margin=new Thickness(0,8,0,8)};single.IsVisibleChanged+=(_,_)=>single.IsChecked=catalog.SingleThinking;
-        thoughts.SingleAcrossRoles=catalog.SingleThinking;single.Click+=(_,_)=>{catalog.SingleThinking=single.IsChecked==true;thoughts.SingleAcrossRoles=catalog.SingleThinking;storage.Save();};global.Children.Add(Ui.Card(single));
-        var thinkingCard=new SettingCard("碎碎念显示位置","所有角色共用显示区域；不改变各角色的文本播放策略。",collapsible:true);
+        var thinkingCard=new SettingCard("碎碎念","控制所有角色和打字统计的显示方式。");
+        var policies=new ComboBox{ItemsSource=new[]{"无","仅显示最新","重叠"},SelectedIndex=(int)catalog.ThinkingPolicy,Width=175};
+        var policyNote=Ui.Caption("显示策略","新的碎碎念会隐藏此前显示的消息。");
         var locations=new ComboBox{ItemsSource=new[]{"主屏幕底部","托盘左侧","任务栏左侧"},SelectedIndex=(int)catalog.ThinkingLocation,Width=175};
-        locations.IsVisibleChanged+=(_,_)=>locations.SelectedIndex=(int)catalog.ThinkingLocation;locations.SelectionChanged+=(_,_)=>{if(locations.SelectedIndex<0)return;catalog.ThinkingLocation=(ThinkingLocation)locations.SelectedIndex;QueueSave();};
-        thinkingCard.Add(Ui.Pair(Ui.Caption("显示位置","托盘不可用时自动回到主屏幕底部。"),locations));global.Children.Add(thinkingCard);
-        global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("打字统计","自定义按键计数消息及其显示样式。"),Ui.Button("设置 ›",EditTyping))));
+        var typingLink=Ui.Button("设置 ›",EditTyping);
+        var typingCaption=Ui.Caption("打字统计","自定义按键计数消息及其显示样式。");
+        void UpdateThinkingUi()
+        {
+            bool enabled=catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;
+            ((TextBlock)policyNote.Children[1]).Text=catalog.ThinkingPolicy switch{ThinkingDisplayPolicy.None=>"关闭所有碎碎念，包括打字统计。",ThinkingDisplayPolicy.Overlap=>"同一位置重叠，新的消息显示在上方。",_=>"新的碎碎念会直接隐藏此前显示的消息。"};
+            locations.IsEnabled=enabled;
+            ((TextBlock)typingCaption.Children[0]).Foreground=enabled?Ui.Brush("Ink"):System.Windows.Media.Brushes.IndianRed;
+            ((TextBlock)typingCaption.Children[1]).Text=enabled?"自定义按键计数消息及其显示样式。":"全局设置 > 碎碎念已关闭";
+            ((TextBlock)typingCaption.Children[1]).Foreground=enabled?Ui.Brush("Muted"):System.Windows.Media.Brushes.IndianRed;
+        }
+        policies.IsVisibleChanged+=(_,_)=>{policies.SelectedIndex=(int)catalog.ThinkingPolicy;UpdateThinkingUi();};
+        policies.SelectionChanged+=(_,_)=>{if(policies.SelectedIndex<0)return;Safe(()=>{ChangeThinkingPolicy((ThinkingDisplayPolicy)policies.SelectedIndex);UpdateThinkingUi();});};
+        locations.IsVisibleChanged+=(_,_)=>locations.SelectedIndex=(int)catalog.ThinkingLocation;
+        locations.SelectionChanged+=(_,_)=>{if(locations.SelectedIndex<0)return;catalog.ThinkingLocation=(ThinkingLocation)locations.SelectedIndex;QueueSave();};
+        thinkingCard.Add(Ui.Pair(policyNote,policies));thinkingCard.Add(Ui.Pair(Ui.Caption("显示位置","所有碎碎念共用的显示区域。"),locations));thinkingCard.Add(Ui.Pair(typingCaption,typingLink));global.Children.Add(thinkingCard);
+        thoughts.Policy=catalog.ThinkingPolicy;UpdateThinkingUi();
         var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};launch.IsVisibleChanged+=(_,_)=>launch.IsChecked=catalog.AutoSummon;
         launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(launch));
         global.Children.Add(Button("用户习惯 · 新角色默认值",EditDefaults));
@@ -156,10 +170,10 @@ internal sealed class Launcher : Window
         world.UpdateInteractions();
         foreach(var pet in pets.ToArray())pet.Render();
         foreach(var food in foodWindows.Values.ToArray())food.Render();
-        if(catalog.Typing.Enabled){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)Safe(SaveTyping);}
+        if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)Safe(SaveTyping);}
         var messages=pets.Where(p=>!string.IsNullOrWhiteSpace(p.VisibleThought)).Select(p=>new ThoughtMessage(p.RoleId+":"+p.VisibleThought,catalog.Roles.FirstOrDefault(r=>r.Id==p.RoleId)?.Name??p.Engine.Role.Package.Name,p.VisibleThought!,p.ThoughtStyle,thoughts.Order(p.Engine.Role.Thoughts))).GroupBy(m=>m.Key).Select(g=>g.OrderByDescending(m=>m.Order).First()).ToList();
         if(!typing.Suppressed&&typing.CurrentText is string typed)messages.Add(new ThoughtMessage("typing","打字统计",typed,catalog.Typing.Style,thoughts.Order(typing)));
-        thinkingPresenter.Render(messages,catalog.ThinkingLocation,catalog.SingleThinking);
+        thinkingPresenter.Render(messages,catalog.ThinkingLocation,catalog.ThinkingPolicy);
         if(IsVisible&&navigationHost.Content==homeShell&&roleCards.IsVisible)foreach(var preview in previews){preview.Cursor.Advance(dt);var bitmap=preview.Cache.Get(preview.Cursor.Current);if(preview.Image.Source!=bitmap)preview.Image.Source=bitmap;}
     }
     private static Button Button(string text,Action action){var b=new Button{Content=text,Padding=new Thickness(12,6,12,6),Margin=new Thickness(0,3,6,3)};b.Click+=(_,_)=>action();return b;}
@@ -171,21 +185,31 @@ internal sealed class Launcher : Window
     private void Safe(Action action){try{action();}catch(Exception e){MessageBox.Show(this,e.Message,"CakePet");}}
     private void RestoreInput()=>Safe(()=>{foreach(var r in catalog.Roles.ToArray())catalog.Update(r with{Settings=r.Settings with{ClickThrough=false}});storage.Save();foreach(var r in catalog.Roles)ApplyRunning(r);RefreshCards();});
     private void BackHome(){Safe(FlushSave);navigationHost.Content=homeShell;RefreshCards();}
+    private void ChangeThinkingPolicy(ThinkingDisplayPolicy value)
+    {
+        if(value==catalog.ThinkingPolicy)return;
+        if(value==ThinkingDisplayPolicy.None){typingInput.SetEnabled(false);SaveTyping();typing.Stop();}
+        catalog.ThinkingPolicy=value;thoughts.Policy=value;
+        if(value==ThinkingDisplayPolicy.None)thinkingPresenter.Clear();
+        foreach(var role in catalog.Roles)ApplyRunning(role);
+        if(value!=ThinkingDisplayPolicy.None)typingInput.SetEnabled(catalog.Typing.Enabled);
+        QueueSave();
+    }
     private void EditTyping()=>Safe(()=>{
         var page=new StackPanel{MaxWidth=850,Margin=new Thickness(22)};page.Children.Add(Ui.Button("‹ 返回",BackHome));var heading=Ui.Caption("打字统计","只统计按键次数，不记录按键内容；关闭后停止监听。",true);heading.Margin=new Thickness(0,16,0,16);page.Children.Add(heading);
-        var deps=new List<Action>();void Set(Func<TypingSettings,TypingSettings> patch)=>Safe(()=>{ChangeTyping(patch);foreach(var d in deps)d();});var s=catalog.Typing;
-        var main=new SettingCard("打字统计总开关","每次按键触发消息并刷新显示时长。",s.Enabled,v=>Set(x=>x with{Enabled=v}),collapsible:false);page.Children.Add(main);
-        var options=new SettingCard("统计与播放","最近一分钟的按键次数与当天累计值。");page.Children.Add(options);void Refresh()=>options.SetAvailable(catalog.Typing.Enabled);deps.Add(Refresh);Refresh();
+        var deps=new List<Action>();void Set(Func<TypingSettings,TypingSettings> patch)=>Safe(()=>{ChangeTyping(patch);foreach(var d in deps)d();});var s=catalog.Typing;bool globalEnabled=catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;
+        var main=new SettingCard("打字统计总开关","每次按键触发消息并刷新显示时长。",globalEnabled&&s.Enabled,v=>Set(x=>x with{Enabled=v}),available:globalEnabled,collapsible:false);if(!globalEnabled)main.SetWarning("全局设置 > 碎碎念已关闭");page.Children.Add(main);
+        var options=new SettingCard("统计与播放","最近一分钟的按键次数与当天累计值。");page.Children.Add(options);void Refresh()=>options.SetAvailable(globalEnabled&&catalog.Typing.Enabled);deps.Add(Refresh);Refresh();
         options.Add(Ui.NumberRow("显示时长","最后一次按键后保留的时间。",s.Seconds,1,30,1,"秒",v=>Set(x=>x with{Seconds=(int)v})));
         void Flag(string title,string note,bool value,Func<TypingSettings,bool,TypingSettings> patch){var sw=Ui.Switch(value);sw.Click+=(_,_)=>Set(x=>patch(x,sw.IsChecked==true));options.Add(Ui.Pair(Ui.Caption(title,note),sw));}
         Flag("按键速度","最近一分钟内的按键次数。",s.ShowSpeed,(x,v)=>x with{ShowSpeed=v});Flag("今日累计","当天累计的按键次数。",s.ShowToday,(x,v)=>x with{ShowToday=v});
-        ThinkingStyleSettings.Add(page,()=>catalog.Typing.Style,patch=>Set(x=>x with{Style=patch(x.Style)}),"打字：126 次/分钟　今日：8,642 次",()=>catalog.Typing.Enabled,deps);
+        ThinkingStyleSettings.Add(page,()=>catalog.Typing.Style,patch=>Set(x=>x with{Style=patch(x.Style)}),"打字：126 次/分钟　今日：8,642 次",()=>globalEnabled&&catalog.Typing.Enabled,deps);
         navigationHost.Content=new ScrollViewer{Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
     });
     private void EditDefaults()=>Safe(()=>{
-        navigationHost.Content=new RoleSettingsPage(()=>new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,patch=>{catalog.Defaults=patch(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults)).Settings.Normalize();QueueSave();},BackHome,true);
+        navigationHost.Content=new RoleSettingsPage(()=>new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,patch=>{catalog.Defaults=patch(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults)).Settings.Normalize();QueueSave();},BackHome,true,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
     });
-    private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0);}
+    private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}
     private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change)=>Safe(()=>{var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));RefreshCards();});
     private void RecallAll(){foreach(var pet in pets.ToArray())pet.Close();}
     private void Recall(Guid id){foreach(var pet in pets.Where(p=>p.RoleId==id).ToArray())pet.Close();}
@@ -199,10 +223,10 @@ internal sealed class Launcher : Window
         var d=new OpenFileDialog{Filter="CakePet ZIP|*.zip"};if(d.ShowDialog(this)!=true)return;
         if(MessageBox.Show(this,"导入 ZIP。若为软件备份，将选择性覆盖可兼容的数据，其他数据保留。","导入",MessageBoxButton.OKCancel)!=MessageBoxResult.OK)return;
         FlushSave();SaveTyping();var active=pets.Select(x=>x.RoleId).Distinct().ToArray();RecallAll();packages.Clear();
-        try{var result=storage.ImportZip(d.FileName);ReloadTyping();thoughts.SingleAcrossRoles=catalog.SingleThinking;BackHome();MessageBox.Show(this,result,"导入完成");}
+        try{var result=storage.ImportZip(d.FileName);ReloadTyping();thoughts.Policy=catalog.ThinkingPolicy;BackHome();MessageBox.Show(this,result,"导入完成");}
         finally{foreach(var id in active)if(catalog.Roles.FirstOrDefault(x=>x.Id==id) is RoleEntry r)Summon(r);}
     });
-    private void ResetSoftware()=>Safe(()=>{if(MessageBox.Show(this,"清空角色、素材包和设置，恢复首次安装状态？请先导出备份。","重置软件",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;FlushSave();RecallAll();packages.Clear();storage.Reset(defaultRoot);ReloadTyping();thoughts.SingleAcrossRoles=catalog.SingleThinking;BackHome();});
+    private void ResetSoftware()=>Safe(()=>{if(MessageBox.Show(this,"清空角色、素材包和设置，恢复首次安装状态？请先导出备份。","重置软件",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;FlushSave();RecallAll();packages.Clear();storage.Reset(defaultRoot);ReloadTyping();thoughts.Policy=catalog.ThinkingPolicy;BackHome();});
     private void ExportRole(RoleEntry role)=>Safe(()=>{var path=ChooseSave("CakePet-role-settings.json","JSON 文件|*.json");if(path!=null)storage.ExportRole(catalog.Roles.Single(x=>x.Id==role.Id),path);});
     private void ImportRole(RoleEntry role)=>Safe(()=>{var d=new OpenFileDialog{Filter="角色设置|*.json"};if(d.ShowDialog(this)!=true)return;var next=storage.ImportRole(catalog.Roles.Single(x=>x.Id==role.Id),d.FileName);catalog.Update(next);storage.Save();if(pets.Any(p=>p.RoleId==role.Id))Summon(next);RefreshCards();});
     private void EditPack(PackEntry p)=>Safe(()=>{navigationHost.Content=new PackageEditorPage(storage.Resolve(p),()=>{var ids=catalog.Roles.Where(x=>x.PackId==p.Id&&pets.Any(w=>w.RoleId==x.Id)).Select(x=>x.Id).ToArray();foreach(var id in ids)Recall(id);packages.Remove(storage.Resolve(p));var parsed=GetPack(p.Id).Pack;var index=catalog.Packs.FindIndex(x=>x.Id==p.Id);catalog.Packs[index]=p with{Name=parsed.Name};storage.Save();RefreshCards();foreach(var id in ids)Summon(catalog.Roles.Single(x=>x.Id==id));},BackHome);});
@@ -218,7 +242,7 @@ internal sealed class Launcher : Window
         navigationHost.Content=new RoleSettingsPage(()=>catalog.Roles.Single(x=>x.Id==entry.Id),GetPack(entry.PackId).Pack,patch=>Safe(()=>{
             var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
             var live=pets.Count(p=>p.RoleId==entry.Id);if(live>0&&live!=latest.Settings.Count)Summon(latest);else if(old.Settings!=latest.Settings)ApplyRunning(latest);
-        }),BackHome);
+        }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
     });
     private void RefreshCards()
     {
@@ -257,11 +281,11 @@ internal sealed class Launcher : Window
         {
             var role=new RoleRuntime(pair.Pack);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id);
             pet.OpenSettings+=id=>Edit(catalog.Roles.Single(x=>x.Id==id));pet.ChangeSettings+=ChangeRole;pet.RecallRole+=Recall;pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};pet.ClearRoleFreezes+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ClearFreezes();};pet.ResetRoleSize+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ResetSize();};
-            pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);role.Thoughts.Enabled=settings.Thinking;thoughts.Add(role.Thoughts,entry.Id);
+            pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);role.Thoughts.Enabled=settings.Thinking&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;thoughts.Add(role.Thoughts,entry.Id);
             pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!shuttingDown)RefreshCards();};
             pet.Show();
         }
-        for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0);
+        for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
         RefreshCards();
     });
 }

@@ -11,7 +11,17 @@ public sealed class ThinkingTimeline:IThinkingSource
     public Interval RestDuration { get; set; }
     public string? CurrentId { get; private set; }
     public bool Suppressed { get; set; }
-    public bool Enabled {get;set;}=true;
+    private bool enabled=true;
+    public bool Enabled
+    {
+        get=>enabled;
+        set
+        {
+            if(enabled==value)return;
+            enabled=value;CurrentId=null;Suppressed=true;elapsed=0;
+            if(value){Rest();if(config.Policy=="hold")Choose();}
+        }
+    }
     public string? CurrentText=>Enabled&&CurrentId!=null?texts.GetValueOrDefault(CurrentId):null;
     public string? VisibleText => Suppressed?null:CurrentText;
     public event Action? NewText;
@@ -33,7 +43,7 @@ public sealed class ThinkingTimeline:IThinkingSource
     }
     public void Apply(Thinking next)
     {
-        config=next;var initial=first;first=false;
+        config=next;if(!Enabled)return;var initial=first;first=false;
         if(config.Policy=="off")
         {if(CurrentId!=null)Rest();return;}
         if(config.Policy=="hold")
@@ -53,7 +63,7 @@ public sealed class ThinkingTimeline:IThinkingSource
     public void Advance(long ms)
     {
         if(ms<0)throw new ArgumentOutOfRangeException(nameof(ms));
-        if(config.Policy=="off"||(config.Policy=="hold"&&CurrentId!=null))return;
+        if(!Enabled||config.Policy=="off"||(config.Policy=="hold"&&CurrentId!=null))return;
         while(true)
         {
             var remaining=Math.Max(0,target-elapsed);
@@ -65,40 +75,48 @@ public sealed class ThinkingTimeline:IThinkingSource
     }
 }
 
+public enum ThinkingDisplayPolicy { None, Latest, Overlap }
+
 public sealed class ThinkingCoordinator
 {
-    private readonly Dictionary<IThinkingSource,(Action Callback,Guid Group)> sources=new();
+    private readonly Dictionary<IThinkingSource,Action> sources=new();
     private readonly Dictionary<IThinkingSource,long> order=new();
     private long sequence;
-    private bool single;
-    public bool SingleAcrossRoles
+    private ThinkingDisplayPolicy policy=ThinkingDisplayPolicy.Overlap;
+    public ThinkingDisplayPolicy Policy
     {
-        get=>single;
+        get=>policy;
         set
         {
-            single=value;
-            if(!value){foreach(var source in sources.Keys)source.Suppressed=false;return;}
-            var latest=sources.Keys.Where(x=>x.CurrentText!=null&&!x.Suppressed).OrderByDescending(x=>order.GetValueOrDefault(x)).FirstOrDefault();
-            if(latest!=null)foreach(var source in sources.Keys)source.Suppressed=sources[source].Group!=sources[latest].Group;
+            if(policy==value)return;
+            policy=value;
+            if(value==ThinkingDisplayPolicy.None)
+                foreach(var source in sources.Keys)source.Suppressed=true;
+            else if(value==ThinkingDisplayPolicy.Latest)
+            {
+                var latest=sources.Keys.Where(x=>x.CurrentText!=null&&!x.Suppressed).OrderByDescending(Order).FirstOrDefault();
+                foreach(var source in sources.Keys)if(source!=latest)source.Suppressed=true;
+            }
         }
     }
     public long Order(IThinkingSource source)=>order.GetValueOrDefault(source);
     public void Add(IThinkingSource source,Guid group=default)
     {
         if(sources.ContainsKey(source))return;
-        Action callback=()=>OnNewText(source);
-        sources.Add(source,(callback,group==Guid.Empty?Guid.NewGuid():group));source.NewText+=callback;
+        Action callback=()=>OnNewText(source);sources.Add(source,callback);source.NewText+=callback;
         if(source.CurrentText!=null)OnNewText(source);
+        else if(policy==ThinkingDisplayPolicy.None)source.Suppressed=true;
     }
     public void Remove(IThinkingSource source)
     {
-        if(sources.Remove(source,out var entry))source.NewText-=entry.Callback;
+        if(sources.Remove(source,out var callback))source.NewText-=callback;
         order.Remove(source);source.Suppressed=false;
     }
     private void OnNewText(IThinkingSource source)
     {
         if(source.CurrentText==null)return;
-        order[source]=++sequence;
-        if(single)foreach(var other in sources.Keys)if(sources[other].Group!=sources[source].Group)other.Suppressed=true;
+        if(policy==ThinkingDisplayPolicy.None){source.Suppressed=true;return;}
+        order[source]=++sequence;source.Suppressed=false;
+        if(policy==ThinkingDisplayPolicy.Latest)foreach(var other in sources.Keys)if(other!=source)other.Suppressed=true;
     }
 }

@@ -56,9 +56,9 @@ try
  var cfg=new Thinking("cycle",new Dictionary<string,Interval>{{"a",new Interval(5,5)}});
  t.Apply(cfg);Assert(t.CurrentId=="a","first thinking");t.Advance(5);Assert(t.CurrentId==null,"rest phase");
  t.Advance(10);Assert(t.CurrentId=="a","cycle resumes");t.Apply(cfg with {Policy="hold"});t.Advance(100);Assert(t.CurrentId=="a","hold locks");
- var other=new ThinkingTimeline(pack.Texts,new Random(2),new Interval(10,10));var coordinator=new ThinkingCoordinator{SingleAcrossRoles=true};coordinator.Add(t);coordinator.Add(other);other.Apply(cfg);
+ var other=new ThinkingTimeline(pack.Texts,new Random(2),new Interval(10,10));var coordinator=new ThinkingCoordinator{Policy=ThinkingDisplayPolicy.Latest};coordinator.Add(t);coordinator.Add(other);other.Apply(cfg);
  Assert(t.CurrentId=="a"&&t.VisibleText==null&&other.VisibleText=="hello","cross-role display suppression only");
- coordinator.SingleAcrossRoles=false;Assert(t.VisibleText=="hello","suppression clearing");
+ coordinator.Policy=ThinkingDisplayPolicy.Overlap;Assert(t.VisibleText==null,"no interrupted replay on policy change");
  var sideBody=new PhysicsBody(new Point(5,50));sideBody.Grab();sideBody.Release(default,new Bounds(0,0,200,200));
  Assert(sideBody.SnappedEdge==Edge.Left&&sideBody.Position.X==0,"snap left");sideBody.Grab();Assert(sideBody.SnappedEdge==Edge.None,"pull out");
  sideBody.Release(new Point(1000,1000));sideBody.Reset(new Point(50,200),new Bounds(0,0,200,200));
@@ -186,13 +186,22 @@ try
  var moving=new PhysicsBody(new Point(-60,100)){GravityEnabled=false,ThrowEnabled=true};moving.Grab();moving.GravityEnabled=true;moving.Release(new Point(1000,0));moving.GravityEnabled=false;
  var currentRegion=regions[0];moving.ProjectMotion=(from,next)=>{var tr=ConnectedDesktop.Project(regions,currentRegion,from,next,anchor,Edge.None);currentRegion=tr.Region;return new MotionProjection(tr.Position,tr.Limits);};
  moving.Advance(.03,regions[0].Limits);Assert(currentRegion.Id=="R"&&moving.Velocity.X==1000,"throw crosses without bounce");
- var typing=new TypingThinking();var typingConfig=new TypingSettings{Enabled=true,Seconds=5};typing.Restore("2026-11-17",10,"2026-11-17");var arbitration=new ThinkingCoordinator{SingleAcrossRoles=true};var speaker=new ThinkingTimeline(pack.Texts,new Random(1));arbitration.Add(typing);arbitration.Add(speaker);
+ var typing=new TypingThinking();var typingConfig=new TypingSettings{Enabled=true,Seconds=5};typing.Restore("2026-11-17",10,"2026-11-17");var arbitration=new ThinkingCoordinator{Policy=ThinkingDisplayPolicy.Latest};var speaker=new ThinkingTimeline(pack.Texts,new Random(1));arbitration.Add(typing);arbitration.Add(speaker);
  typing.Press(0,"2026-11-17",typingConfig);Assert(typing.Today==11&&!typing.Suppressed&&typing.CurrentText!=null,"typing event");
  speaker.Apply(cfg);Assert(typing.Suppressed&&speaker.VisibleText!=null,"role interrupts typing");
  typing.Press(1000,"2026-11-17",typingConfig);Assert(!typing.Suppressed&&speaker.Suppressed&&typing.Today==12,"typing refresh interrupts role");
  typing.Advance(5999);Assert(typing.CurrentText!=null,"typing refresh extends duration");typing.Advance(6000);Assert(typing.CurrentText==null&&speaker.Suppressed,"no interrupted replay");
  typing.Press(62000,"2026-11-18",typingConfig);Assert(typing.Today==1&&typing.CurrentText!.Contains("1 次/分钟"),"rolling count and new day");
  typing.Stop();typing.Press(63000,"2026-11-18",typingConfig with{Enabled=false});Assert(typing.Today==1&&typing.CurrentText==null,"disabled no counting");
+ var layered=new ThinkingCoordinator{Policy=ThinkingDisplayPolicy.Overlap};var x1=new TypingThinking();var x2=new TypingThinking();var sameGroup=Guid.NewGuid();layered.Add(x1,sameGroup);layered.Add(x2,sameGroup);
+ x1.Press(0,"2026-11-17",typingConfig);x2.Press(1,"2026-11-17",typingConfig);Assert(!x1.Suppressed&&!x2.Suppressed&&layered.Order(x2)>layered.Order(x1),"overlap ordering");
+ layered.Policy=ThinkingDisplayPolicy.Latest;Assert(x1.Suppressed&&!x2.Suppressed,"latest one even same group");
+ x1.Press(2,"2026-11-17",typingConfig);Assert(!x1.Suppressed&&x2.Suppressed,"latest refresh");
+ layered.Policy=ThinkingDisplayPolicy.Overlap;Assert(x2.Suppressed,"overlap no revival");
+ layered.Policy=ThinkingDisplayPolicy.None;x2.Press(3,"2026-11-17",typingConfig);Assert(x1.Suppressed&&x2.Suppressed,"global none");
+ layered.Policy=ThinkingDisplayPolicy.Overlap;Assert(x1.Suppressed&&x2.Suppressed,"global resume no revival");
+ x2.Press(4,"2026-11-17",typingConfig);Assert(!x2.Suppressed&&x1.Suppressed,"new event after resume");
+ var paused=new ThinkingTimeline(pack.Texts,new Random(1));paused.Apply(cfg);paused.Enabled=false;paused.Advance(60000);Assert(paused.CurrentText==null&&paused.CurrentId==null,"disabled timeline stopped");paused.Enabled=true;Assert(paused.CurrentText==null,"resume cycle starts at rest");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
