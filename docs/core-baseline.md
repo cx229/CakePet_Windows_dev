@@ -59,3 +59,5 @@ Stage 16 editor follow-up: function groups in Android order and split function t
 Stage 17a: Android-compatible modeGroups/thinkingGroups and per-item groups arrays, empty groups and ungrouped fallback, group dissolve and ordering, split thinking editor, draft animation playback using the existing cursor without copying or saving the package. Preview updates on replay; no GUI validation yet.
 
 Stage 17b: function and animation thinking policy/pool editing with per-text min/max milliseconds, text reference list and cancellation, range slider unit correction. No cross-package resource copy yet.
+
+Stage 18: resource folder tree, actual folder creation/order, image reference list and replacement, cross-package image/text/animation import with chain and referenced text copy, collision-safe names and image byte deduplication. Imports are explicitly chosen from other packages and copied locally. Images imported immediately; config requires save. Partial failed imports may leave unreferenced images. Folder rename/dissolve and picker integration pending.

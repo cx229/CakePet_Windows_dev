@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 namespace CakePet.Core;
 
 // The editable document preserves unknown fields and ordering. Only modes.jsonc is rewritten.
-public sealed class PackageEditor
+public sealed partial class PackageEditor
 {
     public string Root {get;}
     public JsonObject Document {get;}
