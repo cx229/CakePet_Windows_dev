@@ -31,3 +31,5 @@ Stage 9: expanded persistent physics, snap, leap, food and boundary settings; ta
 Stage 10 UI: shared WPF resource dictionary, slider/value rows, inline role/default settings navigation, wrap-layout role cards with real package previews. Changes apply immediately and persistence is debounced. Material editor and threshold work remain deferred. Native file pickers and confirmation dialogs are retained.
 
 Stage 10 follow-up: grouped setting cards and expandable gravity/bounce sections, inline package selection, tray-first explicit shutdown and single-instance activation, original 白酥 sit_clam-1.png copied byte-for-byte by CI to assets/tray.png. The tray icon is cropped/scaled only in memory; no generated art. Native confirmation/file dialogs retained.
+
+Stage 11 UI: explicit SettingCard ownership, main/sub remarks, independent expand and enable, inline numeric/direction rows, shared-track two-handle food interval, per-field patches against latest catalog state, reorganized role pages and card headers. No material editor or threshold changes.

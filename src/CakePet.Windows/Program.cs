@@ -151,7 +151,7 @@ internal sealed class Launcher : Window
     private void RestoreInput()=>Safe(()=>{foreach(var r in catalog.Roles.ToArray())catalog.Update(r with{Settings=r.Settings with{ClickThrough=false}});storage.Save();foreach(var r in catalog.Roles)ApplyRunning(r);RefreshCards();});
     private void BackHome(){Safe(FlushSave);navigationHost.Content=homeShell;RefreshCards();}
     private void EditDefaults()=>Safe(()=>{
-        navigationHost.Content=new RoleSettingsPage(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,r=>{catalog.Defaults=r.Settings.Normalize();QueueSave();},BackHome,true);
+        navigationHost.Content=new RoleSettingsPage(()=>new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,patch=>{catalog.Defaults=patch(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults)).Settings.Normalize();QueueSave();},BackHome,true);
     });
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0);}
     private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change)=>Safe(()=>{var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));RefreshCards();});
@@ -169,9 +169,9 @@ internal sealed class Launcher : Window
     });
     private void Edit(RoleEntry entry)=>Safe(()=>{
         ShowLauncher();
-        navigationHost.Content=new RoleSettingsPage(entry,GetPack(entry.PackId).Pack,r=>Safe(()=>{
-            catalog.Update(r);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==r.Id);
-            var live=pets.Count(p=>p.RoleId==r.Id);if(live>0&&live!=latest.Settings.Count)Summon(latest);else ApplyRunning(latest);
+        navigationHost.Content=new RoleSettingsPage(()=>catalog.Roles.Single(x=>x.Id==entry.Id),GetPack(entry.PackId).Pack,patch=>Safe(()=>{
+            var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
+            var live=pets.Count(p=>p.RoleId==entry.Id);if(live>0&&live!=latest.Settings.Count)Summon(latest);else if(old.Settings!=latest.Settings)ApplyRunning(latest);
         }),BackHome);
     });
     private void RefreshCards()
@@ -180,16 +180,17 @@ internal sealed class Launcher : Window
         foreach(var r in catalog.Roles)
         {
             var panel=new StackPanel{Width=230};
+            var header=new Grid();header.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});header.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});var identity=Ui.Caption(r.Name,catalog.Packs.FirstOrDefault(p=>p.Id==r.PackId)?.Name??"缺失素材包",true);header.Children.Add(identity);panel.Children.Add(header);
             var image=new Image{Width=200,Height=148,Stretch=System.Windows.Media.Stretch.Uniform};
-            var previewArea=new Border{Background=Ui.Brush("Canvas"),CornerRadius=new CornerRadius(9),Padding=new Thickness(10),Child=image};panel.Children.Add(previewArea);
+            var previewArea=new Border{Background=Ui.Brush("Canvas"),CornerRadius=new CornerRadius(9),Padding=new Thickness(10),Margin=new Thickness(0,12,0,10),Child=image};panel.Children.Add(previewArea);
             var active=pets.Any(p=>p.RoleId==r.Id);
             try{var pair=GetPack(r.PackId);var modes=pair.Pack.Candidates(active?"menu/summoned":"standby/static_pool");if(modes.Count==0)modes=pair.Pack.Candidates("standby/pool");var cursor=new AnimationCursor(pair.Pack,modes[0],new Random());image.Source=pair.Images.Get(cursor.Current);previews.Add((image,cursor,pair.Images));}catch{}
-            var title=Ui.Text(r.Name,19);title.FontWeight=FontWeights.SemiBold;title.Margin=new Thickness(0,12,0,4);panel.Children.Add(title);
+            
             panel.Children.Add(Ui.Text(active?$"已召唤 · {pets.Count(p=>p.RoleId==r.Id)} 个实例":"未召唤",12,true));
             var row=new WrapPanel{Margin=new Thickness(0,12,0,0)};
             row.Children.Add(Ui.Button(active?"召回":"召唤",()=>{if(active)Recall(r.Id);else Summon(r);},true));row.Children.Add(Ui.Button("设置",()=>Edit(r)));
             var more=Ui.Button("⋯",()=>{});var menu=new ContextMenu();var home=new MenuItem{Header="归位",IsEnabled=active};home.Click+=(_,_)=>{foreach(var pet in pets.Where(p=>p.RoleId==r.Id))pet.Engine.ReturnHome();};menu.Items.Add(home);
-            var delete=new MenuItem{Header="删除角色"};delete.Click+=(_,_)=>Safe(()=>{if(MessageBox.Show(this,"删除角色及其设置？素材包将保留。","删除角色",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;Recall(r.Id);catalog.Roles.RemoveAll(x=>x.Id==r.Id);storage.Save();RefreshCards();});menu.Items.Add(delete);more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;row.Children.Add(more);panel.Children.Add(row);
+            var delete=new MenuItem{Header="删除角色"};delete.Click+=(_,_)=>Safe(()=>{if(MessageBox.Show(this,"删除角色及其设置？素材包将保留。","删除角色",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;Recall(r.Id);catalog.Roles.RemoveAll(x=>x.Id==r.Id);storage.Save();RefreshCards();});menu.Items.Add(delete);more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;more.Margin=new Thickness(0);more.Padding=new Thickness(10,5,10,5);Grid.SetColumn(more,1);header.Children.Add(more);panel.Children.Add(row);
             var card=Ui.Card(panel);card.Margin=new Thickness(0,0,14,14);roleCards.Children.Add(card);
         }
         foreach(var p in catalog.Packs)
