@@ -14,7 +14,7 @@ internal static class ThinkingStyleSettings
         void Refresh(){var s=current().Normalize();previewText.FontSize=s.Size;previewText.Foreground=new SolidColorBrush(ColorOf(s.Color,s.Alpha));preview.Background=s.Background?new SolidColorBrush(ColorOf(s.BackgroundColor,s.BackgroundAlpha)):Brushes.Transparent;}
         void Set(Func<ThinkingStyle,ThinkingStyle> patch){change(patch);Refresh();foreach(var d in dependencies)d();}
         SettingCard Card(string title,string note,bool? on=null,Action<bool>? toggle=null,Func<bool>? extra=null)
-        {var c=new SettingCard(title,note,on,toggle);page.Children.Add(c);void Update()=>c.SetAvailable(available()&&(extra?.Invoke()??true));dependencies.Add(Update);Update();return c;}
+        {var c=new SettingCard(title,note,on,toggle);page.Children.Add(c);void Update(){c.Visibility=available()?Visibility.Visible:Visibility.Collapsed;c.SetAvailable(extra?.Invoke()??true);}dependencies.Add(Update);Update();return c;}
         void Number(SettingCard c,string title,string note,double val,double min,double max,double step,string unit,Func<ThinkingStyle,double,ThinkingStyle> patch)=>c.Add(Ui.NumberRow(title,note,val,min,max,step,unit,v=>Set(s=>patch(s,v))));
         void Flag(SettingCard c,string title,string note,bool val,Func<ThinkingStyle,bool,ThinkingStyle> patch){var sw=Ui.Switch(val);sw.Click+=(_,_)=>Set(s=>patch(s,sw.IsChecked==true));c.Add(Ui.Pair(Ui.Caption(title,note),sw));}
         void ColorRow(SettingCard c,string title,string note,uint value,Func<ThinkingStyle,uint,ThinkingStyle> patch)

@@ -30,12 +30,12 @@ internal sealed class RoleSettingsPage:UserControl
         }
         void Set(Func<RoleSettings,RoleSettings> patch){change(r=>r with{Settings=patch(r.Settings)});foreach(var refresh in dependencies)refresh();foreach(var refresh in summaries)refresh();}
         void Summary(Func<string> state){var b=buttons[^1];var label=b.Content.ToString();void Refresh()=>b.Content=label+"    "+state();summaries.Add(Refresh);Refresh();}
-        void Group(StackPanel page,string title){var t=Ui.Text(title,12,true);t.Margin=new Thickness(2,8,0,6);page.Children.Add(t);}
+        void Group(StackPanel page,string title,Func<bool>? visible=null){var t=Ui.Text(title,12,true);t.Margin=new Thickness(2,8,0,6);page.Children.Add(t);if(visible!=null){void Refresh(){t.Visibility=visible()?Visibility.Visible:Visibility.Collapsed;}dependencies.Add(Refresh);Refresh();}}
         SettingCard Card(StackPanel page,string name,string note,bool? enabled=null,Func<RoleSettings,bool,RoleSettings>? setter=null,bool available=true,bool details=true,bool expanded=true,Func<bool>? dependency=null)
         {
             var c=new SettingCard(name,note,enabled,setter==null?null:v=>Set(r=>setter(r,v)),available,details,expanded);page.Children.Add(c);
             if(!available)c.SetWarning(note);
-            if(dependency!=null){void Refresh()=>{c.Visibility=dependency()?Visibility.Visible:Visibility.Collapsed;c.SetAvailable(available);};dependencies.Add(Refresh);Refresh();}return c;
+            if(dependency!=null){void Refresh(){c.Visibility=dependency()?Visibility.Visible:Visibility.Collapsed;c.SetAvailable(available);}dependencies.Add(Refresh);Refresh();}return c;
         }
         void Number(SettingCard c,string name,string note,double value,double min,double max,double step,string unit,Func<RoleSettings,double,RoleSettings> setter)=>c.Add(Ui.NumberRow(name,note,value,min,max,step,unit,v=>Set(r=>setter(r,v))));
         void Flag(SettingCard c,string name,string note,bool value,Func<RoleSettings,bool,RoleSettings> setter){var sw=Ui.Switch(value);sw.Click+=(_,_)=>Set(r=>setter(r,sw.IsChecked==true));c.Add(Ui.Pair(Ui.Caption(name,note),sw));}
@@ -59,17 +59,17 @@ internal sealed class RoleSettingsPage:UserControl
         var motion=Section("移动","「"+petName+"」的运动行为轨迹学");Summary(()=>MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
         var move=Card(motion,"移动","关闭后，「"+petName+"」将会静悄悄地",MoveOn(),(r,v)=>r with{Move=v});if(!Supports("standby/static_pool"))move.ForceOn("素材包缺少静止待机池，移动强制开启");
         Number(move,"最大速度","「"+petName+"」能跑多快",s.MaxSpeed,100,10000,50,"px/s",(r,v)=>r with{MaxSpeed=v});Flag(move,"屏幕连接","允许自主跨屏移动，左右外缘循环；关闭后仍可手动拖动跨屏。",s.ScreenConnect,(r,v)=>r with{ScreenConnect=v});
-        Group(motion,"重重重");
+        Group(motion,"重重重",MoveOn);
         var gravity=Card(motion,"重力","万有引力，来自地心的吸引",s.GravityEnabled,(r,v)=>r with{GravityEnabled=v},dependency:MoveOn);
         Number(gravity,"重力强度","重力越大，下坠越快",s.Gravity,0,10000,50,"px/s²",(r,v)=>r with{Gravity=v});Directions(gravity,"四边重力","上下互斥，左右互斥",s.GravityEdges,(r,v)=>r with{GravityEdges=v},true);
-        Group(motion,"弹弹弹");
+        Group(motion,"弹弹弹",MoveOn);
         var bounce=Card(motion,"边缘反弹","「"+petName+"」撞墙会反弹",s.BounceEnabled,(r,v)=>r with{BounceEnabled=v},dependency:MoveOn);Number(bounce,"反弹系数","撞墙后弹回的力道",s.Bounce,0,1,.01,"",(r,v)=>r with{Bounce=v});Directions(bounce,"四边反弹","触碰边界时触发反弹",s.BounceEdges,(r,v)=>r with{BounceEdges=v});
-        Group(motion,"抛抛抛");
+        Group(motion,"抛抛抛",MoveOn);
         var thr=Card(motion,"抛掷",Supports("touch/roll")?"拖动「"+petName+"」，抛出去！":"素材包缺少抛掷动画",s.Throw&&Supports("touch/roll"),(r,v)=>r with{Throw=v},Supports("touch/roll"),dependency:MoveOn);
         Number(thr,"抛掷系数","抛出去的速度倍率",s.ThrowCoefficient,0,5,.05,"倍",(r,v)=>r with{ThrowCoefficient=v});
-        Group(motion,"攀攀攀");
+        Group(motion,"攀攀攀",MoveOn);
         var climb=Card(motion,"攀岩走壁","无视重力，踏壁而行，如履平地！",s.Climb,(r,v)=>r with{Climb=v},details:false,dependency:MoveOn);
-        var forage=Card(motion,"自动觅食",Supports(PetEngine.ForagePath)?"「"+petName+"」会沿着边缘自己找吃的":"素材包缺少觅食动画",s.Forage,(r,v)=>r with{Forage=v},Supports(PetEngine.ForagePath),dependency:()=>MoveOn()&&current().Settings.Climb);
+        var forage=Card(motion,"自动觅食",Supports(PetEngine.ForagePath)?"「"+petName+"」会沿着边缘自己找吃的":"素材包缺少觅食动画",s.Forage&&Supports(PetEngine.ForagePath),(r,v)=>r with{Forage=v},Supports(PetEngine.ForagePath),dependency:()=>MoveOn()&&current().Settings.Climb);
         Number(forage,"觅食速度加成","加成后「"+petName+"」将飞速奔向食物",s.ForageMultiplier,.1,5,.05,"倍",(r,v)=>r with{ForageMultiplier=v});
         var leap=Card(motion,"飞跃",Supports("climb/leap/leap")?"起跳，起飞！":"素材包缺少飞跃动画",s.Leap&&Supports("climb/leap/leap"),(r,v)=>r with{Leap=v},Supports("climb/leap/leap"),dependency:()=>MoveOn()&&current().Settings.Climb);
         Number(leap,"飞跃概率","概率越高，越容易起飞",s.LeapProbability*100,0,100,1,"%",(r,v)=>r with{LeapProbability=v/100});Number(leap,"飞跃速度","飞向目标边缘的速度。",s.LeapSpeed,100,5000,25,"px/s",(r,v)=>r with{LeapSpeed=v});

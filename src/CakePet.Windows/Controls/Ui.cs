@@ -46,7 +46,7 @@ internal sealed class SettingCard:Border
     public SettingCard(string title,string note,bool? enabled=null,Action<bool>? toggle=null,bool available=true,bool collapsible=true,bool initiallyExpanded=true)
     {
         Background=Ui.Brush("Surface");BorderBrush=Ui.Brush("Line");BorderThickness=new Thickness(1);CornerRadius=new CornerRadius(7);Padding=new Thickness(14,8,14,8);Margin=new Thickness(0,0,0,8);
-        var label=Ui.Caption(title,note,true);heading=(TextBlock)label.Children[0];remark=(TextBlock)label.Children[label.Children.Count-1];
+        var label=Ui.Caption(title,note,true);heading=(TextBlock)label.Children[0];if(label.Children.Count==1)label.Children.Add(Ui.Text("",12,true));remark=(TextBlock)label.Children[1];
         var controls=new StackPanel{Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
         if(enabled.HasValue){master=Ui.Switch(enabled.Value,available);master.Click+=(_,_)=>{toggle?.Invoke(master.IsChecked==true);SetExpanded(master.IsChecked==true);};controls.Children.Add(master);}
         if(collapsible){arrow=Ui.Light("⌄",()=>SetExpanded(!expanded));arrow.Width=30;arrow.Padding=new Thickness(4);arrow.Margin=new Thickness(8,0,0,0);arrow.Background=System.Windows.Media.Brushes.Transparent;controls.Children.Add(arrow);}

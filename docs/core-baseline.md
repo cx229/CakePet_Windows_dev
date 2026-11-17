@@ -49,3 +49,5 @@ Stage 15: global None/Latest/Overlap thinking policy, strict latest across all i
 Stage 16a: restore Android role-setting taxonomy, friendly role-specific remarks, move maximum speed/screen connection/climb/forage/leap into movement, independent snap page, fixed headings, state summaries, fold dependencies and forced-on movement switch, exclusive gravity directions. Dark blue-gray shared theme and compact controls. No new random-mode runtime or mobile-only sensor settings.
 
 Stage 16b: compact dark home and pack management, grouped global settings, action menus, shared dark dropdown popup and menu colors, editor Chinese function labels and playback labels, top save action. Full multi-column editor and theme picker deferred.
+
+Stage 16c: fix local function syntax, hide empty movement section headings when parent disabled, preserve warning headings, and keep searchable animation list beside animation detail. Existing frame editor and save behavior retained; resource groups and full animation playback still pending.
