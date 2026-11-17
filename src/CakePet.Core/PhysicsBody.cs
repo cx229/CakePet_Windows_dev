@@ -2,11 +2,38 @@ namespace CakePet.Core;
 
 public readonly record struct Point(double X,double Y)
 {
+    public double Length=>Math.Sqrt(X*X+Y*Y);
     public static Point operator +(Point a,Point b)=>new(a.X+b.X,a.Y+b.Y);
+    public static Point operator -(Point a,Point b)=>new(a.X-b.X,a.Y-b.Y);
     public static Point operator *(Point a,double scale)=>new(a.X*scale,a.Y*scale);
 }
 public readonly record struct Bounds(double Left,double Top,double Right,double Bottom);
 [Flags] public enum Edge { None=0,Bottom=1,Left=2,Right=4,Top=8,All=15 }
+
+public static class SurfaceMotion
+{
+    public static Point ToScreen(Point local,Edge edge)=>edge switch
+    {Edge.Left=>new(-local.Y,local.X),Edge.Right=>new(local.Y,-local.X),Edge.Top=>new(-local.X,-local.Y),_=>local};
+    public static Point OnEdge(Point p,Bounds b,Edge edge)=>edge switch
+    {Edge.Bottom=>p with{Y=b.Bottom},Edge.Top=>p with{Y=b.Top},Edge.Left=>p with{X=b.Left},Edge.Right=>p with{X=b.Right},_=>p};
+    public static Edge Touching(Point p,Bounds b,double tolerance=.5)
+    {
+        Edge result=Edge.None;
+        if(Math.Abs(p.Y-b.Bottom)<=tolerance)result|=Edge.Bottom;
+        if(Math.Abs(p.Y-b.Top)<=tolerance)result|=Edge.Top;
+        if(Math.Abs(p.X-b.Left)<=tolerance)result|=Edge.Left;
+        if(Math.Abs(p.X-b.Right)<=tolerance)result|=Edge.Right;
+        return result;
+    }
+    public static Edge NextWall(Edge current,Point delta)=>current switch
+    {
+        Edge.Bottom or Edge.Top=>delta.X>0?Edge.Right:delta.X<0?Edge.Left:current,
+        Edge.Left or Edge.Right=>delta.Y>0?Edge.Bottom:delta.Y<0?Edge.Top:current,
+        _=>Edge.None
+    };
+    public static bool IsSingle(Edge e)=>e is Edge.Bottom or Edge.Top or Edge.Left or Edge.Right;
+    public static readonly IReadOnlyList<Edge> Sides=Array.AsReadOnly(new[]{Edge.Bottom,Edge.Left,Edge.Right,Edge.Top});
+}
 
 public sealed class PhysicsBody
 {
@@ -14,6 +41,11 @@ public sealed class PhysicsBody
     public Point Velocity { get; private set; }
     public PhysicalState State { get; private set; }
     public Edge SnappedEdge { get; private set; }
+    public Edge ClimbEdge { get; private set; }
+    public Edge LastImpactEdge { get; private set; }
+    public Edge LeapTargetEdge { get; private set; }
+    public Point? LeapTarget { get; private set; }
+    private double leapSpeed;
     public double Gravity { get; set; }=1500;
     public double Bounce { get; set; }=.7;
     public double MaxSpeed { get; set; }=2000;
@@ -21,6 +53,7 @@ public sealed class PhysicsBody
     public double SnapSpeed { get; set; }=800;
     public double SnapDistance { get; set; }=100;
     public double ThrowCoefficient { get; set; }=1;
+    public bool MotionEnabled { get; set; }=true;
     public bool GravityEnabled { get; set; }=true;
     public bool ThrowEnabled { get; set; }=true;
     public bool BounceEnabled { get; set; }=true;
@@ -32,46 +65,87 @@ public sealed class PhysicsBody
     private static Point Clamp(Point p,Bounds b)=>new(Math.Clamp(p.X,b.Left,b.Right),Math.Clamp(p.Y,b.Top,b.Bottom));
     private Point Limit(Point p)=>new(Math.Clamp(p.X,-MaxSpeed,MaxSpeed),Math.Clamp(p.Y,-MaxSpeed,MaxSpeed));
     public void Place(Point point,Bounds? bounds=null){Position=bounds is Bounds b?Clamp(point,b):point;Velocity=default;}
-    public void Reset(Point point,Bounds? bounds=null){Place(point,bounds);State=PhysicalState.Free;SnappedEdge=Edge.None;}
-    public void Grab(){State=PhysicalState.Dragging;SnappedEdge=Edge.None;Velocity=default;}
+    private void ClearPhysicalState()
+    {
+        State=PhysicalState.Free;SnappedEdge=ClimbEdge=LastImpactEdge=LeapTargetEdge=Edge.None;LeapTarget=null;
+    }
+    public void Reset(Point point,Bounds? bounds=null){Place(point,bounds);ClearPhysicalState();}
+    public void Grab(){ClearPhysicalState();State=PhysicalState.Dragging;Velocity=default;}
     public void DragTo(Point point){if(State==PhysicalState.Dragging)Position=point;}
+    public void Constrain(Bounds b)
+    {
+        if(State!=PhysicalState.Dragging)Position=Clamp(Position,b);
+        if(SnappedEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,b,SnappedEdge);
+        if(ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,b,ClimbEdge);
+        if(LeapTarget is Point target)LeapTarget=SurfaceMotion.OnEdge(Clamp(target,b),b,LeapTargetEdge);
+    }
     public void Release(Point velocity,Bounds? bounds=null)
     {
+        ClearPhysicalState();
         if(bounds is Bounds b)
         {
             Position=Clamp(Position,b);
-            if(SnapEnabled&&Math.Sqrt(velocity.X*velocity.X+velocity.Y*velocity.Y)<=SnapSpeed)
+            if(SnapEnabled&&(MotionEnabled?velocity.Length:0)<=SnapSpeed)
             {
                 var sides=new[]{(Edge.Bottom,b.Bottom-Position.Y),(Edge.Left,Position.X-b.Left),(Edge.Right,b.Right-Position.X),(Edge.Top,Position.Y-b.Top)};
                 var nearest=sides.Where(x=>SnapEdges.HasFlag(x.Item1)&&x.Item2<=SnapDistance).OrderBy(x=>x.Item2).FirstOrDefault();
                 if(nearest.Item1!=Edge.None)
                 {
-                    SnappedEdge=nearest.Item1;
-                    Position=nearest.Item1 switch{Edge.Bottom=>Position with{Y=b.Bottom},Edge.Top=>Position with{Y=b.Top},Edge.Left=>Position with{X=b.Left},_=>Position with{X=b.Right}};
-                    State=PhysicalState.Free;Velocity=default;return;
+                    SnappedEdge=nearest.Item1;Position=SurfaceMotion.OnEdge(Position,b,SnappedEdge);
+                    Velocity=default;return;
                 }
             }
         }
-        SnappedEdge=Edge.None;
-        Velocity=GravityEnabled&&ThrowEnabled?Limit(velocity*ThrowCoefficient):default;
-        State=GravityEnabled?PhysicalState.Throwing:PhysicalState.Free;
+        var throwing=MotionEnabled&&GravityEnabled&&ThrowEnabled;
+        Velocity=throwing?Limit(velocity*ThrowCoefficient):default;
+        State=throwing?PhysicalState.Throwing:PhysicalState.Free;
+    }
+    public bool TryAttach(Edge side,Bounds bounds,double tolerance=.5)
+    {
+        if(!MotionEnabled||SnappedEdge!=Edge.None||State is not (PhysicalState.Free or PhysicalState.Climbing)||
+           !SurfaceMotion.IsSingle(side)||!SurfaceMotion.Touching(Position,bounds,tolerance).HasFlag(side))return false;
+        State=PhysicalState.Climbing;ClimbEdge=side;Velocity=default;
+        Position=SurfaceMotion.OnEdge(Clamp(Position,bounds),bounds,side);return true;
+    }
+    public void DetachClimb(){if(State==PhysicalState.Climbing){State=PhysicalState.Free;ClimbEdge=Edge.None;Velocity=default;}}
+    public bool BeginLeap(Edge targetEdge,Point target,Bounds bounds,double speed)
+    {
+        if(!MotionEnabled||SnappedEdge!=Edge.None||State is not (PhysicalState.Free or PhysicalState.Climbing)||
+           !SurfaceMotion.IsSingle(targetEdge)||SurfaceMotion.Touching(Position,bounds).HasFlag(targetEdge)||
+           !double.IsFinite(speed)||speed<=0)return false;
+        target=SurfaceMotion.OnEdge(Clamp(target,bounds),bounds,targetEdge);
+        var delta=target-Position;if(delta.Length<.001)return false;
+        ClearPhysicalState();State=PhysicalState.Flying;LeapTargetEdge=targetEdge;LeapTarget=target;
+        leapSpeed=speed;Velocity=delta*(speed/delta.Length);return true;
     }
     public bool MoveFrame(Point delta,Bounds? bounds=null)
     {
-        if(State!=PhysicalState.Free||SnappedEdge!=Edge.None)return false;
+        if(!MotionEnabled||State is not (PhysicalState.Free or PhysicalState.Climbing)||SnappedEdge!=Edge.None)return false;
         var next=Position+delta;
         Position=bounds is Bounds b?Clamp(next,b):next;
+        if(bounds is Bounds limits&&ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,limits,ClimbEdge);
         return Position!=next;
     }
-    private Point Acceleration=>!GravityEnabled?default:new Point(
+    private Point Acceleration=>!MotionEnabled||!GravityEnabled?default:new Point(
         Gravity*((GravityEdges.HasFlag(Edge.Right)?1:0)-(GravityEdges.HasFlag(Edge.Left)?1:0)),
         Gravity*((GravityEdges.HasFlag(Edge.Bottom)?1:0)-(GravityEdges.HasFlag(Edge.Top)?1:0)));
-    private Edge Primary=>Acceleration.Y>0?Edge.Bottom:Acceleration.Y<0?Edge.Top:Acceleration.X<0?Edge.Left:Acceleration.X>0?Edge.Right:Edge.None;
+    public Edge GravitySurface=>Acceleration.Y>0?Edge.Bottom:Acceleration.Y<0?Edge.Top:Acceleration.X<0?Edge.Left:Acceleration.X>0?Edge.Right:Edge.None;
     private double Collide(double velocity,Edge edge)=>State==PhysicalState.Throwing&&BounceEnabled&&BounceEdges.HasFlag(edge)?-velocity*Math.Clamp(Bounce,0,1):0;
     public bool Advance(double seconds,Bounds bounds)
     {
         if(!double.IsFinite(seconds)||seconds<0)throw new ArgumentOutOfRangeException(nameof(seconds));
-        if(State is not (PhysicalState.Free or PhysicalState.Throwing)||SnappedEdge!=Edge.None)return false;
+        if(!MotionEnabled||SnappedEdge!=Edge.None)return false;
+        if(State==PhysicalState.Flying&&LeapTarget is Point target)
+        {
+            var delta=target-Position;var distance=delta.Length;var travel=leapSpeed*seconds;
+            if(distance<=travel||distance<.001)
+            {
+                Position=target;Velocity=default;State=PhysicalState.Free;
+                LastImpactEdge=LeapTargetEdge;LeapTargetEdge=Edge.None;LeapTarget=null;return true;
+            }
+            Velocity=delta*(leapSpeed/distance);Position+=delta*(travel/distance);return false;
+        }
+        if(State is not (PhysicalState.Free or PhysicalState.Throwing))return false;
         while(seconds>0)
         {
             var dt=Math.Min(seconds,1.0/120);seconds-=dt;
@@ -83,10 +157,11 @@ public sealed class PhysicsBody
             if(xEdge!=Edge.None)Velocity=Velocity with{X=Collide(Velocity.X,xEdge)};
             if(yEdge!=Edge.None)Velocity=Velocity with{Y=Collide(Velocity.Y,yEdge)};
             Position=clamped;
-            if(State==PhysicalState.Throwing&&((Primary!=Edge.None&&
-               ((xEdge==Primary&&Math.Abs(Velocity.X)<LandingSpeed)||(yEdge==Primary&&Math.Abs(Velocity.Y)<LandingSpeed)))||
-               (Primary==Edge.None&&Math.Abs(Velocity.X)<10&&Math.Abs(Velocity.Y)<10)))
-            {Velocity=default;State=PhysicalState.Free;return true;}
+            var primary=GravitySurface;
+            if(State==PhysicalState.Throwing&&((primary!=Edge.None&&
+               ((xEdge==primary&&Math.Abs(Velocity.X)<LandingSpeed)||(yEdge==primary&&Math.Abs(Velocity.Y)<LandingSpeed)))||
+               (primary==Edge.None&&Math.Abs(Velocity.X)<10&&Math.Abs(Velocity.Y)<10)))
+            {Velocity=default;State=PhysicalState.Free;LastImpactEdge=primary;return true;}
         }
         return false;
     }

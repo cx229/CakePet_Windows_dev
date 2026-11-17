@@ -11,12 +11,15 @@ try
  "version":"1.12","id":"test","name":"Test","functions":{
  "standby":{"pool":{"modes":["bad","idle"]}},
  "pat_head":{"pat_head":{"modes":["event"],"thinking":{"policy":"hold","pool":{"a":{"min":5,"max":5}}}}},
- "snap":{"pool":{"modes":["idle"]}},"menu":{"pool":{"modes":["event"]}}},
+ "snap":{"pool":{"modes":["idle"]}},"menu":{"pool":{"modes":["event"]}},
+ "climb":{"leap":{"leap":{"modes":["flight"]},"landing":{"modes":["land"]}}}},
  "modes":{
  "bad":{"frames":[{"res":"../escape.png","delay":1}]},
  "idle":{"loopMode":"infinite","nextMode":"missing","frames":[{"res":"a.png","delay":10,"dx":2}]},
  "event":{"loopMode":"off","nextMode":"tail","frames":[{"res":"a.png","delay":[5,5]}]},
- "tail":{"loopMode":"timed","duration":{"min":12,"max":12},"finishCycle":true,"frames":[{"res":"a.png","delay":10}]}
+ "tail":{"loopMode":"timed","duration":{"min":12,"max":12},"finishCycle":true,"frames":[{"res":"a.png","delay":10}]},
+ "flight":{"loopMode":"infinite","frames":[{"res":"a.png","delay":10}]},
+ "land":{"loopMode":"off","frames":[{"res":"a.png","delay":100}]}
  },"thinkings":{"a":{"text":"hello"}}
  }
  """);
@@ -57,6 +60,26 @@ try
  var body=new PhysicsBody(new Point(10,10));body.Grab();body.Release(default);
  for(int i=0;i<100&&body.State!=PhysicalState.Free;i++)body.Advance(.05,new Bounds(0,0,100,100));
  Assert(body.State==PhysicalState.Free&&body.Position.Y==100,"landing");
+ Assert(SurfaceMotion.ToScreen(new Point(5,2),Edge.Left)==new Point(-2,5),"surface rotation");
+ var wallBody=new PhysicsBody(new Point(50,100));
+ Assert(wallBody.TryAttach(Edge.Bottom,new Bounds(0,0,100,100)),"ground attachment");
+ Assert(!wallBody.TryAttach(Edge.Left,new Bounds(0,0,100,100)),"no teleport attachment");
+ wallBody.MoveFrame(new Point(60,0),new Bounds(0,0,100,100));
+ Assert(wallBody.TryAttach(Edge.Right,new Bounds(0,0,100,100))&&wallBody.Position==new Point(100,100),"corner switch");
+ using var engine=new PetEngine(new RoleRuntime(pack,new Random(3)),new Bounds(0,0,100,100),128,new Point(50,100),new Random(4));
+ engine.SetClimbing(true);engine.SetLeapEnabled(true);
+ Assert(engine.Body.State==PhysicalState.Climbing&&engine.Role.Physics==PhysicalState.Climbing,"engine climbing state");
+ Assert(!engine.TryStartLeap(Edge.Bottom),"reject launch wall");
+ Assert(engine.TryStartLeap(Edge.Top)&&engine.Role.FunctionPath=="climb/leap/leap"&&engine.Body.State==PhysicalState.Flying,"leap physical entry");
+ Assert(!engine.PatHead(),"interaction blocked during leap");
+ for(int i=0;i<100&&engine.Body.State==PhysicalState.Flying;i++)engine.Step(5);
+ Assert(engine.Body.State==PhysicalState.Climbing&&engine.Body.ClimbEdge==Edge.Top&&engine.Role.FunctionPath=="climb/leap/landing","landing interrupts infinite flight");
+ engine.BeginDrag();Assert(engine.Body.State==PhysicalState.Dragging&&engine.Body.ClimbEdge==Edge.None,"drag interrupts climbing");
+ engine.ReturnHome();Assert(engine.Body.Position.Y==100&&engine.Body.State==PhysicalState.Climbing,"home then attach");
+ var noThrow=new PhysicsBody(new Point(50,20)){ThrowEnabled=false,SnapEnabled=false};
+ noThrow.Grab();noThrow.Release(new Point(1000,1000),new Bounds(0,0,200,200));
+ Assert(noThrow.State==PhysicalState.Free&&noThrow.Velocity==default,"disabled throw falls without rolling");
+ noThrow.Advance(.1,new Bounds(0,0,200,200));Assert(noThrow.Position.Y>20,"gravity independent of throw");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

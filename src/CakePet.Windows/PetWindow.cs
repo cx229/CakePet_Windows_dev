@@ -15,9 +15,10 @@ namespace CakePet.Windows;
 
 internal sealed class PetWindow : Window
 {
-    private readonly RoleRuntime role;
+    private readonly PetEngine engine;
+    private RoleRuntime role=>engine.Role;
+    private PhysicsBody body=>engine.Body;
     private readonly WpfImageCache images;
-    private readonly PhysicsBody body;
     private readonly Canvas canvas=new(){Background=Brushes.Transparent};
     private readonly Image image=new(){Stretch=Stretch.Fill,IsHitTestVisible=false};
     private readonly TextBlock thoughtText=new(){FontSize=14,Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center};
@@ -28,17 +29,15 @@ internal sealed class PetWindow : Window
     private WPoint pressedAt,previousMouse;
     private P pressedBody,velocity;
     private bool pressed,dragging,closed;
-    private int facing=1;
     private Frame? rendered;
     private const double Side=160;
     public PetWindow(RoleRuntime role,WpfImageCache images,int index)
     {
-        this.role=role;this.images=images;Title=role.Package.Name;
+        this.images=images;Title=role.Package.Name;
         Width=Height=Side;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;AllowsTransparency=true;
         Background=Brushes.Transparent;Topmost=true;ShowInTaskbar=false;ShowActivated=false;
         canvas.Children.Add(image);Content=canvas;
-        var b=CurrentBounds();body=new PhysicsBody(new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
-        body.SnapEnabled=role.Package.Supports("snap/pool");body.ThrowEnabled=role.Package.Supports("touch/roll");
+        var b=CurrentBounds();engine=new PetEngine(role,b,Side,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
         Left=body.Position.X;Top=body.Position.Y;
         thoughtWindow=new Window{Width=360,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,
             AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false};
@@ -46,21 +45,27 @@ internal sealed class PetWindow : Window
             Padding=new Thickness(8,3,8,3),VerticalAlignment=VerticalAlignment.Center,Child=thoughtText};
         thoughtWindow.SourceInitialized+=(_,_)=>NativeStyles.NonActivating(thoughtWindow,true);
         SourceInitialized+=(_,_)=>NativeStyles.NonActivating(this,false);
-        role.FrameEntered+=ApplyMotion;
         var menu=new ContextMenu();
-        Add("摸摸头",()=>role.Trigger(body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head"));
-        Add("菜单动画",()=>role.Trigger("menu/pool"));
-        Add("归位",()=>{var bounds=CurrentBounds();body.Reset(new P((bounds.Left+bounds.Right)/2,bounds.Bottom),bounds);role.ResetToStandby();Render();});
-        Add("切换静止待机",()=>role.SetStaticStandby(!role.StaticStandby));
+        Add("摸摸头",()=>engine.PatHead());
+        var menuAction=Add("菜单动画",()=>engine.MenuAction());
+        Add("归位",()=>{engine.ReturnHome();Render();});
+        var still=Add("静止待机",()=>engine.SetStaticStandby(!role.StaticStandby));still.IsCheckable=true;
+        var climb=Add("攀岩走壁",()=>engine.SetClimbing(!engine.ClimbEnabled));climb.IsCheckable=true;
+        var leap=Add("好动飞跃",()=>engine.SetLeapEnabled(!engine.LeapEnabled));leap.IsCheckable=true;
+        var leapTest=Add("立即飞跃（测试）",()=>engine.TryStartLeap());
         Add("召回",Close);
-        menu.Opened+=(_,_)=>{((MenuItem)menu.Items[1]).IsEnabled=role.Package.Supports("menu/pool");((MenuItem)menu.Items[3]).IsEnabled=role.Package.Supports("standby/static_pool");};
+        menu.Opened+=(_,_)=>{
+            menuAction.IsEnabled=role.Package.Supports("menu/pool");still.IsEnabled=role.Package.Supports("standby/static_pool");still.IsChecked=role.StaticStandby;
+            climb.IsChecked=engine.ClimbEnabled;leap.IsChecked=engine.LeapEnabled;leap.IsEnabled=role.Package.Supports("climb/leap/leap");
+            leapTest.IsEnabled=engine.ClimbEnabled&&engine.LeapEnabled;
+        };
         ContextMenu=menu;
-        void Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);}
+        MenuItem Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);return item;}
         MouseLeftButtonDown+=OnDown;MouseMove+=OnMove;MouseLeftButtonUp+=OnUp;
         LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging)FinishDrag();}};
-        Loaded+=(_,_)=>{ApplyMotion(role.Animation.Current);Render();lastTick=clock.ElapsedMilliseconds;timer.Start();};
+        Loaded+=(_,_)=>{Render();lastTick=clock.ElapsedMilliseconds;timer.Start();};
         timer.Tick+=(_,_)=>Tick();
-        Closed+=(_,_)=>{closed=true;timer.Stop();role.FrameEntered-=ApplyMotion;thoughtWindow.Close();};
+        Closed+=(_,_)=>{closed=true;timer.Stop();engine.Dispose();thoughtWindow.Close();};
     }
     // Stage 2 deliberately constrains the host to the primary monitor's work area.
     // Later platform work replaces this with native monitor/DPI-aware bounds.
@@ -84,37 +89,29 @@ internal sealed class PetWindow : Window
         if(!pressed)return;
         var p=Screen(e);var dx=p.X-pressedAt.X;var dy=p.Y-pressedAt.Y;
         if(!dragging&&Math.Sqrt(dx*dx+dy*dy)<5)return;
-        if(!dragging){dragging=true;body.Grab();role.SetEnvironment(false,PhysicalState.Dragging);}
+        if(!dragging){dragging=true;engine.BeginDrag();}
         var now=clock.ElapsedMilliseconds;var dt=Math.Max(1,now-lastMouse)/1000.0;
         var instant=new P((p.X-previousMouse.X)/dt,(p.Y-previousMouse.Y)/dt);
         velocity=velocity*.35+instant*.65;previousMouse=p;lastMouse=now;
-        body.DragTo(pressedBody+new P(dx,dy));role.UpdateDragCondition(velocity.X,Side);
+        engine.DragTo(pressedBody+new P(dx,dy),velocity.X);
         Render();
     }
     private void OnUp(object sender,MouseButtonEventArgs e)
     {
         if(!pressed)return;pressed=false;ReleaseMouseCapture();
         if(dragging)FinishDrag();
-        else role.Trigger(body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head");
+        else engine.PatHead();
         Render();e.Handled=true;
     }
     private void FinishDrag()
     {
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
-        body.Release(velocity,CurrentBounds());
-        role.SetEnvironment(body.SnappedEdge!=Edge.None,body.State);Render();
-    }
-    private void ApplyMotion(Frame frame)
-    {
-        if(role.StaticStandby||body.SnappedEdge!=Edge.None)return;
-        var scale=Side/role.Package.AnchorRes;
-        if(body.MoveFrame(new P(frame.Dx*scale*facing,frame.Dy*scale),CurrentBounds())&&frame.Dx!=0)facing=-facing;
+        engine.UpdateBounds(CurrentBounds());engine.EndDrag(velocity);Render();
     }
     private void Tick()
     {
         if(closed)return;var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
-        if(body.Advance(dt/1000.0,CurrentBounds()))role.CompletePhysicalMotion();
-        role.Advance(dt);Render();
+        engine.UpdateBounds(CurrentBounds());engine.Step(dt);Render();
     }
     private void Render()
     {
@@ -129,7 +126,8 @@ internal sealed class PetWindow : Window
             image.Source=bitmap;image.Width=g.Width*scale;image.Height=g.Height*scale;
             Canvas.SetLeft(image,g.Left*scale);Canvas.SetTop(image,g.Top*scale);rendered=frame;
         }
-        var angle=body.SnappedEdge switch{Edge.Left=>90,Edge.Right=>-90,Edge.Top=>180,_=>0};
+        var facing=engine.Facing;
+        var angle=engine.RenderEdge switch{Edge.Left=>90,Edge.Right=>-90,Edge.Top=>180,_=>0};
         if(canvas.RenderTransform is not TransformGroup group||((ScaleTransform)group.Children[0]).ScaleX!=facing||((RotateTransform)group.Children[1]).Angle!=angle)
         {
             canvas.RenderTransformOrigin=new WPoint(.5,.5);
