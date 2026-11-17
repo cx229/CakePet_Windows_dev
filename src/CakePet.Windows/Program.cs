@@ -87,15 +87,16 @@ internal sealed class Launcher : Window
         toolbar.Children.Add(Ui.Button("＋ 新建角色",NewRole,true));toolbar.Children.Add(Button("召回全部",RecallAll));toolbar.Children.Add(Button("恢复全部点击",RestoreInput));
         var homeHeading=new StackPanel{Margin=new Thickness(0,0,0,14)};homeHeading.Children.Add(Ui.Text("我的角色",26));homeHeading.Children.Add(status);DockPanel.SetDock(homeHeading,Dock.Top);roles.Children.Add(homeHeading);DockPanel.SetDock(toolbar,Dock.Top);roles.Children.Add(toolbar);roles.Children.Add(new ScrollViewer{Content=roleCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         
-        var materials=new DockPanel{Margin=new Thickness(12)};var materialsTitle=Ui.Text("素材包管理",26);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);var import=Button("导入素材包目录",ImportPack);DockPanel.SetDock(import,Dock.Top);materials.Children.Add(import);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        var materials=new DockPanel{Margin=new Thickness(12)};var materialsTitle=Ui.Text("素材包管理",26);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);var importRow=new WrapPanel();importRow.Children.Add(Ui.Button("导入 ZIP",ImportArchive,true));importRow.Children.Add(Ui.Button("导入目录",ImportPack));DockPanel.SetDock(importRow,Dock.Top);materials.Children.Add(importRow);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var global=new StackPanel{Margin=new Thickness(20),MaxWidth=850};global.Children.Add(Ui.Text("全局设置",26));
         var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",IsChecked=catalog.SingleThinking,Margin=new Thickness(0,8,0,8)};
         thoughts.SingleAcrossRoles=catalog.SingleThinking;single.Click+=(_,_)=>{catalog.SingleThinking=single.IsChecked==true;thoughts.SingleAcrossRoles=catalog.SingleThinking;storage.Save();};global.Children.Add(Ui.Card(single));
         var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};
         launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(launch));
         global.Children.Add(Button("用户习惯 · 新角色默认值",EditDefaults));
+        var backup=new SettingCard("备份与恢复","导出全部持久化数据；导入时只覆盖支持的内容。");var backupActions=new WrapPanel();backupActions.Children.Add(Ui.Button("导出软件备份",ExportBackup,true));backupActions.Children.Add(Ui.Button("导入 ZIP 备份",ImportArchive));backupActions.Children.Add(Ui.Button("重置软件",ResetSoftware));backup.Add(backupActions);global.Children.Add(backup);
         global.Children.Add(Button("清除全部食物",()=>world.Clear()));global.Children.Add(Button("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();}));
-        foreach(var item in new[]{("首页",(FrameworkElement)roles),("素材包管理",materials),("全局设置",global)}){int i=navItems.Count;var page=item.Item2;var b=Ui.Button(item.Item1,()=>Navigate(page,i));b.HorizontalContentAlignment=HorizontalAlignment.Left;b.Margin=new Thickness(0,4,0,4);navItems.Add(b);nav.Children.Add(b);}
+        foreach(var item in new[]{("首页",(FrameworkElement)roles),("素材包管理",materials),("全局设置",new ScrollViewer{Content=global,VerticalScrollBarVisibility=ScrollBarVisibility.Auto})}){int i=navItems.Count;var page=item.Item2;var b=Ui.Button(item.Item1,()=>Navigate(page,i));b.HorizontalContentAlignment=HorizontalAlignment.Left;b.Margin=new Thickness(0,4,0,4);navItems.Add(b);nav.Children.Add(b);}
         nav.Children.Add(Ui.Text(Version,11,true));Navigate(roles,0);RefreshCards();
         saveTimer.Tick+=(_,_)=>Safe(FlushSave);
         var trayMenu=new Forms.ContextMenuStrip();
@@ -161,6 +162,19 @@ internal sealed class Launcher : Window
         var dialog=new OpenFolderDialog{Title="选择包含 modes.jsonc 的目录"};if(dialog.ShowDialog(this)!=true)return;
         storage.Import(dialog.FolderName);RefreshCards();
     });
+    private string? ChooseSave(string filename,string filter){var d=new SaveFileDialog{FileName=filename,Filter=filter};return d.ShowDialog(this)==true?d.FileName:null;}
+    private void ExportBackup()=>Safe(()=>{FlushSave();var path=ChooseSave("CakePet-backup-"+DateTime.Now.ToString("yyyyMMdd-HHmm")+".zip","ZIP 文件|*.zip");if(path!=null)storage.ExportBackup(path,Version);});
+    private void ImportArchive()=>Safe(()=>{
+        var d=new OpenFileDialog{Filter="CakePet ZIP|*.zip"};if(d.ShowDialog(this)!=true)return;
+        if(MessageBox.Show(this,"导入 ZIP。若为软件备份，将选择性覆盖可兼容的数据，其他数据保留。","导入",MessageBoxButton.OKCancel)!=MessageBoxResult.OK)return;
+        FlushSave();var active=pets.Select(x=>x.RoleId).Distinct().ToArray();RecallAll();packages.Clear();
+        try{var result=storage.ImportZip(d.FileName);thoughts.SingleAcrossRoles=catalog.SingleThinking;BackHome();MessageBox.Show(this,result,"导入完成");}
+        finally{foreach(var id in active)if(catalog.Roles.FirstOrDefault(x=>x.Id==id) is RoleEntry r)Summon(r);}
+    });
+    private void ResetSoftware()=>Safe(()=>{if(MessageBox.Show(this,"清空角色、素材包和设置，恢复首次安装状态？请先导出备份。","重置软件",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;FlushSave();RecallAll();packages.Clear();storage.Reset(defaultRoot);thoughts.SingleAcrossRoles=catalog.SingleThinking;BackHome();});
+    private void ExportRole(RoleEntry role)=>Safe(()=>{var path=ChooseSave("CakePet-role-settings.json","JSON 文件|*.json");if(path!=null)storage.ExportRole(catalog.Roles.Single(x=>x.Id==role.Id),path);});
+    private void ImportRole(RoleEntry role)=>Safe(()=>{var d=new OpenFileDialog{Filter="角色设置|*.json"};if(d.ShowDialog(this)!=true)return;var next=storage.ImportRole(catalog.Roles.Single(x=>x.Id==role.Id),d.FileName);catalog.Update(next);storage.Save();if(pets.Any(p=>p.RoleId==role.Id))Summon(next);RefreshCards();});
+    private void ExportPack(PackEntry p)=>Safe(()=>{var pack=GetPack(p.Id).Pack;var name=string.Concat(pack.Name.Select(c=>Path.GetInvalidFileNameChars().Contains(c)?'_':c));var path=ChooseSave(name+"-v"+pack.Version+".zip","ZIP 文件|*.zip");if(path!=null)storage.ExportPack(p,path);});
     private void NewRole()=>Safe(()=>{
         if(catalog.Packs.Count==0){ImportPack();if(catalog.Packs.Count==0)return;}
         var panel=new StackPanel{Margin=new Thickness(24),MaxWidth=700};panel.Children.Add(Ui.Button("‹ 返回",BackHome));panel.Children.Add(Ui.Text("选择素材包",24));
@@ -189,7 +203,7 @@ internal sealed class Launcher : Window
             panel.Children.Add(Ui.Text(active?$"已召唤 · {pets.Count(p=>p.RoleId==r.Id)} 个实例":"未召唤",12,true));
             var row=new WrapPanel{Margin=new Thickness(0,12,0,0)};
             row.Children.Add(Ui.Button(active?"召回":"召唤",()=>{if(active)Recall(r.Id);else Summon(r);},true));row.Children.Add(Ui.Button("设置",()=>Edit(r)));
-            var more=Ui.Button("⋯",()=>{});var menu=new ContextMenu();var home=new MenuItem{Header="归位",IsEnabled=active};home.Click+=(_,_)=>{foreach(var pet in pets.Where(p=>p.RoleId==r.Id))pet.Engine.ReturnHome();};menu.Items.Add(home);
+            var more=Ui.Button("⋯",()=>{});var menu=new ContextMenu();var home=new MenuItem{Header="归位",IsEnabled=active};home.Click+=(_,_)=>{foreach(var pet in pets.Where(p=>p.RoleId==r.Id))pet.Engine.ReturnHome();};menu.Items.Add(home);var exportSettings=new MenuItem{Header="导出角色设置"};exportSettings.Click+=(_,_)=>ExportRole(r);menu.Items.Add(exportSettings);var importSettings=new MenuItem{Header="导入角色设置"};importSettings.Click+=(_,_)=>ImportRole(r);menu.Items.Add(importSettings);
             var delete=new MenuItem{Header="删除角色"};delete.Click+=(_,_)=>Safe(()=>{if(MessageBox.Show(this,"删除角色及其设置？素材包将保留。","删除角色",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;Recall(r.Id);catalog.Roles.RemoveAll(x=>x.Id==r.Id);storage.Save();RefreshCards();});menu.Items.Add(delete);more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;more.Margin=new Thickness(0);more.Padding=new Thickness(10,5,10,5);Grid.SetColumn(more,1);header.Children.Add(more);panel.Children.Add(row);
             var card=Ui.Card(panel);card.Margin=new Thickness(0,0,14,14);roleCards.Children.Add(card);
         }
@@ -198,7 +212,7 @@ internal sealed class Launcher : Window
             var row=new StackPanel{Margin=new Thickness(10)};
             row.Children.Add(new TextBlock{Text=p.Name,FontSize=18});
             row.Children.Add(new TextBlock{Text=$"{catalog.Roles.Count(r=>r.PackId==p.Id)} 个角色使用"});
-            row.Children.Add(Button("删除素材包",()=>Safe(()=>{if(catalog.Roles.Any(r=>r.PackId==p.Id))throw new InvalidOperationException("素材包仍被角色使用");if(MessageBox.Show(this,"删除这个素材包？","删除素材包",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;packages.Remove(storage.Resolve(p));storage.RemovePack(p);RefreshCards();})));
+            row.Children.Add(Ui.Button("导出素材包",()=>ExportPack(p)));row.Children.Add(Button("删除素材包",()=>Safe(()=>{if(catalog.Roles.Any(r=>r.PackId==p.Id))throw new InvalidOperationException("素材包仍被角色使用");if(MessageBox.Show(this,"删除这个素材包？","删除素材包",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;packages.Remove(storage.Resolve(p));storage.RemovePack(p);RefreshCards();})));
             packCards.Children.Add(Ui.Card(row));
         }
         Refresh();

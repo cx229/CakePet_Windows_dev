@@ -33,3 +33,5 @@ Stage 10 UI: shared WPF resource dictionary, slider/value rows, inline role/defa
 Stage 10 follow-up: grouped setting cards and expandable gravity/bounce sections, inline package selection, tray-first explicit shutdown and single-instance activation, original 白酥 sit_clam-1.png copied byte-for-byte by CI to assets/tray.png. The tray icon is cropped/scaled only in memory; no generated art. Native confirmation/file dialogs retained.
 
 Stage 11 UI: explicit SettingCard ownership, main/sub remarks, independent expand and enable, inline numeric/direction rows, shared-track two-handle food interval, per-field patches against latest catalog state, reorganized role pages and card headers. No material editor or threshold changes.
+
+Stage 12a: bounded safe ZIP extraction, root/nested package import, package export, Windows backup selective overlay, reset to bundled default, role settings JSON import/export. Android backup schema is recognized but not yet imported; package ZIP format is shared. Existing roles not included in a backup are retained. Physical package folders use fresh UUIDs for transactional replacement.
