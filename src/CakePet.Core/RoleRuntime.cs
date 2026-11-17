@@ -47,6 +47,7 @@ public sealed class RoleRuntime
         StaticStandby=enabled;
         if(Physics==PhysicalState.Free&&!Snapped&&StateFunction==null)Resume();
     }
+    public void ResetToStandby(){Snapped=false;Physics=PhysicalState.Free;StateFunction=null;Resume();}
     public void SetEnvironment(bool snapped,PhysicalState state,string? stateFunction=null)
     {
         if(snapped&&state!=PhysicalState.Free)throw new ArgumentException("Snapped environment cannot be dragged or in flight.");

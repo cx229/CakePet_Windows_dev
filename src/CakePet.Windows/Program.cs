@@ -16,6 +16,7 @@ internal static class Program
         if(args.Length>0&&args[0]=="--validate-assets")
         {
             var pack=RolePackage.Load(root,WpfImageCache.IsReadable);
+            if(pack.Warnings.Count>0)throw new InvalidDataException(string.Join(Environment.NewLine,pack.Warnings));
             var cache=new WpfImageCache(pack);
             foreach(var mode in pack.Modes.Values)foreach(var frame in mode.Frames)
                 if(cache.Get(frame).PixelWidth<=0)throw new InvalidDataException(frame.Resource);

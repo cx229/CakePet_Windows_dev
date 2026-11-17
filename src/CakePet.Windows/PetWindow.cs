@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using CakePet.Core;
 using P= CakePet.Core.Point;
+using Frame= CakePet.Core.Frame;
 using WPoint=System.Windows.Point;
 
 namespace CakePet.Windows;
@@ -37,6 +38,7 @@ internal sealed class PetWindow : Window
         Background=Brushes.Transparent;Topmost=true;ShowInTaskbar=false;ShowActivated=false;
         canvas.Children.Add(image);Content=canvas;
         var b=CurrentBounds();body=new PhysicsBody(new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
+        body.SnapEnabled=role.Package.Supports("snap/pool");body.ThrowEnabled=role.Package.Supports("touch/roll");
         Left=body.Position.X;Top=body.Position.Y;
         thoughtWindow=new Window{Width=360,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,
             AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false};
@@ -48,10 +50,10 @@ internal sealed class PetWindow : Window
         var menu=new ContextMenu();
         Add("摸摸头",()=>role.Trigger(body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head"));
         Add("菜单动画",()=>role.Trigger("menu/pool"));
-        Add("归位",()=>{body.Grab();var bounds=CurrentBounds();body.DragTo(new P((bounds.Left+bounds.Right)/2,bounds.Bottom));body.Release(default);role.SetEnvironment(false,PhysicalState.Free);});
+        Add("归位",()=>{var bounds=CurrentBounds();body.Reset(new P((bounds.Left+bounds.Right)/2,bounds.Bottom),bounds);role.ResetToStandby();Render();});
         Add("切换静止待机",()=>role.SetStaticStandby(!role.StaticStandby));
         Add("召回",Close);
-        menu.Opened+=(_,_)=>{((MenuItem)menu.Items[1]).IsEnabled=role.Package.Candidates("menu/pool").Count>0;};
+        menu.Opened+=(_,_)=>{((MenuItem)menu.Items[1]).IsEnabled=role.Package.Supports("menu/pool");((MenuItem)menu.Items[3]).IsEnabled=role.Package.Supports("standby/static_pool");};
         ContextMenu=menu;
         void Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);}
         MouseLeftButtonDown+=OnDown;MouseMove+=OnMove;MouseLeftButtonUp+=OnUp;

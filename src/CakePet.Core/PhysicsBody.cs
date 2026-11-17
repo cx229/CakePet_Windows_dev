@@ -32,6 +32,7 @@ public sealed class PhysicsBody
     private static Point Clamp(Point p,Bounds b)=>new(Math.Clamp(p.X,b.Left,b.Right),Math.Clamp(p.Y,b.Top,b.Bottom));
     private Point Limit(Point p)=>new(Math.Clamp(p.X,-MaxSpeed,MaxSpeed),Math.Clamp(p.Y,-MaxSpeed,MaxSpeed));
     public void Place(Point point,Bounds? bounds=null){Position=bounds is Bounds b?Clamp(point,b):point;Velocity=default;}
+    public void Reset(Point point,Bounds? bounds=null){Place(point,bounds);State=PhysicalState.Free;SnappedEdge=Edge.None;}
     public void Grab(){State=PhysicalState.Dragging;SnappedEdge=Edge.None;Velocity=default;}
     public void DragTo(Point point){if(State==PhysicalState.Dragging)Position=point;}
     public void Release(Point velocity,Bounds? bounds=null)

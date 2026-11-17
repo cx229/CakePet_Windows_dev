@@ -66,12 +66,19 @@ public sealed class ThinkingTimeline
 public sealed class ThinkingCoordinator
 {
     private readonly Dictionary<ThinkingTimeline,Action> roles=new();
-    private ThinkingTimeline? last;
+    private readonly Dictionary<ThinkingTimeline,long> order=new();
+    private long sequence;
     private bool single;
     public bool SingleAcrossRoles
     {
         get=>single;
-        set {single=value; foreach(var role in roles.Keys)role.Suppressed=value&&last!=null&&role!=last;}
+        set
+        {
+            single=value;
+            if(!value){foreach(var role in roles.Keys)role.Suppressed=false;return;}
+            var latest=roles.Keys.Where(x=>x.VisibleText!=null).OrderByDescending(x=>order.GetValueOrDefault(x)).FirstOrDefault();
+            if(latest!=null)foreach(var role in roles.Keys)role.Suppressed=role!=latest;
+        }
     }
     public void Add(ThinkingTimeline role)
     {
@@ -83,12 +90,12 @@ public sealed class ThinkingCoordinator
     public void Remove(ThinkingTimeline role)
     {
         if(roles.Remove(role,out var callback))role.NewText-=callback;
-        if(last==role)last=null;
+        order.Remove(role);
         role.Suppressed=false;
     }
     private void OnNewText(ThinkingTimeline role)
     {
-        last=role;
+        order[role]=++sequence;
         if(single)foreach(var other in roles.Keys)other.Suppressed=other!=role;
     }
 }

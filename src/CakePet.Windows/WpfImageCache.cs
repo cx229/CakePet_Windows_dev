@@ -16,7 +16,7 @@ internal sealed class WpfImageCache(RolePackage pack)
             var frame=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad).Frames[0];
             return frame.PixelWidth>0&&frame.PixelHeight>0;
         }
-        catch(Exception e) when(e is IOException or NotSupportedException or ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException){return false;}
+        catch(Exception e) when(e is IOException or NotSupportedException or ArgumentException or InvalidOperationException or FormatException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException){return false;}
     }
     public BitmapSource Get(Frame frame)
     {

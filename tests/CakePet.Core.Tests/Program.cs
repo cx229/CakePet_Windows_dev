@@ -51,6 +51,9 @@ try
  coordinator.SingleAcrossRoles=false;Assert(t.VisibleText=="hello","suppression clearing");
  var sideBody=new PhysicsBody(new Point(5,50));sideBody.Grab();sideBody.Release(default,new Bounds(0,0,200,200));
  Assert(sideBody.SnappedEdge==Edge.Left&&sideBody.Position.X==0,"snap left");sideBody.Grab();Assert(sideBody.SnappedEdge==Edge.None,"pull out");
+ sideBody.Release(new Point(1000,1000));sideBody.Reset(new Point(50,200),new Bounds(0,0,200,200));
+ Assert(sideBody.State==PhysicalState.Free&&sideBody.SnappedEdge==Edge.None&&sideBody.Position.Y==200,"home reset");
+ role.ResetToStandby();Assert(role.Physics==PhysicalState.Free&&role.FunctionPath=="standby/pool","role home reset");
  var body=new PhysicsBody(new Point(10,10));body.Grab();body.Release(default);
  for(int i=0;i<100&&body.State!=PhysicalState.Free;i++)body.Advance(.05,new Bounds(0,0,100,100));
  Assert(body.State==PhysicalState.Free&&body.Position.Y==100,"landing");

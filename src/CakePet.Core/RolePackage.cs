@@ -122,6 +122,7 @@ public sealed class RolePackage
     }
     public IReadOnlyList<string> Candidates(string path) => Functions.TryGetValue(path,out var f)
         ? f.Modes.Where(x=>playable.GetValueOrDefault(x)).ToArray() : Array.Empty<string>();
+    public bool Supports(string path)=>Candidates(path).Count>0;
     public Thinking ResolveThinking(string mode,string function) =>
         Modes.TryGetValue(mode,out var m)&&m.Thinking is { Policy: not "inherit" } t ? t :
         Functions.TryGetValue(function,out var f)?f.Thinking:Thinking.Empty;
