@@ -47,3 +47,5 @@ Stage 14: opt-in anonymous keyboard count via raw-input make events; only aggreg
 Stage 15: global None/Latest/Overlap thinking policy, strict latest across all instances, no revival of interrupted messages, common anchored grid with z-order (no stacking), global disable preserves individual settings and stops typing input. Old SingleThinking JSON accepted on import/load. Manual desktop validation pending.
 
 Stage 16a: restore Android role-setting taxonomy, friendly role-specific remarks, move maximum speed/screen connection/climb/forage/leap into movement, independent snap page, fixed headings, state summaries, fold dependencies and forced-on movement switch, exclusive gravity directions. Dark blue-gray shared theme and compact controls. No new random-mode runtime or mobile-only sensor settings.
+
+Stage 16b: compact dark home and pack management, grouped global settings, action menus, shared dark dropdown popup and menu colors, editor Chinese function labels and playback labels, top save action. Full multi-column editor and theme picker deferred.

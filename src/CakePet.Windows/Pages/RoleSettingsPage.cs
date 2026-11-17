@@ -21,7 +21,7 @@ internal sealed class RoleSettingsPage:UserControl
         nav.Children.Add(Ui.Light("‹ 返回",back));var title=Ui.Caption(defaults?"用户习惯":entry.Name,defaults?"新角色默认设置":"角色设置",true);title.Margin=new Thickness(4,20,0,20);nav.Children.Add(title);
         var host=new ContentControl{Margin=new Thickness(22,20,22,12)};Grid.SetColumn(host,1);root.Children.Add(host);
         var sections=new List<FrameworkElement>();var buttons=new List<Button>();var summaries=new List<Action>();
-        void Select(int index){host.Content=sections[index];for(int i=0;i<buttons.Count;i++)buttons[i].Background=Ui.Brush(i==index?"AccentSoft":"Canvas");}
+        void Select(int index){host.Content=sections[index];for(int i=0;i<buttons.Count;i++)buttons[i].Background=Ui.Brush(i==index?"AccentSoft":"Sidebar");}
         StackPanel Section(string name,string note)
         {
             var panel=new StackPanel{MaxWidth=940};var heading=Ui.Caption(name,note,true);((TextBlock)heading.Children[0]).FontSize=24;heading.Margin=new Thickness(0,0,0,16);
