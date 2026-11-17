@@ -1,0 +1,28 @@
+name: Windows build
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/checkout@v4
+        with:
+          repository: cx229/CakePet_Android_dev
+          ref: 8ccf31b3a4427e143d2ab106b85f7f9833482479
+          path: android-reference
+      - name: Core tests
+        shell: pwsh
+        run: dotnet run --project tests/CakePet.Core.Tests -c Release -- "android-reference/app/src/main/assets/白酥"
+      - name: Publish core test executable
+        run: dotnet publish tests/CakePet.Core.Tests -c Release -r win-x64 --self-contained true -o artifacts/core-tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CakePet-core-tests-win-x64
+          path: artifacts/core-tests
