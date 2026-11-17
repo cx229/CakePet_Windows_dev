@@ -90,6 +90,7 @@ public sealed class RoleCatalog
         if(!File.Exists(file))return new();
         var data=JsonSerializer.Deserialize<RoleCatalog>(File.ReadAllText(file))??throw new InvalidDataException("Invalid catalog.");
         if(data.Packs==null||data.Roles==null||data.Packs.Select(x=>x.Id).Distinct().Count()!=data.Packs.Count||data.Roles.Select(x=>x.Id).Distinct().Count()!=data.Roles.Count||data.Roles.Any(x=>x.Settings==null||!data.Packs.Any(p=>p.Id==x.PackId)))throw new InvalidDataException("Invalid role references.");
+        data.Defaults=SettingLimits.Clamp((data.Defaults??new()).Normalize());for(int i=0;i<data.Roles.Count;i++)data.Roles[i]=data.Roles[i] with{Settings=SettingLimits.Clamp(data.Roles[i].Settings.Normalize())};
         return data;
     }
     public void Save(string file)

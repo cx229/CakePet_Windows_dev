@@ -208,6 +208,9 @@ try
  Assert(!schedule.Due(randomId,randomConfig with{Enabled=false},120000)&&!schedule.Due(randomId,randomConfig,120000),"random disable and restart");
  var limited=SettingLimits.Clamp(new RoleSettings{Scale=2,Limits=new(){["Scale"]=new(.8,1.5)}});Assert(limited.Scale==1.5,"setting threshold clamps value");
  var habit=SettingLimits.ApplyGroup(new RoleSettings{Gravity=900,Count=3},limited with{Count=2},"显示与交互");Assert(habit.Count==2&&habit.Scale==1.5&&habit.Gravity==900&&habit.Limits.ContainsKey("Scale"),"habit group applies values and thresholds only");
+ var styleLimited=SettingLimits.Clamp(new RoleSettings{ThoughtStyle=new ThinkingStyle{Size=30},Limits=new(){["ThoughtStyle.Size"]=new(12,20)}});Assert(styleLimited.ThoughtStyle.Size==20,"thought style threshold");
+ var itemApplied=SettingLimits.ApplyItem(new RoleSettings{Count=5,Scale=2},limited,"Scale");Assert(itemApplied.Count==5&&itemApplied.Scale==1.5&&itemApplied.Limits.ContainsKey("Scale"),"single habit item");
+ var styleApplied=SettingLimits.ApplyItem(new RoleSettings{ThoughtStyle=new ThinkingStyle{Alpha=.3}},styleLimited,"ThoughtStyle.Size");Assert(styleApplied.ThoughtStyle.Size==20&&styleApplied.ThoughtStyle.Alpha==.3,"nested habit item");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

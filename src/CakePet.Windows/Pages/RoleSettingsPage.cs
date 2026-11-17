@@ -8,6 +8,8 @@ internal sealed class RoleSettingsPage:UserControl
     private readonly Func<RoleEntry> current;
     private readonly Action<Func<RoleEntry,RoleEntry>> change;
     private readonly List<Action> dependencies=new();
+    internal Guid RoleId=>current().Id;
+    internal int SelectedSection {get;private set;}
     public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null)
     {
         this.current=current;this.change=change;
@@ -30,7 +32,7 @@ internal sealed class RoleSettingsPage:UserControl
             more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;nav.Children.Add(more);
         }
         int selectedSection=0;var sections=new List<FrameworkElement>();var buttons=new List<Button>();var summaries=new List<Action>();
-        void Select(int index){selectedSection=index;host.Content=sections[index];for(int i=0;i<buttons.Count;i++)buttons[i].Background=Ui.Brush(i==index?"AccentSoft":"Sidebar");}
+        void Select(int index){selectedSection=index;SelectedSection=index;host.Content=sections[index];for(int i=0;i<buttons.Count;i++)buttons[i].Background=Ui.Brush(i==index?"AccentSoft":"Sidebar");}
         StackPanel Section(string name,string note)
         {
             var panel=new StackPanel{MaxWidth=940};var heading=Ui.Caption(name,note,true);((TextBlock)heading.Children[0]).FontSize=24;heading.Margin=new Thickness(0,0,0,16);
@@ -105,7 +107,7 @@ internal sealed class RoleSettingsPage:UserControl
         var thinking=Section("碎碎念","「"+petName+"」的碎碎念");Summary(()=>!globalThinking?"强制关闭":current().Settings.Thinking?"已开启":"已关闭");var thinkingSwitch=Card(thinking,"碎碎念总开关","开启后，按素材包中的文本策略播放。",globalThinking&&s.Thinking,(r,v)=>r with{Thinking=v},available:globalThinking,details:false);if(!globalThinking)thinkingSwitch.SetWarning("全局设置 > 碎碎念已关闭");
         var rest=Card(thinking,"休息间隔","轮播消息结束后随机等待一段时间。",dependency:()=>globalThinking&&current().Settings.Thinking);
         rest.Add(Ui.Pair(Ui.Caption("频率","每次休息的最短与最长时间。"),new RangeSlider(1,300,s.ThoughtRestMin,s.ThoughtRestMax,(lo,hi)=>Set(r=>r with{ThoughtRestMin=(int)lo,ThoughtRestMax=(int)hi})),310));
-        ThinkingStyleSettings.Add(thinking,()=>current().Settings.ThoughtStyle,patch=>Set(r=>r with{ThoughtStyle=patch(r.ThoughtStyle)}),pack?.Texts.Values.FirstOrDefault(x=>!string.IsNullOrWhiteSpace(x))??"碎碎念预览",()=>globalThinking&&current().Settings.Thinking,dependencies);
+        ThinkingStyleSettings.Add(thinking,()=>current().Settings.ThoughtStyle,patch=>Set(r=>r with{ThoughtStyle=patch(r.ThoughtStyle)}),pack?.Texts.Values.FirstOrDefault(x=>!string.IsNullOrWhiteSpace(x))??"碎碎念预览",()=>globalThinking&&current().Settings.Thinking,dependencies,()=>current().Settings,defaults&&applyHabits!=null?key=>applyHabits("item:"+key):null);
         var area=Section("屏幕适应","选择「"+petName+"」可以活动的屏幕范围");
         var display=Card(area,"显示器","拖动角色时仍可跨屏。");var options=new[]{new Option("","自动 / 主显示器")}.Concat(DesktopPlatform.Screens.Select(x=>new Option(x.Id,x.Id+(x.Primary?"（主显示器）":"")))).ToList();if(!options.Any(x=>x.Id==s.MonitorId))options.Add(new Option(s.MonitorId,s.MonitorId+"（未连接）"));
         var monitor=new ComboBox{ItemsSource=options,DisplayMemberPath="Label",SelectedValuePath="Id",SelectedValue=s.MonitorId,Width=190};monitor.SelectionChanged+=(_,_)=>Set(r=>r with{MonitorId=monitor.SelectedValue as string??""});display.Add(Ui.Pair(Ui.Caption("首选显示器","召唤时优先使用。"),monitor));

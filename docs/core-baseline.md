@@ -67,3 +67,5 @@ Stage 19a: per-role random settings and schedule, Android-compatible semantics (
 Stage 19b: user habits explicit group/all application to existing roles, new roles inherit defaults/limits; numeric threshold range editor and clamping at catalog updates. Supports scalar settings initially; range controls and style threshold settings pending, threshold UI changes apply on reopening settings. No changes to existing roles unless confirmed.
 
 Stage 19c: fix CS0136 threshold variable collision; user habits standalone Windows JSON import/export/reset, scalar item application, rebuild settings workspace in the same section after threshold change. Existing roles unaffected by import/reset. Non-scalar item application remains pending.
+
+Stage 19d: nested thinking appearance thresholds (size, opacity, offset, background opacity), individual style value application, clamp imported/catalog-loaded values, refresh open settings after random changes when keyboard focus is outside the page; immediate manual enable refresh. Paired interval thresholds and full nonnumeric item defaults pending.

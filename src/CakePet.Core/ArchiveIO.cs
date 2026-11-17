@@ -50,6 +50,6 @@ public static class ArchiveIO
             try{_ = node.Deserialize<RoleSettings>(Options)??throw new JsonException();}
             catch(JsonException){node[key]=old;}catch(NotSupportedException){node[key]=old;}
         }
-        return (node.Deserialize<RoleSettings>(Options)??original).Normalize();
+        return SettingLimits.Clamp((node.Deserialize<RoleSettings>(Options)??original).Normalize());
     }
 }
