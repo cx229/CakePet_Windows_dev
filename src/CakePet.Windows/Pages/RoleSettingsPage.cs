@@ -72,7 +72,10 @@ internal sealed class RoleSettingsPage:UserControl
         Number(forage,"觅食速度","调整寻找食物时的移动速度。",s.ForageMultiplier,.1,5,.05,"倍",(r,v)=>r with{ForageMultiplier=v});
         var grow=Card(feeding,"投喂变大","吃到食物后，角色会逐渐长大。",s.Grow,(r,v)=>r with{Grow=v},foodSupported,dependency:foodOn);
         Number(grow,"增长倍率","每次进食增加的基准尺寸比例。",s.FeedGrowth*100,0,100,1,"%",(r,v)=>r with{FeedGrowth=v/100});Number(grow,"最大大小","限制投喂后的最大尺寸。",s.MaxScale,.5,10,.05,"倍",(r,v)=>r with{MaxScale=v});
-        var thinking=Section("碎碎念","控制角色在桌面上显示的文字。");Card(thinking,"碎碎念","开启后，按素材包中的文本策略播放。",s.Thinking,(r,v)=>r with{Thinking=v},details:false);
+        var thinking=Section("碎碎念","调整当前角色的播放间隔与文字外观。");Card(thinking,"碎碎念总开关","开启后，按素材包中的文本策略播放。",s.Thinking,(r,v)=>r with{Thinking=v},details:false);
+        var rest=Card(thinking,"休息间隔","轮播消息结束后随机等待一段时间。",dependency:()=>current().Settings.Thinking);
+        rest.Add(Ui.Pair(Ui.Caption("频率","每次休息的最短与最长时间。"),new RangeSlider(1,300,s.ThoughtRestMin,s.ThoughtRestMax,(lo,hi)=>Set(r=>r with{ThoughtRestMin=(int)lo,ThoughtRestMax=(int)hi})),310));
+        ThinkingStyleSettings.Add(thinking,()=>current().Settings.ThoughtStyle,patch=>Set(r=>r with{ThoughtStyle=patch(r.ThoughtStyle)}),pack?.Texts.Values.FirstOrDefault(x=>!string.IsNullOrWhiteSpace(x))??"碎碎念预览",()=>current().Settings.Thinking,dependencies);
         var area=Section("活动范围","选择显示器、任务栏和四边活动边界。");
         var display=Card(area,"显示器","拖动角色时仍可跨屏。");var options=new[]{new Option("","自动 / 主显示器")}.Concat(DesktopPlatform.Screens.Select(x=>new Option(x.Id,x.Id+(x.Primary?"（主显示器）":"")))).ToList();if(!options.Any(x=>x.Id==s.MonitorId))options.Add(new Option(s.MonitorId,s.MonitorId+"（未连接）"));
         var monitor=new ComboBox{ItemsSource=options,DisplayMemberPath="Label",SelectedValuePath="Id",SelectedValue=s.MonitorId,Width=190};monitor.SelectionChanged+=(_,_)=>Set(r=>r with{MonitorId=monitor.SelectedValue as string??""});display.Add(Ui.Pair(Ui.Caption("首选显示器","召唤时优先使用。"),monitor));
