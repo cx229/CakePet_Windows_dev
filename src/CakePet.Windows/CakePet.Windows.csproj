@@ -3,6 +3,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CakePet</AssemblyName>
@@ -10,5 +12,6 @@
     <Version>1.26.11.17</Version>
     <InformationalVersion>v1.26.11.17.13.33</InformationalVersion>
   </PropertyGroup>
+  <ItemGroup><Using Remove="System.Windows.Forms"/><Using Remove="System.Drawing"/></ItemGroup>
   <ItemGroup><ProjectReference Include="../CakePet.Core/CakePet.Core.csproj"/></ItemGroup>
 </Project>

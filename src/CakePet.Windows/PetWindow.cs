@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CakePet.Core;
 using P= CakePet.Core.Point;
@@ -23,6 +24,10 @@ internal sealed class PetWindow : Window
     private readonly Image image=new(){Stretch=Stretch.Fill,IsHitTestVisible=false};
     private readonly TextBlock thoughtText=new(){FontSize=14,Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center};
     private readonly Window thoughtWindow;
+    private readonly List<FreezeWindow> freezes=new();
+    private DebugWindow? debug;
+    private long debugTick;
+    private readonly FoodWorld foodWorld;
     private readonly Stopwatch clock=Stopwatch.StartNew();
     private long lastMouse;
     private WPoint pressedAt,previousMouse;
@@ -52,7 +57,7 @@ internal sealed class PetWindow : Window
     }
     public PetWindow(RoleRuntime role,WpfImageCache images,int index,FoodWorld world)
     {
-        this.images=images;Title=role.Package.Name;
+        this.images=images;foodWorld=world;Title=role.Package.Name;
         Width=Height=160;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;AllowsTransparency=true;
         Background=Brushes.Transparent;Topmost=true;ShowInTaskbar=false;ShowActivated=false;
         canvas.Children.Add(image);Content=canvas;
@@ -90,6 +95,9 @@ internal sealed class PetWindow : Window
         var screen=Add("全屏活动范围（含任务栏）",()=>{fullScreen=!fullScreen;engine.SetActivityArea(ActivityArea,images.Geometry);});screen.IsCheckable=true;
         var pixel=Add("像素级命中",()=>{pixelHit=!pixelHit;ApplyInputStyle();});pixel.IsCheckable=true;
         var through=Add("点击穿透（Ctrl 临时恢复）",()=>ClickThrough=!ClickThrough);through.IsCheckable=true;
+        Add("定格当前画面",Freeze);
+        Add("清除本角色定格",ClearFreezes);
+        Add("实时调试窗口",ToggleDebug);
         Add("召回",Close);
         menu.Opened+=(_,_)=>{
             menuAction.IsEnabled=role.Package.Supports("menu/pool");still.IsEnabled=role.Package.Supports("standby/static_pool");still.IsChecked=role.StaticStandby;
@@ -105,7 +113,7 @@ internal sealed class PetWindow : Window
         LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging){velocity=default;FinishDrag();}}};
         engine.GrowOnFeed=true;engine.FeedGrowth=role.Package.AnchorRes*.03;engine.MaxDisplaySize=role.Package.AnchorRes*3;
         Loaded+=(_,_)=>Render();
-        Closed+=(_,_)=>{closed=true;engine.Dispose();thoughtWindow.Close();};
+        Closed+=(_,_)=>{closed=true;ClearFreezes();debug?.Close();engine.Dispose();thoughtWindow.Close();};
     }
     private WPoint Screen(MouseEventArgs e){var p=DesktopPlatform.Cursor();return new WPoint(p.X,p.Y);}
     private void OnDown(object sender,MouseButtonEventArgs e)
@@ -138,9 +146,33 @@ internal sealed class PetWindow : Window
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
         engine.SetActivityArea(ActivityArea,images.Geometry);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
     }
+    internal void ClearFreezes(){foreach(var freeze in freezes.ToArray())freeze.Close();}
+    private void Freeze()
+    {
+        Render();var dip=Side/DesktopPlatform.DpiScale(this);var pixels=Math.Max(1,(int)Math.Round(Side));
+        var visual=new DrawingVisual();using(var dc=visual.RenderOpen())
+        {
+            var frame=role.Animation.Current;var g=images.Geometry(frame);var scale=Side/role.Package.AnchorRes;
+            dc.PushTransform(new TranslateTransform(Side/2,Side/2));
+            dc.PushTransform(new RotateTransform(engine.RenderEdge switch{Edge.Left=>90,Edge.Right=>-90,Edge.Top=>180,_=>0}));
+            dc.PushTransform(new ScaleTransform(engine.Facing,1));dc.PushTransform(new TranslateTransform(-Side/2,-Side/2));
+            dc.DrawImage(images.Get(frame),new Rect(g.Left*scale,g.Top*scale,g.Width*scale,g.Height*scale));
+            dc.Pop();dc.Pop();dc.Pop();dc.Pop();
+        }
+        var bitmap=new RenderTargetBitmap(pixels,pixels,96,96,PixelFormats.Pbgra32);bitmap.Render(visual);bitmap.Freeze();
+        var freeze=new FreezeWindow(bitmap,body.Position,Side);freezes.Add(freeze);freeze.Closed+=(_,_)=>freezes.Remove(freeze);freeze.Show();
+    }
+    private void ToggleDebug()
+    {
+        if(debug!=null){debug.Close();return;}
+        var window=new DebugWindow(role.Package.Name);debug=window;window.Closed+=(_,_)=>debug=null;UpdateDebug();window.Show();
+    }
+    private void UpdateDebug()=>debug?.Refresh(engine,monitorId,DesktopPlatform.DpiScale(this),foodWorld.Foods.Count(f=>f.Owner==engine),ClickThrough,pixelHit);
     internal void Step(long dt)
     {
         if(closed)return;ApplyInputStyle();var monitor=Monitor;monitorId=monitor.Id;engine.SetActivityArea(ActivityArea,images.Geometry);engine.Step(dt);
+        foreach(var freeze in freezes.ToArray())freeze.Refresh();
+        debugTick+=dt;if(debugTick>=150){debugTick=0;UpdateDebug();}
     }
     internal void Render()
     {

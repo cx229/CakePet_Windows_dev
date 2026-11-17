@@ -7,6 +7,21 @@ public sealed class AnimationCursor
     private readonly Random random;
     private long frameElapsed, modeElapsed, target;
     private int delay;
+    public string StartMode {get;}
+    public long FrameElapsed=>frameElapsed;
+    public int FrameDuration=>delay;
+    public long ModeElapsed=>modeElapsed;
+    public long? TargetDuration=>Mode.Loop==LoopKind.Timed?target:null;
+    public IReadOnlyList<string> Chain
+    {
+        get
+        {
+            var result=new List<string>();var seen=new HashSet<string>();string? id=StartMode;
+            while(id!=null&&package.Modes.TryGetValue(id,out var m))
+            {if(!seen.Add(id)){result.Add(id+" ↻");break;}result.Add(id+(m.Loop==LoopKind.Infinite?" ◎":""));if(m.Loop==LoopKind.Infinite)break;id=m.Next;}
+            return result;
+        }
+    }
     public Mode Mode { get; private set; }
     public int FrameIndex { get; private set; }
     public Frame Current => Mode.Frames[FrameIndex];
@@ -16,7 +31,7 @@ public sealed class AnimationCursor
     public event Action<string>? ModeEntered;
     public AnimationCursor(RolePackage package,string id,Random random)
     {
-        this.package=package; this.random=random; Mode=package.Modes[id]; Reset();
+        this.package=package; this.random=random; StartMode=id; Mode=package.Modes[id]; Reset();
     }
     private void Reset()
     {

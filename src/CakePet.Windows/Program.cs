@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Controls;
 using CakePet.Core;
 using Microsoft.Win32;
+using Forms=System.Windows.Forms;
+using System.Reflection;
 
 namespace CakePet.Windows;
 
@@ -42,11 +44,13 @@ internal sealed class Launcher : Window
     private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
     private readonly Stopwatch clock=Stopwatch.StartNew();
     private long lastTick;
-    private bool shuttingDown;
+    private bool shuttingDown,exitRequested;
+    private readonly Forms.NotifyIcon tray;
+    private string Version=>typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??"dev";
     private readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
     public Launcher(string root)
     {
-        defaultRoot=root;Title="CakePet · 引擎测试版";Width=420;Height=375;MinWidth=350;MinHeight=280;
+        defaultRoot=root;Title="CakePet · "+Version;Width=420;Height=420;MinWidth=350;MinHeight=280;
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         var panel=new StackPanel{Margin=new Thickness(20)};
         panel.Children.Add(new TextBlock{Text="CakePet",FontSize=26,FontWeight=FontWeights.SemiBold});
@@ -55,16 +59,29 @@ internal sealed class Launcher : Window
         Add("从素材包目录召唤",()=>{var dialog=new OpenFolderDialog{Title="选择包含 modes.jsonc 的目录"};if(dialog.ShowDialog(this)==true)Summon(dialog.FolderName);});
         Add("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
         Add("清除全部食物",()=>world.Clear());
+        Add("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
         Add("恢复全部点击",()=>{foreach(var pet in pets)pet.ClickThrough=false;});
         var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",Margin=new Thickness(0,8,0,0)};
         single.Checked+=(_,_)=>thoughts.SingleAcrossRoles=true;single.Unchecked+=(_,_)=>thoughts.SingleAcrossRoles=false;panel.Children.Add(single);
         panel.Children.Add(status);Content=panel;
+        var trayMenu=new Forms.ContextMenuStrip();
+        void TrayItem(string title,Action action)=>trayMenu.Items.Add(title,null,(_,_)=>Dispatcher.Invoke(action));
+        TrayItem("打开 CakePet",ShowLauncher);TrayItem("召唤白酥",()=>Summon(defaultRoot));
+        TrayItem("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
+        TrayItem("恢复全部点击",()=>{foreach(var pet in pets)pet.ClickThrough=false;});
+        TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
+        trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
+        tray=new Forms.NotifyIcon{Icon=System.Drawing.SystemIcons.Application,Text="CakePet "+Version,ContextMenuStrip=trayMenu,Visible=true};
+        tray.DoubleClick+=(_,_)=>Dispatcher.Invoke(ShowLauncher);
+        StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized)Hide();};
+        System.Windows.Application.Current.SessionEnding+=(_,_)=>{exitRequested=true;Close();};
         world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
         timer.Tick+=(_,_)=>Tick();
         Loaded+=(_,_)=>{if(File.Exists(Path.Combine(defaultRoot,"modes.jsonc")))Summon(defaultRoot);else Refresh();lastTick=clock.ElapsedMilliseconds;timer.Start();};
-        Closing+=(_,_)=>{shuttingDown=true;timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();};
+        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Hide();return;}shuttingDown=true;timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayMenu.Dispose();};
         void Add(string text,Action action){var button=new Button{Content=text,Margin=new Thickness(0,3,0,3),Padding=new Thickness(10,5,10,5)};button.Click+=(_,_)=>action();panel.Children.Add(button);}
     }
+    private void ShowLauncher(){Show();WindowState=WindowState.Normal;Activate();}
     private void Refresh()=>status.Text=$"已召唤 {pets.Count} 个角色 · {world.Foods.Count} 条食物。右键角色可投食；拖动食物至角色松手。";
     private void OnFoodSpawned(FoodInstance food)
     {
