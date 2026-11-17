@@ -20,7 +20,49 @@ public sealed record RoleSettings
     public bool ClickThrough {get;init;}
     public bool PixelHit {get;init;}=true;
     public bool Thinking {get;init;}=true;
-    public RoleSettings Normalize()=>this with{Count=Math.Clamp(Count,1,30),Scale=double.IsFinite(Scale)?Math.Clamp(Scale,.5,3):1.4,Opacity=double.IsFinite(Opacity)?Math.Clamp(Opacity,.05,1):1};
+    public double Gravity {get;init;}=1500;
+    public double MaxSpeed {get;init;}=2000;
+    public double Bounce {get;init;}=.7;
+    public bool BounceEnabled {get;init;}=true;
+    public bool GravityEnabled {get;init;}=true;
+    public Edge GravityEdges {get;init;}=Edge.Bottom;
+    public Edge BounceEdges {get;init;}=Edge.All;
+    public Edge SnapEdges {get;init;}=Edge.All;
+    public double ThrowCoefficient {get;init;}=1;
+    public double SnapSpeed {get;init;}=800;
+    public double SnapDistance {get;init;}=100;
+    public double LeapProbability {get;init;}=.1;
+    public double LeapSpeed {get;init;}=840;
+    public double ForageMultiplier {get;init;}=1;
+    public int FoodMinSeconds {get;init;}=30;
+    public int FoodMaxSeconds {get;init;}=120;
+    public int FoodLifetimeSeconds {get;init;}=60;
+    public int FoodLimit {get;init;}=3;
+    public double FoodScale {get;init;}=1.4;
+    public double FoodOpacity {get;init;}=.7;
+    public bool FoodAtEdge {get;init;}=true;
+    public double FeedGrowth {get;init;}=.03;
+    public double MaxScale {get;init;}=3;
+    public double OffsetLeft {get;init;}
+    public double OffsetRight {get;init;}
+    public double OffsetTop {get;init;}
+    public double OffsetBottom {get;init;}
+    public string MonitorId {get;init;}="";
+    private static double N(double v,double min,double max,double fallback)=>double.IsFinite(v)?Math.Clamp(v,min,max):fallback;
+    public RoleSettings Normalize()=>this with{Count=Math.Clamp(Count,1,30),Scale=double.IsFinite(Scale)?Math.Clamp(Scale,.5,3):1.4,Opacity=double.IsFinite(Opacity)?Math.Clamp(Opacity,.05,1):1,
+        Gravity=N(Gravity,0,10000,1500),MaxSpeed=N(MaxSpeed,100,10000,2000),Bounce=N(Bounce,0,1,.7),
+        GravityEdges=GravityEdges&Edge.All,BounceEdges=BounceEdges&Edge.All,SnapEdges=SnapEdges&Edge.All,
+        ThrowCoefficient=N(ThrowCoefficient,0,5,1),SnapSpeed=N(SnapSpeed,0,5000,800),SnapDistance=N(SnapDistance,0,500,100),
+        LeapProbability=N(LeapProbability,0,1,.1),LeapSpeed=N(LeapSpeed,100,5000,840),ForageMultiplier=N(ForageMultiplier,.1,5,1),
+        FoodMinSeconds=Math.Clamp(FoodMinSeconds,1,3600),FoodMaxSeconds=Math.Clamp(FoodMaxSeconds,Math.Clamp(FoodMinSeconds,1,3600),3600),FoodLifetimeSeconds=Math.Clamp(FoodLifetimeSeconds,0,86400),FoodLimit=Math.Clamp(FoodLimit,1,100),FoodScale=N(FoodScale,.1,5,1.4),FoodOpacity=N(FoodOpacity,.05,1,.7),FeedGrowth=N(FeedGrowth,0,1,.03),MaxScale=N(MaxScale,Math.Clamp(double.IsFinite(Scale)?Scale:1.4,.5,3),10,3),
+        OffsetLeft=N(OffsetLeft,-500,500,0),OffsetRight=N(OffsetRight,-500,500,0),OffsetTop=N(OffsetTop,-500,500,0),OffsetBottom=N(OffsetBottom,-500,500,0),MonitorId=MonitorId??""};
+    public Bounds ApplyOffsets(Bounds area)
+    {
+        var left=area.Left+OffsetLeft;var top=area.Top+OffsetTop;
+        return new Bounds(left,top,Math.Max(left+1,area.Right-OffsetRight),Math.Max(top+1,area.Bottom-OffsetBottom));
+    }
+    public RoleSettings Effective(RolePackage pack)=>Normalize() with{
+        Move=Move||!pack.Supports("standby/static_pool"),Throw=Throw&&pack.Supports("touch/roll"),Snap=Snap&&pack.Supports("snap/pool"),Leap=Leap&&Climb&&pack.Supports("climb/leap/leap"),Forage=Forage&&Climb&&pack.Supports(PetEngine.ForagePath),Feed=Feed&&pack.Supports("feed/food"),AutoFeed=AutoFeed&&Feed&&pack.Supports("feed/food")};
 }
 public sealed record RoleEntry(Guid Id,Guid PackId,string Name,RoleSettings Settings);
 public sealed class RoleCatalog
@@ -29,6 +71,7 @@ public sealed class RoleCatalog
     public List<RoleEntry> Roles {get;init;}=new();
     public bool SingleThinking {get;set;}=true;
     public bool AutoSummon {get;set;}=true;
+    public RoleSettings Defaults {get;set;}=new();
     public static RoleCatalog Load(string file)
     {
         if(!File.Exists(file))return new();
@@ -47,7 +90,7 @@ public sealed class RoleCatalog
     {
         if(!Packs.Any(p=>p.Id==packId))throw new ArgumentException("Unknown pack.");
         if(string.IsNullOrWhiteSpace(name))throw new ArgumentException("Empty name.");
-        var role=new RoleEntry(Guid.NewGuid(),packId,name.Trim(),new RoleSettings());Roles.Add(role);return role;
+        var role=new RoleEntry(Guid.NewGuid(),packId,name.Trim(),Defaults.Normalize());Roles.Add(role);return role;
     }
     public void Update(RoleEntry role)
     {

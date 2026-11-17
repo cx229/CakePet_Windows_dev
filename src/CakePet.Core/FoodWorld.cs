@@ -15,6 +15,7 @@ public sealed class FoodInstance
     public double Height=>Extent.Height;
     public double Size=>Math.Max(Width,Height);
     public string StartMode { get; internal set; }="";
+    public double Opacity {get;set;}=.7;
     public bool Held { get; internal set; }
     public long? RemainingMs { get; internal set; }
 }
@@ -57,7 +58,7 @@ public sealed class FoodWorld
         schedules.Remove(pet);owners.Remove(pet);foreach(var set in contacts.Values)set.Remove(pet);pet.ChooseForage=null;lures.Remove(pet);forage.Remove(pet);pet.EndLure(false);pet.StopForage();
         foreach(var food in foods.Where(f=>f.Owner==pet).ToArray())Remove(food);
     }
-    public FoodInstance? Spawn(PetEngine owner,Bounds area,double size=48,long? lifetimeMs=60000,bool edge=true,int maximum=10,Func<string,FoodExtent>? dimensions=null)
+    public FoodInstance? Spawn(PetEngine owner,Bounds area,double size=48,long? lifetimeMs=60000,bool edge=true,int maximum=10,Func<string,FoodExtent>? dimensions=null,double opacity=.7)
     {
         if(!pets.Contains(owner)||!owner.FeedingEnabled||foods.Count(f=>SameOwner(f.Owner,owner))>=maximum)return null;
         var candidates=owner.Role.Package.Candidates("feed/food");
@@ -72,7 +73,7 @@ public sealed class FoodWorld
         var p=new Point(b.Left+random.NextDouble()*(b.Right-b.Left),b.Top+random.NextDouble()*(b.Bottom-b.Top));
         if(edge)p=SurfaceMotion.OnEdge(p,b,SurfaceMotion.Sides[random.Next(4)]);
         var cursor=new AnimationCursor(owner.Role.Package,selected,new Random(random.Next()));
-        var food=new FoodInstance(owner,cursor,p,extent,lifetimeMs){StartMode=cursor.Mode.Id};foods.Add(food);Spawned?.Invoke(food);return food;
+        var food=new FoodInstance(owner,cursor,p,extent,lifetimeMs){StartMode=cursor.Mode.Id,Opacity=opacity};foods.Add(food);Spawned?.Invoke(food);return food;
     }
     public bool Hold(FoodInstance food)
     {if(!foods.Contains(food))return false;if(food.Held)return true;food.Held=true;contacts[food]=new();UpdateInteractions();return true;}

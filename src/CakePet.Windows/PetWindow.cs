@@ -41,23 +41,33 @@ internal sealed class PetWindow : Window
     private string monitorId;
     private bool fullScreen,clickThrough,pixelHit=true,thinkingEnabled=true;
     private RoleSettings settings=new();
+    internal event Action<Guid,Func<RoleSettings,RoleSettings>>? ChangeSettings;
+    internal event Action<Guid>? RecallRole;
+    internal event Action<Guid>? ClearRoleFood;
+    internal event Action<Guid>? ClearRoleFreezes;
+    internal event Action<Guid>? ResetRoleSize;
+    private void Change(Func<RoleSettings,RoleSettings> change)=>ChangeSettings?.Invoke(RoleId,change);
     internal Guid RoleId {get;}
     internal bool IsAutomatic=>foodWorld.IsAutomatic(engine);
     internal void ApplySettings(RoleSettings value,bool primary)
     {
-        var old=settings;settings=value.Normalize();
+        var old=settings;settings=value.Effective(role.Package);
+        if(!configured||old.MonitorId!=settings.MonitorId){monitorId=DesktopPlatform.Resolve(settings.MonitorId,engine.Center).Id;}
+        var b=engine.Body;b.Gravity=settings.Gravity;b.GravityEnabled=settings.GravityEnabled;b.GravityEdges=settings.GravityEdges;b.MaxSpeed=settings.MaxSpeed;b.Bounce=settings.Bounce;b.BounceEnabled=settings.BounceEnabled;b.BounceEdges=settings.BounceEdges;b.ThrowCoefficient=settings.ThrowCoefficient;b.SnapDistance=settings.SnapDistance;b.SnapSpeed=settings.SnapSpeed;b.SnapEdges=settings.SnapEdges;
+        engine.LeapProbability=settings.LeapProbability;engine.LeapSpeed=settings.LeapSpeed;engine.ForageMultiplier=settings.ForageMultiplier;engine.FeedGrowth=role.Package.AnchorRes*settings.FeedGrowth;engine.MaxDisplaySize=role.Package.AnchorRes*settings.MaxScale;
         if(old.Scale!=settings.Scale||!configured)engine.Resize(role.Package.AnchorRes*settings.Scale);
         configured=true;Opacity=settings.Opacity;fullScreen=settings.FullScreen;ClickThrough=settings.ClickThrough;pixelHit=settings.PixelHit;thinkingEnabled=settings.Thinking;
         engine.Body.ThrowEnabled=settings.Throw&&role.Package.Supports("touch/roll");engine.Body.SnapEnabled=settings.Snap&&role.Package.Supports("snap/pool");
         engine.SetStaticStandby(!settings.Move);engine.SetClimbing(settings.Climb);engine.SetLeapEnabled(settings.Leap);engine.SetAutoForage(settings.Forage);
         engine.FeedingEnabled=settings.Feed&&role.Package.Supports("feed/food");engine.GrowOnFeed=settings.Grow;
         var automatic=primary&&engine.FeedingEnabled&&settings.AutoFeed;
-        if(automatic!=foodWorld.IsAutomatic(engine))foodWorld.SetAutomatic(engine,automatic,new Interval(30000,120000),SpawnFood);
+        if(automatic!=foodWorld.IsAutomatic(engine)||(automatic&&(old.FoodMinSeconds!=settings.FoodMinSeconds||old.FoodMaxSeconds!=settings.FoodMaxSeconds)))foodWorld.SetAutomatic(engine,automatic,new Interval(settings.FoodMinSeconds*1000,settings.FoodMaxSeconds*1000),SpawnFood);
+        foreach(var food in foodWorld.Foods.Where(f=>f.Owner==engine))food.Opacity=settings.FoodOpacity;
         if(!engine.FeedingEnabled)foodWorld.Clear(engine);
         engine.SetActivityArea(ActivityArea,images.Geometry);Render();
     }
     private bool configured;
-    private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,60000,true,3,id=>{var v=images.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*1.4,v.LogicalHeight*1.4);});
+    private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,settings.FoodLifetimeSeconds==0?null:settings.FoodLifetimeSeconds*1000L,settings.FoodAtEdge,settings.FoodLimit,id=>{var v=images.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*settings.FoodScale,v.LogicalHeight*settings.FoodScale);},settings.FoodOpacity);
     private bool HitAt(P pointer)
     {
         var local=AnchorGeometry.Inverse(pointer-body.Position,Side,engine.RenderEdge,engine.Facing);
@@ -65,7 +75,7 @@ internal sealed class PetWindow : Window
         return images.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
     }
     private DesktopScreen Monitor=>DesktopPlatform.Resolve(monitorId,engine.Center);
-    internal Bounds ActivityArea=>fullScreen?Monitor.Full:Monitor.Work;
+    internal Bounds ActivityArea=>settings.ApplyOffsets(fullScreen?Monitor.Full:Monitor.Work);
     internal bool ClickThrough {get=>clickThrough;set{clickThrough=value;ApplyInputStyle();}}
     private void ApplyInputStyle()
     {
@@ -95,30 +105,30 @@ internal sealed class PetWindow : Window
         Add("摸摸头",()=>engine.PatHead());
         var menuAction=Add("菜单动画",()=>engine.MenuAction());
         Add("归位",()=>{engine.ReturnHome();Render();});
-        var still=Add("静止待机",()=>engine.SetStaticStandby(!role.StaticStandby));still.IsCheckable=true;
-        var climb=Add("攀岩走壁",()=>engine.SetClimbing(!engine.ClimbEnabled));climb.IsCheckable=true;
-        var leap=Add("好动飞跃",()=>engine.SetLeapEnabled(!engine.LeapEnabled));leap.IsCheckable=true;
+        var still=Add("静止待机",()=>Change(s=>s with{Move=!s.Move}));still.IsCheckable=true;
+        var climb=Add("攀岩走壁",()=>Change(s=>s with{Climb=!s.Climb}));climb.IsCheckable=true;
+        var leap=Add("好动飞跃",()=>Change(s=>s with{Leap=!s.Leap}));leap.IsCheckable=true;
         var leapTest=Add("立即飞跃（测试）",()=>engine.TryStartLeap());
         menu.Items.Add(new Separator());
         FoodInstance? Spawn()=>SpawnFood();
         var feed=Add("投食",()=>{Spawn();world.ResetSpawnTimer(engine);});
-        var automatic=Add("自动刷新食物",()=>world.SetAutomatic(engine,!world.IsAutomatic(engine),new Interval(30000,120000),Spawn));automatic.IsCheckable=true;
-        var forage=Add("自动觅食",()=>engine.SetAutoForage(!engine.AutoForageEnabled));forage.IsCheckable=true;
-        var grow=Add("投喂变大",()=>engine.GrowOnFeed=!engine.GrowOnFeed);grow.IsCheckable=true;
-        Add("清除本角色食物",()=>world.Clear(engine));
-        Add("恢复大小",()=>{engine.Resize(role.Package.AnchorRes*settings.Scale);Render();});
-        var screen=Add("全屏活动范围（含任务栏）",()=>{fullScreen=!fullScreen;engine.SetActivityArea(ActivityArea,images.Geometry);});screen.IsCheckable=true;
-        var pixel=Add("像素级命中",()=>{pixelHit=!pixelHit;ApplyInputStyle();});pixel.IsCheckable=true;
-        var through=Add("点击穿透（Ctrl 临时恢复）",()=>ClickThrough=!ClickThrough);through.IsCheckable=true;
+        var automatic=Add("自动刷新食物",()=>Change(s=>s with{AutoFeed=!s.AutoFeed}));automatic.IsCheckable=true;
+        var forage=Add("自动觅食",()=>Change(s=>s with{Forage=!s.Forage}));forage.IsCheckable=true;
+        var grow=Add("投喂变大",()=>Change(s=>s with{Grow=!s.Grow}));grow.IsCheckable=true;
+        Add("清除本角色食物",()=>ClearRoleFood?.Invoke(RoleId));
+        Add("恢复大小",()=>ResetRoleSize?.Invoke(RoleId));
+        var screen=Add("全屏活动范围（含任务栏）",()=>Change(s=>s with{FullScreen=!s.FullScreen}));screen.IsCheckable=true;
+        var pixel=Add("像素级命中",()=>Change(s=>s with{PixelHit=!s.PixelHit}));pixel.IsCheckable=true;
+        var through=Add("点击穿透（Ctrl 临时恢复）",()=>Change(s=>s with{ClickThrough=!s.ClickThrough}));through.IsCheckable=true;
         Add("定格当前画面",Freeze);
-        Add("清除本角色定格",ClearFreezes);
+        Add("清除本角色定格",()=>ClearRoleFreezes?.Invoke(RoleId));
         Add("实时调试窗口",ToggleDebug);
-        Add("召回",Close);
+        Add("召回",()=>RecallRole?.Invoke(RoleId));
         menu.Opened+=(_,_)=>{
             menuAction.IsEnabled=role.Package.Supports("menu/pool");still.IsEnabled=role.Package.Supports("standby/static_pool");still.IsChecked=role.StaticStandby;
             climb.IsChecked=engine.ClimbEnabled;leap.IsChecked=engine.LeapEnabled;leap.IsEnabled=role.Package.Supports("climb/leap/leap");
             leapTest.IsEnabled=engine.ClimbEnabled&&engine.LeapEnabled;
-            feed.IsEnabled=automatic.IsEnabled=role.Package.Supports("feed/food");automatic.IsChecked=world.IsAutomatic(engine);
+            feed.IsEnabled=automatic.IsEnabled=role.Package.Supports("feed/food");automatic.IsChecked=settings.AutoFeed;feed.IsEnabled=automatic.IsEnabled=engine.FeedingEnabled;
             forage.IsEnabled=engine.ClimbEnabled&&role.Package.Supports(PetEngine.ForagePath);forage.IsChecked=engine.AutoForageEnabled;
             grow.IsChecked=engine.GrowOnFeed;screen.IsChecked=fullScreen;through.IsChecked=ClickThrough;pixel.IsChecked=pixelHit;
         };
@@ -161,6 +171,7 @@ internal sealed class PetWindow : Window
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
         engine.SetActivityArea(ActivityArea,images.Geometry);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
     }
+    internal void ResetSize(){engine.Resize(role.Package.AnchorRes*settings.Scale);Render();}
     internal void ClearFreezes(){foreach(var freeze in freezes.ToArray())freeze.Close();}
     private void Freeze()
     {

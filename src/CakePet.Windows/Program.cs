@@ -63,7 +63,7 @@ internal sealed class Launcher : Window
         var tabs=new TabControl();shell.Children.Add(tabs);Content=shell;
         var roles=new DockPanel{Margin=new Thickness(12)};
         var toolbar=new StackPanel{Orientation=Orientation.Horizontal,Margin=new Thickness(0,0,0,10)};
-        toolbar.Children.Add(Button("新建角色",NewRole));toolbar.Children.Add(Button("召回全部",RecallAll));toolbar.Children.Add(Button("恢复全部点击",()=>{foreach(var pet in pets)pet.ClickThrough=false;}));
+        toolbar.Children.Add(Button("新建角色",NewRole));toolbar.Children.Add(Button("召回全部",RecallAll));toolbar.Children.Add(Button("恢复全部点击",RestoreInput));
         DockPanel.SetDock(toolbar,Dock.Top);roles.Children.Add(toolbar);roles.Children.Add(new ScrollViewer{Content=roleCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         tabs.Items.Add(new TabItem{Header="角色",Content=roles});
         var materials=new DockPanel{Margin=new Thickness(12)};var import=Button("导入素材包目录",ImportPack);DockPanel.SetDock(import,Dock.Top);materials.Children.Add(import);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});tabs.Items.Add(new TabItem{Header="素材包",Content=materials});
@@ -72,13 +72,14 @@ internal sealed class Launcher : Window
         thoughts.SingleAcrossRoles=catalog.SingleThinking;single.Click+=(_,_)=>{catalog.SingleThinking=single.IsChecked==true;thoughts.SingleAcrossRoles=catalog.SingleThinking;storage.Save();};global.Children.Add(single);
         var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};
         launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(launch);
+        global.Children.Add(Button("用户习惯 · 新角色默认值",EditDefaults));
         global.Children.Add(Button("清除全部食物",()=>world.Clear()));global.Children.Add(Button("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();}));
         tabs.Items.Add(new TabItem{Header="全局设置",Content=global});RefreshCards();
         var trayMenu=new Forms.ContextMenuStrip();
         void TrayItem(string title,Action action)=>trayMenu.Items.Add(title,null,(_,_)=>Dispatcher.Invoke(action));
         TrayItem("打开 CakePet",ShowLauncher);TrayItem("召唤第一个角色",()=>{if(catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);});
         TrayItem("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
-        TrayItem("恢复全部点击",()=>{foreach(var pet in pets)pet.ClickThrough=false;});
+        TrayItem("恢复全部点击",RestoreInput);
         TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
         trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
         tray=new Forms.NotifyIcon{Icon=System.Drawing.SystemIcons.Application,Text="CakePet "+Version,ContextMenuStrip=trayMenu,Visible=true};
@@ -120,6 +121,14 @@ internal sealed class Launcher : Window
         if(!packages.TryGetValue(root,out var pair)){var pack=RolePackage.Load(root,WpfImageCache.IsReadable);pair=(pack,new WpfImageCache(pack));packages[root]=pair;}return pair;
     }
     private void Safe(Action action){try{action();}catch(Exception e){MessageBox.Show(this,e.Message,"CakePet");}}
+    private void RestoreInput()=>Safe(()=>{foreach(var r in catalog.Roles.ToArray())catalog.Update(r with{Settings=r.Settings with{ClickThrough=false}});storage.Save();foreach(var r in catalog.Roles)ApplyRunning(r);RefreshCards();});
+    private void EditDefaults()=>Safe(()=>{
+        var d=new RoleSettingsWindow(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,true){Owner=this};if(d.ShowDialog()!=true)return;catalog.Defaults=d.Result.Settings.Normalize();storage.Save();
+        if(MessageBox.Show(this,"默认值已保存，仅对新角色生效。是否将全部默认设置应用到已有角色？（不修改名称与素材包）","应用默认值",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+        foreach(var r in catalog.Roles.ToArray())catalog.Update(r with{Settings=catalog.Defaults});storage.Save();foreach(var r in catalog.Roles.ToArray())if(pets.Any(p=>p.RoleId==r.Id))Summon(r);RefreshCards();
+    });
+    private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0);}
+    private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change)=>Safe(()=>{var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));RefreshCards();});
     private void RecallAll(){foreach(var pet in pets.ToArray())pet.Close();}
     private void Recall(Guid id){foreach(var pet in pets.Where(p=>p.RoleId==id).ToArray())pet.Close();}
     private void ImportPack()=>Safe(()=>{
@@ -168,6 +177,7 @@ internal sealed class Launcher : Window
         while(existing.Count<settings.Count)
         {
             var role=new RoleRuntime(pair.Pack);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id);
+            pet.ChangeSettings+=ChangeRole;pet.RecallRole+=Recall;pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};pet.ClearRoleFreezes+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ClearFreezes();};pet.ResetRoleSize+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ResetSize();};
             pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);thoughts.Add(role.Thoughts);
             pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!shuttingDown)RefreshCards();};
             pet.Show();

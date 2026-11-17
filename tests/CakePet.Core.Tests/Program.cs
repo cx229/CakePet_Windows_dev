@@ -155,6 +155,12 @@ try
  var catalogPath=Path.Combine(root,"catalog.json");catalog.Save(catalogPath);var restored=RoleCatalog.Load(catalogPath);
  Assert(restored.Roles.Count==2&&restored.Roles[0].Settings.Count==3&&restored.Roles[1].Settings.Count==1,"independent persistent roles");
  Assert(restored.Roles.All(x=>x.PackId==packEntry.Id),"shared pack references");
+ var custom=new RoleSettings{FoodMinSeconds=80,FoodMaxSeconds=20,Gravity=-1,SnapEdges=(Edge)255,Scale=2,MaxScale=1}.Normalize();
+ Assert(custom.FoodMaxSeconds==80&&custom.Gravity==0&&custom.SnapEdges==Edge.All&&custom.MaxScale>=custom.Scale,"settings normalization");
+ catalog.Defaults=new RoleSettings{Count=4,Gravity=900};var future=catalog.AddRole(packEntry.Id,"future");
+ Assert(future.Settings.Count==4&&future.Settings.Gravity==900&&catalog.Roles[0].Settings.Count==3,"defaults only new roles");
+ var effective=new RoleSettings{Move=false,Throw=true}.Effective(pack);
+ Assert(effective.Move,"missing static pool forces motion");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
