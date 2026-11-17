@@ -107,7 +107,12 @@ internal sealed class PetWindow : Window
         SourceInitialized+=(_,_)=>{ApplyInputStyle();DesktopPlatform.Place(this,body.Position.X,body.Position.Y,Side,Side);};
         var menu=new ContextMenu();
         Add("摸摸头",()=>engine.PatHead());
-        var menuAction=Add("菜单动画",()=>engine.MenuAction());
+        var menuAction=new MenuItem{Header="菜单动画"};menu.Items.Add(menuAction);
+        foreach(var mode in role.Package.Candidates("menu/pool"))
+        {
+            var item=new MenuItem{Header=mode};item.Click+=(_,_)=>{if(engine.MenuAction(mode))Render();};menuAction.Items.Add(item);
+        }
+        menuAction.IsEnabled=menuAction.Items.Count>0;
         Add("归位",()=>{engine.ReturnHome();Render();});
         var still=Add("静止待机",()=>Change(s=>s with{Move=!s.Move}));still.IsCheckable=true;
         var climb=Add("攀岩走壁",()=>Change(s=>s with{Climb=!s.Climb}));climb.IsCheckable=true;climb.Visibility=Visibility.Collapsed;
@@ -130,7 +135,7 @@ internal sealed class PetWindow : Window
         Add("角色设置",()=>OpenSettings?.Invoke(RoleId));
         Add("召回",()=>RecallRole?.Invoke(RoleId));
         menu.Opened+=(_,_)=>{
-            menuAction.IsEnabled=role.Package.Supports("menu/pool");still.IsEnabled=role.Package.Supports("standby/static_pool");still.IsChecked=role.StaticStandby;
+            menuAction.IsEnabled=menuAction.Items.Count>0&&role.CanTrigger("menu/pool");still.IsEnabled=role.Package.Supports("standby/static_pool");still.IsChecked=role.StaticStandby;
             climb.IsChecked=engine.ClimbEnabled;leap.IsChecked=engine.LeapEnabled;leap.IsEnabled=role.Package.Supports("climb/leap/leap");
             leapTest.IsEnabled=engine.ClimbEnabled&&engine.LeapEnabled;
             feed.IsEnabled=automatic.IsEnabled=role.Package.Supports("feed/food");automatic.IsChecked=settings.AutoFeed;feed.IsEnabled=automatic.IsEnabled=engine.FeedingEnabled;

@@ -29,8 +29,12 @@ public sealed class RoleRuntime
         if(candidates.Count==0)return false;
         var alternatives=exclude==null?candidates:candidates.Where(x=>x!=exclude).ToArray();
         if(alternatives.Count==0)alternatives=candidates;
+        return Play(path,alternatives[random.Next(alternatives.Count)]);
+    }
+    private bool Play(string path,string mode)
+    {
         FunctionPath=path;
-        Animation=new AnimationCursor(Package,alternatives[random.Next(alternatives.Count)],random);
+        Animation=new AnimationCursor(Package,mode,random);
         Animation.FrameEntered+=f=>FrameEntered?.Invoke(f);
         Animation.ModeEntered+=_=>PublishContext();
         Animation.TimeAdvanced+=Thoughts.Advance;
@@ -107,6 +111,7 @@ public sealed class RoleRuntime
     }
     public bool IsNaturalStandby=>FunctionPath.StartsWith("standby/",StringComparison.Ordinal);
     public bool Trigger(string path)=>CanTrigger(path)&&Select(path);
+    public bool TriggerMode(string path,string mode)=>CanTrigger(path)&&Package.Candidates(path).Contains(mode)&&Play(path,mode);
     public bool PhysicalEvent(string path)=>Select(path);
     public void CompletePhysicalMotion(string landing="touch/jump_down",PhysicalState nextState=PhysicalState.Free)
     {

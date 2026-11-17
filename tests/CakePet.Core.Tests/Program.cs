@@ -40,10 +40,11 @@ try
  role.Advance(1);Assert(role.Animation.Mode.Id=="idle","resume standby");
  Assert(second.Animation.Mode.Id=="idle","independent cursor");
  role.SetEnvironment(true,PhysicalState.Free);
- Assert(role.Trigger("menu/pool")&&role.Snapped,"snapped menu event");
+ Assert(role.TriggerMode("menu/pool","event")&&role.Snapped&&role.FunctionPath=="menu/pool"&&role.Animation.Mode.Id=="event","snapped named menu event");
+ Assert(!role.TriggerMode("menu/pool","idle"),"menu rejects unbound animation");
  Assert(!role.Trigger("pat_head/pat_head"),"normal event excluded when snapped");
  role.SetEnvironment(false,PhysicalState.Dragging);
- Assert(!role.Trigger("menu/pool"),"physical lock");
+ Assert(!role.TriggerMode("menu/pool","event"),"named menu physical lock");
  var cursor=new AnimationCursor(pack,"idle",new Random(1));int impulses=0;
  cursor.FrameEntered+=f=>impulses+=f.Dx;cursor.Advance(30);
  Assert(impulses==6&&!cursor.Ended,"loop impulses");
@@ -211,7 +212,7 @@ try
  var styleLimited=SettingLimits.Clamp(new RoleSettings{ThoughtStyle=new ThinkingStyle{Size=30},Limits=new(){["ThoughtStyle.Size"]=new(12,20)}});Assert(styleLimited.ThoughtStyle.Size==20,"thought style threshold");
  var itemApplied=SettingLimits.ApplyItem(new RoleSettings{Count=5,Scale=2},limited,"Scale");Assert(itemApplied.Count==5&&itemApplied.Scale==1.5&&itemApplied.Limits.ContainsKey("Scale"),"single habit item");
  var styleApplied=SettingLimits.ApplyItem(new RoleSettings{ThoughtStyle=new ThinkingStyle{Alpha=.3}},styleLimited,"ThoughtStyle.Size");Assert(styleApplied.ThoughtStyle.Size==20&&styleApplied.ThoughtStyle.Alpha==.3,"nested habit item");
- if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
+ if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");var menuModes=real.Candidates("menu/pool");Assert(menuModes.Count>1,"Android menu pool");var menuRole=new RoleRuntime(real,new Random(7));foreach(var mode in menuModes){Assert(menuRole.TriggerMode("menu/pool",mode)&&menuRole.Animation.Mode.Id==mode,"exact Android menu mode "+mode);}Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
 finally{Directory.Delete(root,true);}

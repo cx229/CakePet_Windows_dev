@@ -107,7 +107,7 @@ public sealed class PetEngine : IDisposable
         Body.Reset(new Point((Bounds.Left+Bounds.Right)/2,Bounds.Bottom),Bounds);TryAttachCurrent();RefreshGeometry();
     }
     public bool PatHead()=>Role.Trigger(Body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head");
-    public bool MenuAction()=>Role.Trigger("menu/pool");
+    public bool MenuAction(string mode)=>Role.TriggerMode("menu/pool",mode);
     public void SetAutoForage(bool enabled)
     {AutoForageEnabled=enabled&&Role.Package.Supports(ForagePath);if(!AutoForageEnabled)StopForage();}
     public bool StartForage(Point target)
