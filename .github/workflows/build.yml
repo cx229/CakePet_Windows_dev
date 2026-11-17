@@ -20,9 +20,19 @@ jobs:
       - name: Core tests
         shell: pwsh
         run: dotnet run --project tests/CakePet.Core.Tests -c Release -- "android-reference/app/src/main/assets/白酥"
-      - name: Publish core test executable
-        run: dotnet publish tests/CakePet.Core.Tests -c Release -r win-x64 --self-contained true -o artifacts/core-tests
+      - name: Verify Windows image decoding
+        shell: pwsh
+        run: |
+          dotnet run --project src/CakePet.Windows -c Release -- --validate-assets "android-reference/app/src/main/assets/白酥"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish desktop executable
+        shell: pwsh
+        run: |
+          dotnet publish src/CakePet.Windows -c Release -r win-x64 --self-contained true -o artifacts/CakePet
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path artifacts/CakePet/assets | Out-Null
+          Copy-Item -Recurse -LiteralPath "android-reference/app/src/main/assets/白酥" -Destination artifacts/CakePet/assets/default
       - uses: actions/upload-artifact@v4
         with:
-          name: CakePet-core-tests-win-x64
-          path: artifacts/core-tests
+          name: CakePet-Windows-dev-win-x64
+          path: artifacts/CakePet

@@ -5,6 +5,7 @@ public sealed class RoleRuntime
 {
     private readonly Random random;
     public RolePackage Package { get; }
+    public ThinkingTimeline Thoughts { get; }
     public AnimationCursor Animation { get; private set; } = null!;
     public string FunctionPath { get; private set; } = "";
     public string? StateFunction { get; private set; }
@@ -14,7 +15,12 @@ public sealed class RoleRuntime
     public event Action<Frame>? FrameEntered;
     public event Action? ContextChanged;
     public RoleRuntime(RolePackage package,Random? random=null)
-    { Package=package;this.random=random??new Random();Resume(); }
+    {
+        Package=package;this.random=random??new Random();
+        Thoughts=new ThinkingTimeline(package.Texts,new Random(this.random.Next()));
+        Resume();
+    }
+    private void PublishContext(){Thoughts.Apply(CurrentThinking);ContextChanged?.Invoke();}
     private bool Select(string path)
     {
         var candidates=Package.Candidates(path);
@@ -22,8 +28,9 @@ public sealed class RoleRuntime
         FunctionPath=path;
         Animation=new AnimationCursor(Package,candidates[random.Next(candidates.Count)],random);
         Animation.FrameEntered+=f=>FrameEntered?.Invoke(f);
-        Animation.ModeEntered+=_=>ContextChanged?.Invoke();
-        ContextChanged?.Invoke();FrameEntered?.Invoke(Animation.Current);
+        Animation.ModeEntered+=_=>PublishContext();
+        Animation.TimeAdvanced+=Thoughts.Advance;
+        PublishContext();FrameEntered?.Invoke(Animation.Current);
         return true;
     }
     private void Resume()
@@ -34,29 +41,59 @@ public sealed class RoleRuntime
         if(!Select("standby/pool"))throw new InvalidOperationException("No valid standby.");
     }
     public void SetStaticStandby(bool enabled)
-    { StaticStandby=enabled&&Package.Candidates("standby/static_pool").Count>0;if(Physics==PhysicalState.Free&&StateFunction==null)Resume(); }
+    {
+        enabled=enabled&&Package.Candidates("standby/static_pool").Count>0;
+        if(StaticStandby==enabled)return;
+        StaticStandby=enabled;
+        if(Physics==PhysicalState.Free&&!Snapped&&StateFunction==null)Resume();
+    }
     public void SetEnvironment(bool snapped,PhysicalState state,string? stateFunction=null)
     {
-        Snapped=snapped;Physics=state;StateFunction=stateFunction;Resume();
+        if(snapped&&state!=PhysicalState.Free)throw new ArgumentException("Snapped environment cannot be dragged or in flight.");
+        var enteringSnap=snapped&&!Snapped;
+        stateFunction??=state switch {
+            PhysicalState.Dragging when !StaticStandby=>"touch/lift_up/slow",
+            PhysicalState.Throwing when !StaticStandby=>"touch/roll",
+            PhysicalState.Flying=>"climb/leap/leap",
+            _=>snapped?"snap/pool":null};
+        if(Snapped==snapped&&Physics==state&&StateFunction==stateFunction)return;
+        Snapped=snapped;Physics=state;StateFunction=stateFunction;
+        if(enteringSnap&&Select("snap/snap_head"))return;
+        Resume();
+    }
+    public void UpdateDragCondition(double vx,double width)
+    {
+        if(Physics!=PhysicalState.Dragging||StaticStandby)return;
+        var condition=vx<=-width*3.5?"left_fast":vx<=-width*1.5?"left_medium":vx>=width*3.5?"right_fast":vx>=width*1.5?"right_medium":"slow";
+        var path="touch/lift_up/"+condition;
+        if(StateFunction==path)return;
+        StateFunction=path;Resume();
+    }
+    private bool CanTrigger(string path)
+    {
+        if(Physics!=PhysicalState.Free&&Physics!=PhysicalState.Climbing)return false;
+        if(path.StartsWith("snap/",StringComparison.Ordinal)&&!Snapped)return false;
+        if(!path.StartsWith("snap/",StringComparison.Ordinal)&&Snapped&&!path.StartsWith("menu/",StringComparison.Ordinal))return false;
+        return true;
     }
     public bool EnterSustained(string path)
     {
-        if(Package.Candidates(path).Count==0)return false;
+        if(!CanTrigger(path)||Package.Candidates(path).Count==0)return false;
+        if(StateFunction==path)return true;
         StateFunction=path;return Select(path);
     }
-    public void EndSustained(){StateFunction=null;Resume();}
-    public bool Trigger(string path)
-    {
-        // Physical transitions have a separate unconditional entry point.
-        if(Physics!=PhysicalState.Free)return false;
-        if(path.StartsWith("snap/",StringComparison.Ordinal)&&!Snapped)return false;
-        if(!path.StartsWith("snap/",StringComparison.Ordinal)&&Snapped&&!path.StartsWith("menu/",StringComparison.Ordinal))return false;
-        return Select(path);
-    }
+    public void EndSustained(){StateFunction=Snapped?"snap/pool":null;Resume();}
+    public bool Trigger(string path)=>CanTrigger(path)&&Select(path);
     public bool PhysicalEvent(string path)=>Select(path);
+    public void CompletePhysicalMotion(string landing="touch/jump_down")
+    {
+        Physics=PhysicalState.Free;Snapped=false;StateFunction=null;
+        if(!Select(landing))Resume();
+    }
     public Thinking CurrentThinking=>Package.ResolveThinking(Animation.Mode.Id,FunctionPath);
     public void Advance(long milliseconds)
     {
+        if(milliseconds<0)throw new ArgumentOutOfRangeException(nameof(milliseconds));
         while(milliseconds>0)
         {
             milliseconds=Animation.Advance(milliseconds);

@@ -12,6 +12,7 @@ public sealed class AnimationCursor
     public Frame Current => Mode.Frames[FrameIndex];
     public bool Ended { get; private set; }
     public event Action<Frame>? FrameEntered;
+    public event Action<long>? TimeAdvanced;
     public event Action<string>? ModeEntered;
     public AnimationCursor(RolePackage package,string id,Random random)
     {
@@ -39,6 +40,7 @@ public sealed class AnimationCursor
             long span=Math.Min(milliseconds,delay-frameElapsed);
             if(Mode.Loop==LoopKind.Timed&&!Mode.FinishCycle) span=Math.Min(span,Math.Max(0,target-modeElapsed));
             milliseconds-=span;frameElapsed+=span;modeElapsed+=span;
+            if(span>0) TimeAdvanced?.Invoke(span);
             if(Mode.Loop==LoopKind.Timed&&!Mode.FinishCycle&&modeElapsed>=target){NextMode();continue;}
             if(frameElapsed<delay) continue;
             if(FrameIndex+1<Mode.Frames.Count) FrameIndex++;

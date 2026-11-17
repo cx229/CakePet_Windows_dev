@@ -9,7 +9,7 @@ public enum LoopKind { Off, Timed, Infinite }
 public sealed record Frame(string Resource, Interval Delay, int Dx, int Dy, int AnchorX, int? AnchorY, string Align, string Transform);
 public sealed record Thinking(string Policy, IReadOnlyDictionary<string, Interval> Pool)
 {
-    public static Thinking Empty { get; } = new("off", new Dictionary<string, Interval>());
+    public static Thinking Empty { get; } = new("cycle", new Dictionary<string, Interval>());
 }
 public sealed record Mode(string Id, IReadOnlyList<Frame> Frames, LoopKind Loop, Interval? Duration, bool FinishCycle, string? Next, Thinking? Thinking);
 public sealed record Function(IReadOnlyList<string> Modes, Thinking Thinking);
@@ -56,11 +56,11 @@ public sealed class RolePackage
                     var path = ResolveAsset(res);
                     if (!imageReady(path)) throw new InvalidDataException("Missing or unreadable image: "+res);
                     return new Frame(res, Range(Prop(f,"delay")), Int(f,"dx",0), Int(f,"dy",0), Int(f,"anchorX",-1),
-                        Prop(f,"anchorY").TryInt(), Str(f,"verticalAlign","top"), Str(f,"transform","none"));
+                        Prop(f,"anchorY").TryInt(), Str(f,"verticalAlign","bottom"), Str(f,"transform","none"));
                 }).ToArray();
                 if (frames.Length == 0) throw new InvalidDataException("No frames.");
                 var next = Str(m,"nextMode","");
-                modes.Add(entry.Name,new Mode(entry.Name,frames,loop,duration,Bool(m,"finishCycle"),
+                modes.Add(entry.Name,new Mode(entry.Name,frames,loop,duration,Prop(m,"finishCycle").ValueKind != JsonValueKind.False,
                     string.IsNullOrWhiteSpace(next) || next == "null" ? null : next, ReadThinking(Prop(m,"thinking"),warnings)));
             }
             catch (Exception e) when (e is InvalidDataException or InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException)
@@ -73,7 +73,7 @@ public sealed class RolePackage
             if (pool.ValueKind == JsonValueKind.Array)
             {
                 functions[path] = new Function(pool.EnumerateArray().Where(x=>x.ValueKind==JsonValueKind.String)
-                    .Select(x=>x.GetString()!).ToArray(),ReadThinking(Prop(node,"thinking"),warnings) ?? Thinking.Empty);
+                    .Select(x=>x.GetString()!).ToArray(),ReadThinking(Prop(node,"thinking"),warnings,"cycle") ?? Thinking.Empty);
                 return;
             }
             foreach(var child in node.EnumerateObject()) Walk(child.Value,path.Length==0?child.Name:path+"/"+child.Name);
@@ -92,7 +92,9 @@ public sealed class RolePackage
     {
         root=Path.GetFullPath(root);
         using var doc=JsonDocument.Parse(File.ReadAllText(Path.Combine(root,"modes.jsonc")),new JsonDocumentOptions { AllowTrailingCommas=true, CommentHandling=JsonCommentHandling.Skip });
-        return new RolePackage(root,doc.RootElement,imageReady ?? (p=>File.Exists(p)&&new FileInfo(p).Length>0));
+        var check=imageReady ?? (p=>File.Exists(p)&&new FileInfo(p).Length>0);
+        var cache=new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
+        return new RolePackage(root,doc.RootElement,p=>{ if(!cache.TryGetValue(p,out var valid)) cache[p]=valid=check(p); return valid; });
     }
     public string ResolveAsset(string resource)
     {
@@ -123,16 +125,22 @@ public sealed class RolePackage
     public Thinking ResolveThinking(string mode,string function) =>
         Modes.TryGetValue(mode,out var m)&&m.Thinking is { Policy: not "inherit" } t ? t :
         Functions.TryGetValue(function,out var f)?f.Thinking:Thinking.Empty;
-    private static Thinking? ReadThinking(JsonElement e,List<string> warnings)
+    private static Thinking? ReadThinking(JsonElement e,List<string> warnings,string fallback="inherit")
     {
         if(e.ValueKind!=JsonValueKind.Object) return null;
-        var policy=Str(e,"policy","inherit");
-        if(policy is not ("inherit" or "off" or "hold" or "cycle")) return null;
+        var policy=Str(e,"policy",fallback);
+        if(policy is not ("inherit" or "off" or "hold" or "cycle") || (policy=="inherit"&&fallback!="inherit")) policy=fallback;
         var pool=new Dictionary<string,Interval>();
         var p=Prop(e,"pool");
         if(p.ValueKind==JsonValueKind.Object) foreach(var v in p.EnumerateObject())
-            try { pool[v.Name]=Range(v.Value); } catch(InvalidDataException) { warnings.Add("Invalid thinking interval: "+v.Name); }
+            try { pool[v.Name]=ThinkingRange(v.Value); } catch(InvalidDataException) { warnings.Add("Invalid thinking interval: "+v.Name); }
         return new Thinking(policy,pool);
+    }
+    private static Interval ThinkingRange(JsonElement e)
+    {
+        var min=Prop(e,"min").TryInt()??500; var max=Prop(e,"max").TryInt()??4000;
+        if(min<0||max<min) throw new InvalidDataException("Invalid thinking interval.");
+        return new Interval(min,max);
     }
     private static Interval Range(JsonElement e)
     {
