@@ -89,9 +89,9 @@ internal sealed class Launcher : Window
         
         var materials=new DockPanel{Margin=new Thickness(12)};var materialsTitle=Ui.Text("素材包管理",26);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);var importRow=new WrapPanel();importRow.Children.Add(Ui.Button("导入 ZIP",ImportArchive,true));importRow.Children.Add(Ui.Button("导入目录",ImportPack));importRow.Children.Add(Ui.Button("从模板新建",()=>Safe(()=>{var pack=storage.Import(defaultRoot);RefreshCards();EditPack(pack);})));DockPanel.SetDock(importRow,Dock.Top);materials.Children.Add(importRow);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var global=new StackPanel{Margin=new Thickness(20),MaxWidth=850};global.Children.Add(Ui.Text("全局设置",26));
-        var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",IsChecked=catalog.SingleThinking,Margin=new Thickness(0,8,0,8)};
+        var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",IsChecked=catalog.SingleThinking,Margin=new Thickness(0,8,0,8)};single.IsVisibleChanged+=(_,_)=>single.IsChecked=catalog.SingleThinking;
         thoughts.SingleAcrossRoles=catalog.SingleThinking;single.Click+=(_,_)=>{catalog.SingleThinking=single.IsChecked==true;thoughts.SingleAcrossRoles=catalog.SingleThinking;storage.Save();};global.Children.Add(Ui.Card(single));
-        var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};
+        var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};launch.IsVisibleChanged+=(_,_)=>launch.IsChecked=catalog.AutoSummon;
         launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(launch));
         global.Children.Add(Button("用户习惯 · 新角色默认值",EditDefaults));
         var backup=new SettingCard("备份与恢复","导出全部持久化数据；导入时只覆盖支持的内容。");var backupActions=new WrapPanel();backupActions.Children.Add(Ui.Button("导出软件备份",ExportBackup,true));backupActions.Children.Add(Ui.Button("导入 ZIP 备份",ImportArchive));backupActions.Children.Add(Ui.Button("重置软件",ResetSoftware));backup.Add(backupActions);global.Children.Add(backup);

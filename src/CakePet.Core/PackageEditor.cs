@@ -49,12 +49,13 @@ public sealed class PackageEditor
         foreach(var mode in Modes.Select(x=>x.Value).OfType<JsonObject>())Clean(mode);
         foreach(var path in FunctionPaths().ToArray())Clean(Function(path));
     }
-    public bool ImageReferenced(string path)=>Modes.Select(x=>x.Value).OfType<JsonObject>().SelectMany(x=>x["frames"] as JsonArray??new JsonArray()).OfType<JsonObject>().Any(x=>string.Equals(x["res"]?.ToString().Replace('\\','/'),path.Replace('\\','/'),StringComparison.OrdinalIgnoreCase));
+    public bool ImageReferenced(string path)=>References(Modes,path)||References(ArchiveIO.Read(Path.Combine(Root,"modes.jsonc"))["modes"] as JsonObject??new JsonObject(),path);
+    private static bool References(JsonObject modes,string path)=>modes.Select(x=>x.Value).OfType<JsonObject>().SelectMany(x=>x["frames"] as JsonArray??new JsonArray()).OfType<JsonObject>().Any(x=>string.Equals(x["res"]?.ToString().Replace('\\','/'),path.Replace('\\','/'),StringComparison.OrdinalIgnoreCase));
     public IReadOnlyList<string> Images()=>Directory.EnumerateFiles(Root,"*",SearchOption.AllDirectories).Where(x=>new[]{".png",".jpg",".jpeg",".webp",".bmp",".gif"}.Contains(Path.GetExtension(x),StringComparer.OrdinalIgnoreCase)).Select(x=>Path.GetRelativePath(Root,x).Replace('\\','/')).OrderBy(x=>x).ToArray();
-    public void Save(Func<string,bool>? imageReady=null)
+    public RolePackage Save(Func<string,bool>? imageReady=null)
     {
         var path=Path.Combine(Root,"modes.jsonc");var old=File.ReadAllText(path);Document["version"]=RolePackage.ContractVersion;
         ArchiveIO.Write(path,Document.ToJsonString(ArchiveIO.Options));
-        try{RolePackage.Load(Root,imageReady);}catch{ArchiveIO.Write(path,old);throw;}
+        try{return RolePackage.Load(Root,imageReady);}catch{ArchiveIO.Write(path,old);throw;}
     }
 }

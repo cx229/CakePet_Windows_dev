@@ -30,7 +30,7 @@ internal sealed class PackageEditorPage:UserControl
     }
     private void Changed(){dirty=true;status.Text="有未保存的修改";}
     private void Safe(Action a){try{a();}catch(Exception e){MessageBox.Show(e.Message,"素材包编辑");}}
-    private void Save()=>Safe(()=>{editor.Save(WpfImageCache.IsReadable);dirty=false;status.Text="已保存";saved();});
+    private void Save()=>Safe(()=>{var pack=editor.Save(WpfImageCache.IsReadable);dirty=false;status.Text=pack.Warnings.Count==0?"已保存":$"已保存 · {pack.Warnings.Count} 项动画警告";saved();if(pack.Warnings.Count>0)MessageBox.Show(string.Join(Environment.NewLine,pack.Warnings.Take(20)),"素材包警告");});
     private StackPanel Page(string title,string note)
     {var p=new StackPanel{MaxWidth=900};var header=Ui.Caption(title,note,true);((TextBlock)header.Children[0]).FontSize=24;header.Margin=new Thickness(0,0,0,18);p.Children.Add(header);host.Content=new ScrollViewer{Content=p,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};return p;}
     private void Field(StackPanel panel,string label,string value,Action<string> set,bool multiline=false)
@@ -62,9 +62,12 @@ internal sealed class PackageEditorPage:UserControl
     private void Animation(string id)
     {
         var p=Page(id,"动画属性与逐帧编辑");p.Children.Add(Ui.Button("‹ 动画列表",Animations));
+        var preview=new Image{Width=160,Height=160,Stretch=Stretch.Uniform};var previewNote=Ui.Text("预览忽略帧位移",12,true);var previewPanel=new StackPanel();previewPanel.Children.Add(preview);previewPanel.Children.Add(previewNote);p.Children.Add(Ui.Card(previewPanel));
+        void ShowFrame(JsonObject frame){try{var bitmap=new BitmapImage();bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;bitmap.UriSource=new Uri(Path.Combine(editor.Root,frame["res"]?.ToString()??""));bitmap.EndInit();preview.Source=bitmap;previewNote.Text=frame["res"]?.ToString()??"";}catch{preview.Source=null;previewNote.Text="图片不可用";}}
+        if(editor.Frames(id).FirstOrDefault() is JsonObject first)ShowFrame(first);
         var m=editor.Mode(id);var name=new TextBox{Text=id,Width=180};var rename=new WrapPanel();rename.Children.Add(name);rename.Children.Add(Ui.Button("重命名",()=>Safe(()=>{editor.RenameMode(id,name.Text.Trim());Changed();Animation(name.Text.Trim());})));rename.Children.Add(Ui.Button("删除动画",()=>{if(MessageBox.Show("删除动画并取消所有功能及后续引用？待机池缺失时将无法保存。","删除",MessageBoxButton.YesNo)==MessageBoxResult.Yes){editor.DeleteMode(id);Changed();Animations();}}));p.Children.Add(Ui.Card(rename));
         var loop=new ComboBox{ItemsSource=new[]{"off","timed","infinite"},SelectedItem=m["loopMode"]?.ToString()??"off",Width=160};loop.SelectionChanged+=(_,_)=>{m["loopMode"]=loop.SelectedItem?.ToString();if(loop.SelectedItem?.ToString()=="timed"&&m["duration"]==null)m["duration"]=new JsonObject{["min"]=1000,["max"]=3000};Changed();};p.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("播放循环","单次 / 定时 / 无限"),loop)));
-        var duration=m["duration"] as JsonObject??new JsonObject{["min"]=1000,["max"]=3000};if(m["duration"]==null)m["duration"]=duration;
+        var duration=m["duration"] as JsonObject??new JsonObject{["min"]=1000,["max"]=3000};if(m["duration"] is not JsonObject)m["duration"]=duration;
         Field(p,"定时最短 ms",duration["min"]?.ToString()??"1000",v=>{if(int.TryParse(v,out int n)&&n>0)duration["min"]=n;});Field(p,"定时最长 ms",duration["max"]?.ToString()??"3000",v=>{if(int.TryParse(v,out int n)&&n>0)duration["max"]=n;});
         var finish=Ui.Switch(m["finishCycle"]?.GetValue<bool>()??true);finish.Click+=(_,_)=>{m["finishCycle"]=finish.IsChecked==true;Changed();};p.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("完成当前循环","定时结束后是否播完当前轮"),finish)));
         var next=new ComboBox{ItemsSource=new[]{""}.Concat(editor.Modes.Select(x=>x.Key)).ToArray(),SelectedItem=m["nextMode"]?.ToString()??"",Width=180};next.SelectionChanged+=(_,_)=>{var v=next.SelectedItem?.ToString();if(string.IsNullOrEmpty(v))m.Remove("nextMode");else m["nextMode"]=v;Changed();};p.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("后续动画","无限循环不会进入后续动画。"),next)));
@@ -72,9 +75,9 @@ internal sealed class PackageEditorPage:UserControl
         for(int i=0;i<frames.Count;i++)
         {
             int index=i;var frame=frames[i]!.AsObject();var card=new SettingCard($"帧 {i+1}",frame["res"]?.ToString()??"",initiallyExpanded:false);
-            var image=new ComboBox{ItemsSource=editor.Images(),SelectedItem=frame["res"]?.ToString(),MinWidth=200};image.SelectionChanged+=(_,_)=>{frame["res"]=image.SelectedItem?.ToString();Changed();};card.Add(Ui.Pair(Ui.Caption("图片资源"),image,300));
-            var delay=frame["delay"];var min=delay is JsonArray ar?ar[0]?.GetValue<int>()??100:delay?.GetValue<int>()??100;var max=delay is JsonArray ar2?ar2[1]?.GetValue<int>()??min:min;
-            var range=new RangeSlider(1,10000,min,max,(lo,hi)=>{frame["delay"]=lo==hi?JsonValue.Create((int)lo):new JsonArray(JsonValue.Create((int)lo),JsonValue.Create((int)hi));Changed();});card.Add(Ui.Pair(Ui.Caption("帧时长","毫秒，最短至最长"),range,310));
+            var image=new ComboBox{ItemsSource=editor.Images(),SelectedItem=frame["res"]?.ToString(),MinWidth=200};image.SelectionChanged+=(_,_)=>{frame["res"]=image.SelectedItem?.ToString();Changed();};card.Add(Ui.Pair(Ui.Caption("图片资源"),image,300));card.Add(Ui.Button("查看本帧",()=>ShowFrame(frame)));
+            var delay=frame["delay"];int ReadInt(JsonNode? n,int fallback)=>n is JsonValue j&&j.TryGetValue<int>(out var v)?v:fallback;var min=delay is JsonArray ar&&ar.Count==2?ReadInt(ar[0],100):delay is JsonObject d?ReadInt(d["min"],100):ReadInt(delay,100);var max=delay is JsonArray ar2&&ar2.Count==2?ReadInt(ar2[1],min):delay is JsonObject d2?ReadInt(d2["max"],min):min;
+            var range=new RangeSlider(1,Math.Max(10000,max),Math.Max(1,min),Math.Max(Math.Max(1,min),max),(lo,hi)=>{frame["delay"]=lo==hi?JsonValue.Create((int)lo):new JsonArray(JsonValue.Create((int)lo),JsonValue.Create((int)hi));Changed();});card.Add(Ui.Pair(Ui.Caption("帧时长","毫秒，最短至最长"),range,310));
             foreach(var key in new[]{"dx","dy","anchorX","anchorY"}){var k=key;int value=frame[k]?.GetValue<int>()??(k=="anchorX"?-1:0);card.Add(Ui.NumberRow(k,"",value,-500,500,1,"px",v=>{frame[k]=(int)v;Changed();}));}
             foreach(var (key,choices) in new[]{("verticalAlign",new[]{"bottom","center","top"}),("transform",new[]{"none","flipX","flipY","rotate90","rotate180","rotate270"})}){var k=key;var combo=new ComboBox{ItemsSource=choices,SelectedItem=frame[k]?.ToString()??choices[0],Width=160};combo.SelectionChanged+=(_,_)=>{frame[k]=combo.SelectedItem?.ToString();Changed();};card.Add(Ui.Pair(Ui.Caption(k),combo));}
             var actions=new WrapPanel();actions.Children.Add(Ui.Button("上移",()=>{if(index>0){var n=frames[index]!.DeepClone();frames.RemoveAt(index);frames.Insert(index-1,n);Changed();Animation(id);}}));actions.Children.Add(Ui.Button("下移",()=>{if(index+1<frames.Count){var n=frames[index]!.DeepClone();frames.RemoveAt(index);frames.Insert(index+1,n);Changed();Animation(id);}}));actions.Children.Add(Ui.Button("删除帧",()=>{if(frames.Count>1){frames.RemoveAt(index);Changed();Animation(id);}}));card.Add(actions);p.Children.Add(card);

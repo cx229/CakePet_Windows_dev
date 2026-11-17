@@ -161,6 +161,18 @@ try
  Assert(future.Settings.Count==4&&future.Settings.Gravity==900&&catalog.Roles[0].Settings.Count==3,"defaults only new roles");
  var effective=new RoleSettings{Move=false,Throw=true}.Effective(pack);
  Assert(effective.Move,"missing static pool forces motion");
+ var imported=ArchiveIO.Overlay(new RoleSettings{Gravity=900,Count=2},new System.Text.Json.Nodes.JsonObject{["Gravity"]="invalid",["Count"]=4,["unknown"]=true});
+ Assert(imported.Gravity==900&&imported.Count==4,"partial settings overlay");
+ var editor=new PackageEditor(root);var oldDoc=File.ReadAllText(Path.Combine(root,"modes.jsonc"));
+ var oldMode=editor.Modes.First().Key;editor.RenameMode(oldMode,"renamed");
+ Assert(!editor.Modes.ContainsKey(oldMode)&&editor.Modes.ContainsKey("renamed"),"animation rename");
+ Assert(!editor.FunctionPaths().SelectMany(p=>editor.Function(p)["modes"]!.AsArray()).Any(x=>x?.ToString()==oldMode),"rename references");
+ editor.Save();Assert(RolePackage.Load(root).Modes.ContainsKey("renamed"),"editor save");
+ editor.SetPool("standby/pool",Array.Empty<string>());bool rejected=false;
+ try{editor.Save();}catch(InvalidDataException){rejected=true;}
+ Assert(rejected&&RolePackage.Load(root).Candidates("standby/pool").Count>0,"invalid save rollback");
+ var archivePath=Path.Combine(root,"unsafe.zip");ArchiveIO.Zip(archivePath,z=>ArchiveIO.Text(z,"../escape.txt","bad"));
+ rejected=false;try{ArchiveIO.Extract(archivePath,Path.Combine(root,"extract"));}catch(InvalidDataException){rejected=true;}Assert(rejected,"ZIP path traversal rejected");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
