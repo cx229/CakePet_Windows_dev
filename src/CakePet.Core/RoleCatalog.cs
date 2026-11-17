@@ -66,11 +66,13 @@ public sealed record RoleSettings
         Move=Move||!pack.Supports("standby/static_pool"),Throw=Throw&&pack.Supports("touch/roll"),Snap=Snap&&pack.Supports("snap/pool"),Leap=Leap&&Climb&&pack.Supports("climb/leap/leap"),Forage=Forage&&Climb&&pack.Supports(PetEngine.ForagePath),Feed=Feed&&pack.Supports("feed/food"),AutoFeed=AutoFeed&&Feed&&pack.Supports("feed/food")};
 }
 public sealed record RoleEntry(Guid Id,Guid PackId,string Name,RoleSettings Settings);
+public enum ThinkingLocation { PrimaryBottom, TrayLeft, TaskbarLeft }
 public sealed class RoleCatalog
 {
     public List<PackEntry> Packs {get;init;}=new();
     public List<RoleEntry> Roles {get;init;}=new();
     public bool SingleThinking {get;set;}=true;
+    public ThinkingLocation ThinkingLocation {get;set;}=ThinkingLocation.PrimaryBottom;
     public bool AutoSummon {get;set;}=true;
     public RoleSettings Defaults {get;set;}=new();
     public static RoleCatalog Load(string file)

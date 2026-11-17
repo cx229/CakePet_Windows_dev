@@ -22,6 +22,9 @@ internal static class DesktopPlatform
     [DllImport("user32.dll",CharSet=CharSet.Unicode)]private static extern bool GetMonitorInfo(nint monitor,ref MonitorInfo info);
     [DllImport("user32.dll")]private static extern bool GetCursorPos(out CursorPoint p);
     [DllImport("user32.dll")]private static extern bool SetWindowPos(nint hwnd,nint after,int x,int y,int cx,int cy,uint flags);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)]private static extern nint FindWindow(string className,string? title);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)]private static extern nint FindWindowEx(nint parent,nint after,string className,string? title);
+    [DllImport("user32.dll")]private static extern bool IsWindowVisible(nint window);
     [DllImport("user32.dll")]private static extern bool GetWindowRect(nint hwnd,out Rect r);
     [DllImport("user32.dll")]private static extern uint GetDpiForWindow(nint hwnd);
     [DllImport("user32.dll")]private static extern short GetAsyncKeyState(int key);
@@ -49,6 +52,17 @@ internal static class DesktopPlatform
     public static DesktopScreen Primary=>Screens.FirstOrDefault(x=>x.Primary)??Screens[0];
     public static DesktopScreen At(P p)=>DesktopGeometry.Nearest(Screens,p);
     public static DesktopScreen Resolve(string id,P fallback)=>Screens.FirstOrDefault(x=>x.Id==id)??At(fallback);
+    private static long taskbarRead=-1000;
+    private static (Bounds Bar,Bounds? Tray)? taskbar;
+    public static (Bounds Bar,Bounds? Tray)? Taskbar()
+    {
+        if(Environment.TickCount64-taskbarRead<500)return taskbar;taskbarRead=Environment.TickCount64;taskbar=null;
+        var hwnd=FindWindow("Shell_TrayWnd",null);if(hwnd==0||!IsWindowVisible(hwnd)||!GetWindowRect(hwnd,out var bar))return null;
+        var t=FindWindowEx(hwnd,0,"TrayNotifyWnd",null);Bounds? tray=t!=0&&GetWindowRect(t,out var tr)?tr.Bounds:null;
+        var area=bar.Bounds;var full=Primary.Full;
+        if(area.Right<=full.Left||area.Left>=full.Right||area.Bottom<=full.Top||area.Top>=full.Bottom||area.Right-area.Left<4||area.Bottom-area.Top<4)return null;
+        taskbar=(area,tray);return taskbar;
+    }
     public static P Cursor(){GetCursorPos(out var p);return new P(p.X,p.Y);}
     public static bool ControlDown=>(GetAsyncKeyState(0x11)&0x8000)!=0;
     public static double DpiScale(Window window)

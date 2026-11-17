@@ -32,6 +32,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path src/CakePet.Windows/Assets | Out-Null
           Copy-Item -LiteralPath "android-reference/app/src/main/assets/白酥/安静/sit_clam-1.png" -Destination src/CakePet.Windows/Assets/tray.png
           if ((git -C android-reference hash-object "app/src/main/assets/白酥/安静/sit_clam-1.png") -ne (git hash-object src/CakePet.Windows/Assets/tray.png)) { throw 'Tray asset copy mismatch' }
+          & .github/scripts/New-AppIcon.ps1 -Source src/CakePet.Windows/Assets/tray.png -Destination src/CakePet.Windows/Assets/CakePet.ico
       - name: Core tests
         shell: pwsh
         run: dotnet run --project tests/CakePet.Core.Tests -c Release -- "android-reference/app/src/main/assets/白酥"
@@ -48,6 +49,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts/CakePet/assets | Out-Null
           Copy-Item -Recurse -LiteralPath "android-reference/app/src/main/assets/白酥" -Destination artifacts/CakePet/assets/default
           Copy-Item -LiteralPath src/CakePet.Windows/Assets/tray.png -Destination artifacts/CakePet/assets/tray.png
+          Copy-Item -LiteralPath src/CakePet.Windows/Assets/CakePet.ico -Destination artifacts/CakePet/assets/CakePet.ico
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact }}

@@ -7,6 +7,7 @@ internal static class TrayIcon
     [DllImport("user32.dll")]private static extern bool DestroyIcon(nint handle);
     public static Drawing.Icon Load()
     {
+        var ico=Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico");if(File.Exists(ico))return new Drawing.Icon(ico,32,32);
         var path=Path.Combine(AppContext.BaseDirectory,"assets","tray.png");
         if(!File.Exists(path))path=Path.Combine(AppContext.BaseDirectory,"assets","default","安静","sit_clam-1.png");
         using var original=new Drawing.Bitmap(path);

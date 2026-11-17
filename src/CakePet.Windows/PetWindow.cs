@@ -22,8 +22,6 @@ internal sealed class PetWindow : Window
     private readonly WpfImageCache images;
     private readonly Canvas canvas=new(){Background=Brushes.Transparent};
     private readonly Image image=new(){Stretch=Stretch.Fill,IsHitTestVisible=false};
-    private readonly TextBlock thoughtText=new(){FontSize=14,Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center};
-    private readonly Window thoughtWindow;
     private readonly List<FreezeWindow> freezes=new();
     private DebugWindow? debug;
     private long debugTick;
@@ -49,6 +47,7 @@ internal sealed class PetWindow : Window
     internal event Action<Guid>? ResetRoleSize;
     private void Change(Func<RoleSettings,RoleSettings> change)=>ChangeSettings?.Invoke(RoleId,change);
     internal Guid RoleId {get;}
+    internal string? VisibleThought=>thinkingEnabled?role.Thoughts.VisibleText:null;
     internal bool IsAutomatic=>foodWorld.IsAutomatic(engine);
     internal void ApplySettings(RoleSettings value,bool primary)
     {
@@ -104,11 +103,6 @@ internal sealed class PetWindow : Window
         engine.ReturnHome();
         body.SetPosition(new P(Math.Clamp(body.Position.X+index*30,engine.Bounds.Left,engine.Bounds.Right),body.Position.Y));
         
-        thoughtWindow=new Window{Width=360,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,
-            AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false};
-        thoughtWindow.Content=new Border{Background=new SolidColorBrush(Color.FromArgb(175,35,35,35)),CornerRadius=new CornerRadius(8),
-            Padding=new Thickness(8,3,8,3),VerticalAlignment=VerticalAlignment.Center,Child=thoughtText};
-        thoughtWindow.SourceInitialized+=(_,_)=>NativeStyles.NonActivating(thoughtWindow,true);
         SourceInitialized+=(_,_)=>{ApplyInputStyle();DesktopPlatform.Place(this,body.Position.X,body.Position.Y,Side,Side);};
         var menu=new ContextMenu();
         Add("摸摸头",()=>engine.PatHead());
@@ -148,7 +142,7 @@ internal sealed class PetWindow : Window
         LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging){velocity=default;FinishDrag();}}};
         engine.GrowOnFeed=true;engine.FeedGrowth=role.Package.AnchorRes*.03;engine.MaxDisplaySize=role.Package.AnchorRes*3;
         Loaded+=(_,_)=>Render();
-        Closed+=(_,_)=>{closed=true;ClearFreezes();debug?.Close();engine.Dispose();thoughtWindow.Close();};
+        Closed+=(_,_)=>{closed=true;ClearFreezes();debug?.Close();engine.Dispose();};
     }
     private WPoint Screen(MouseEventArgs e){var p=DesktopPlatform.Cursor();return new WPoint(p.X,p.Y);}
     private void OnDown(object sender,MouseButtonEventArgs e)
@@ -232,14 +226,6 @@ internal sealed class PetWindow : Window
         {
             canvas.RenderTransformOrigin=new WPoint(.5,.5);
             var transform=new TransformGroup();transform.Children.Add(new ScaleTransform(facing,1));transform.Children.Add(new RotateTransform(angle));canvas.RenderTransform=transform;
-        }
-        var text=thinkingEnabled?role.Thoughts.VisibleText:null;
-        if(string.IsNullOrWhiteSpace(text)){if(thoughtWindow.IsVisible)thoughtWindow.Hide();}
-        else
-        {
-            thoughtText.Text=text;var r=Monitor.Work;
-            if(!thoughtWindow.IsVisible)thoughtWindow.Show();
-            DesktopPlatform.Place(thoughtWindow,r.Left+(r.Right-r.Left-360)/2,r.Bottom-44,360,44);
         }
     }
 }

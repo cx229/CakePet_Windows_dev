@@ -63,6 +63,7 @@ internal sealed class Launcher : Window
     private readonly List<PetWindow> pets=new();
     private readonly Dictionary<string,(RolePackage Pack,WpfImageCache Images)> packages=new(StringComparer.OrdinalIgnoreCase);
     private readonly ThinkingCoordinator thoughts=new();
+    private readonly ThinkingPresenter thinkingPresenter=new();
     private readonly FoodWorld world=new();
     private readonly Dictionary<FoodInstance,FoodWindow> foodWindows=new();
     private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
@@ -91,6 +92,10 @@ internal sealed class Launcher : Window
         var global=new StackPanel{Margin=new Thickness(20),MaxWidth=850};global.Children.Add(Ui.Text("全局设置",26));
         var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",IsChecked=catalog.SingleThinking,Margin=new Thickness(0,8,0,8)};single.IsVisibleChanged+=(_,_)=>single.IsChecked=catalog.SingleThinking;
         thoughts.SingleAcrossRoles=catalog.SingleThinking;single.Click+=(_,_)=>{catalog.SingleThinking=single.IsChecked==true;thoughts.SingleAcrossRoles=catalog.SingleThinking;storage.Save();};global.Children.Add(Ui.Card(single));
+        var thinkingCard=new SettingCard("碎碎念显示位置","所有角色共用显示区域；不改变各角色的文本播放策略。",collapsible:false);
+        var locations=new ComboBox{ItemsSource=new[]{"主屏幕底部","托盘左侧","任务栏左侧"},SelectedIndex=(int)catalog.ThinkingLocation,Width=175};
+        locations.IsVisibleChanged+=(_,_)=>locations.SelectedIndex=(int)catalog.ThinkingLocation;locations.SelectionChanged+=(_,_)=>{if(locations.SelectedIndex<0)return;catalog.ThinkingLocation=(ThinkingLocation)locations.SelectedIndex;QueueSave();};
+        thinkingCard.Add(Ui.Pair(Ui.Caption("显示位置","托盘不可用时自动回到主屏幕底部。"),locations));global.Children.Add(thinkingCard);
         var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};launch.IsVisibleChanged+=(_,_)=>launch.IsChecked=catalog.AutoSummon;
         launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(launch));
         global.Children.Add(Button("用户习惯 · 新角色默认值",EditDefaults));
@@ -108,6 +113,7 @@ internal sealed class Launcher : Window
         TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
         trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
         try{trayIcon=TrayIcon.Load();}catch(System.IO.IOException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}catch(ArgumentException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}
+        var iconPath=Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico");if(File.Exists(iconPath)){using var stream=File.OpenRead(iconPath);Icon=System.Windows.Media.Imaging.BitmapFrame.Create(stream,System.Windows.Media.Imaging.BitmapCreateOptions.None,System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);}
         tray=new Forms.NotifyIcon{Icon=trayIcon,Text="CakePet "+Version,ContextMenuStrip=trayMenu,Visible=true};
         tray.MouseClick+=(_,e)=>{if(e.Button==Forms.MouseButtons.Left)Dispatcher.Invoke(ShowLauncher);};
         StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized)Hide();};
@@ -115,7 +121,7 @@ internal sealed class Launcher : Window
         world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
         timer.Tick+=(_,_)=>Tick();
         
-        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Safe(FlushSave);Hide();return;}shuttingDown=true;Safe(FlushSave);timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();Dispatcher.BeginInvoke(new Action(()=>Application.Current.Shutdown()));};
+        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Safe(FlushSave);Hide();return;}shuttingDown=true;Safe(FlushSave);timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();thinkingPresenter.Dispose();Dispatcher.BeginInvoke(new Action(()=>Application.Current.Shutdown()));};
     }
     internal void StartResident(){if(started)return;started=true;if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;timer.Start();}
     internal void ShowLauncher(){Show();WindowState=WindowState.Normal;Activate();}
@@ -140,6 +146,8 @@ internal sealed class Launcher : Window
         world.UpdateInteractions();
         foreach(var pet in pets.ToArray())pet.Render();
         foreach(var food in foodWindows.Values.ToArray())food.Render();
+        var messages=pets.Where(p=>!string.IsNullOrWhiteSpace(p.VisibleThought)).Select(p=>(Name:catalog.Roles.FirstOrDefault(r=>r.Id==p.RoleId)?.Name??p.Engine.Role.Package.Name,Text:p.VisibleThought!)).Distinct().ToArray();
+        thinkingPresenter.Render(messages,catalog.ThinkingLocation,catalog.SingleThinking);
         if(IsVisible&&navigationHost.Content==homeShell&&roleCards.IsVisible)foreach(var preview in previews){preview.Cursor.Advance(dt);var bitmap=preview.Cache.Get(preview.Cursor.Current);if(preview.Image.Source!=bitmap)preview.Image.Source=bitmap;}
     }
     private static Button Button(string text,Action action){var b=new Button{Content=text,Padding=new Thickness(12,6,12,6),Margin=new Thickness(0,3,6,3)};b.Click+=(_,_)=>action();return b;}

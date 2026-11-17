@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CakePet</AssemblyName>
+    <ApplicationIcon Condition="Exists('Assets/CakePet.ico')">Assets/CakePet.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.26.11.17</Version>
     <InformationalVersion>v1.26.11.17.13.33</InformationalVersion>

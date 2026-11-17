@@ -59,6 +59,7 @@ internal sealed partial class CatalogStorage
                 }catch(Exception){skipped++;}
             }
             if(data["Defaults"] is JsonObject defaults)merged.Defaults=ArchiveIO.Overlay(merged.Defaults,defaults);
+            if(data["ThinkingLocation"] is JsonValue location&&location.TryGetValue<int>(out var loc)&&Enum.IsDefined(typeof(ThinkingLocation),loc))merged.ThinkingLocation=(ThinkingLocation)loc;
             if(data["SingleThinking"] is JsonValue single&&single.TryGetValue<bool>(out var st))merged.SingleThinking=st;
             if(data["AutoSummon"] is JsonValue summon&&summon.TryGetValue<bool>(out var au))merged.AutoSummon=au;
             merged.Save(FilePath);Catalog=merged;
