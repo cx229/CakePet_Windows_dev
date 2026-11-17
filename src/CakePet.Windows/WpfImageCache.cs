@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CakePet.Core;
@@ -17,6 +18,38 @@ internal sealed class WpfImageCache(RolePackage pack)
             return frame.PixelWidth>0&&frame.PixelHeight>0;
         }
         catch(Exception e) when(e is IOException or NotSupportedException or ArgumentException or InvalidOperationException or FormatException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException){return false;}
+    }
+    private readonly Dictionary<string,FoodVisual> foodVisuals=new(StringComparer.Ordinal);
+    internal sealed record FoodVisual(IReadOnlyDictionary<Frame,BitmapSource> Frames,int Width,int Height);
+    public FoodVisual GetFoodVisual(string start)
+    {
+        if(foodVisuals.TryGetValue(start,out var cached))return cached;
+        var side=pack.AnchorRes;var canvasSide=Math.Clamp(pack.DecodeTarget>0?pack.DecodeTarget:side,1,2048);
+        var source=new Dictionary<Frame,BitmapSource>();var visited=new HashSet<string>();string? next=start;
+        while(next!=null&&visited.Add(next)&&pack.Modes.TryGetValue(next,out var mode))
+        {
+            foreach(var frame in mode.Frames)
+            {
+                if(source.ContainsKey(frame))continue;
+                var bitmap=Get(frame);
+                var (w,h)=frame.Transform is "rotate90" or "rotate270"?(bitmap.PixelHeight,bitmap.PixelWidth):(bitmap.PixelWidth,bitmap.PixelHeight);
+                var g=FrameGeometry.Calculate(w,h,canvasSide,frame);
+                var visual=new DrawingVisual();using(var dc=visual.RenderOpen())dc.DrawImage(bitmap,new Rect(g.Left,g.Top,g.Width,g.Height));
+                var canvas=new RenderTargetBitmap(canvasSide,canvasSide,96,96,PixelFormats.Pbgra32);canvas.Render(visual);canvas.Freeze();source[frame]=canvas;
+            }
+            next=mode.Loop==LoopKind.Infinite?null:mode.Next;
+        }
+        if(source.Count==0)throw new InvalidDataException("Food mode has no images.");
+        var left=canvasSide;var top=canvasSide;var right=-1;var bottom=-1;
+        foreach(var bitmap in source.Values)
+        {
+            var bytes=new byte[checked(canvasSide*canvasSide*4)];bitmap.CopyPixels(bytes,canvasSide*4,0);
+            for(int y=0;y<canvasSide;y++)for(int x=0;x<canvasSide;x++)if(bytes[(y*canvasSide+x)*4+3]>8)
+            {left=Math.Min(left,x);top=Math.Min(top,y);right=Math.Max(right,x);bottom=Math.Max(bottom,y);}
+        }
+        var rect=right<left?new Int32Rect(0,0,canvasSide,canvasSide):new Int32Rect(left,top,right-left+1,bottom-top+1);
+        var cropped=source.ToDictionary(x=>x.Key,x=>{var b=new CroppedBitmap(x.Value,rect);b.Freeze();return (BitmapSource)b;});
+        return foodVisuals[start]=new FoodVisual(cropped,rect.Width,rect.Height);
     }
     public BitmapSource Get(Frame frame)
     {

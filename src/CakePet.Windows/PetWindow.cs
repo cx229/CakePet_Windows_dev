@@ -23,21 +23,23 @@ internal sealed class PetWindow : Window
     private readonly Image image=new(){Stretch=Stretch.Fill,IsHitTestVisible=false};
     private readonly TextBlock thoughtText=new(){FontSize=14,Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center};
     private readonly Window thoughtWindow;
-    private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
     private readonly Stopwatch clock=Stopwatch.StartNew();
-    private long lastTick,lastMouse;
+    private long lastMouse;
     private WPoint pressedAt,previousMouse;
     private P pressedBody,velocity;
     private bool pressed,dragging,closed;
     private Frame? rendered;
-    private const double Side=160;
-    public PetWindow(RoleRuntime role,WpfImageCache images,int index)
+    private double Side=>engine.DisplaySize;
+    internal PetEngine Engine=>engine;
+    internal WpfImageCache Images=>images;
+    private double renderedSize;
+    public PetWindow(RoleRuntime role,WpfImageCache images,int index,FoodWorld world)
     {
         this.images=images;Title=role.Package.Name;
-        Width=Height=Side;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;AllowsTransparency=true;
+        Width=Height=160;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;AllowsTransparency=true;
         Background=Brushes.Transparent;Topmost=true;ShowInTaskbar=false;ShowActivated=false;
         canvas.Children.Add(image);Content=canvas;
-        var b=CurrentBounds();engine=new PetEngine(role,b,Side,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
+        var b=CurrentBounds(160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
         Left=body.Position.X;Top=body.Position.Y;
         thoughtWindow=new Window{Width=360,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,
             AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false};
@@ -53,26 +55,37 @@ internal sealed class PetWindow : Window
         var climb=Add("攀岩走壁",()=>engine.SetClimbing(!engine.ClimbEnabled));climb.IsCheckable=true;
         var leap=Add("好动飞跃",()=>engine.SetLeapEnabled(!engine.LeapEnabled));leap.IsCheckable=true;
         var leapTest=Add("立即飞跃（测试）",()=>engine.TryStartLeap());
+        menu.Items.Add(new Separator());
+        FoodInstance? Spawn()=>world.Spawn(engine,WorkArea(),48,60000,true,3);
+        var feed=Add("投食",()=>{Spawn();world.ResetSpawnTimer(engine);});
+        var automatic=Add("自动刷新食物",()=>world.SetAutomatic(engine,!world.IsAutomatic(engine),new Interval(30000,120000),Spawn));automatic.IsCheckable=true;
+        var forage=Add("自动觅食",()=>engine.SetAutoForage(!engine.AutoForageEnabled));forage.IsCheckable=true;
+        var grow=Add("投喂变大",()=>engine.GrowOnFeed=!engine.GrowOnFeed);grow.IsCheckable=true;
+        Add("清除本角色食物",()=>world.Clear(engine));
+        Add("恢复大小",()=>{engine.Resize(160);Render();});
         Add("召回",Close);
         menu.Opened+=(_,_)=>{
             menuAction.IsEnabled=role.Package.Supports("menu/pool");still.IsEnabled=role.Package.Supports("standby/static_pool");still.IsChecked=role.StaticStandby;
             climb.IsChecked=engine.ClimbEnabled;leap.IsChecked=engine.LeapEnabled;leap.IsEnabled=role.Package.Supports("climb/leap/leap");
             leapTest.IsEnabled=engine.ClimbEnabled&&engine.LeapEnabled;
+            feed.IsEnabled=automatic.IsEnabled=role.Package.Supports("feed/food");automatic.IsChecked=world.IsAutomatic(engine);
+            forage.IsEnabled=engine.ClimbEnabled&&role.Package.Supports(PetEngine.ForagePath);forage.IsChecked=engine.AutoForageEnabled;
+            grow.IsChecked=engine.GrowOnFeed;
         };
         ContextMenu=menu;
         MenuItem Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);return item;}
         MouseLeftButtonDown+=OnDown;MouseMove+=OnMove;MouseLeftButtonUp+=OnUp;
         LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging)FinishDrag();}};
-        Loaded+=(_,_)=>{Render();lastTick=clock.ElapsedMilliseconds;timer.Start();};
-        timer.Tick+=(_,_)=>Tick();
-        Closed+=(_,_)=>{closed=true;timer.Stop();engine.Dispose();thoughtWindow.Close();};
+        engine.GrowOnFeed=true;engine.FeedGrowth=160*.03;engine.MaxDisplaySize=480;
+        Loaded+=(_,_)=>Render();
+        Closed+=(_,_)=>{closed=true;engine.Dispose();thoughtWindow.Close();};
     }
     // Stage 2 deliberately constrains the host to the primary monitor's work area.
     // Later platform work replaces this with native monitor/DPI-aware bounds.
-    private static Bounds CurrentBounds()
+    internal static Bounds WorkArea(){var r=SystemParameters.WorkArea;return new Bounds(r.Left,r.Top,r.Right,r.Bottom);}
+    private static Bounds CurrentBounds(double side)
     {
-        var r=SystemParameters.WorkArea;
-        return new Bounds(r.Left,r.Top,Math.Max(r.Left,r.Right-Side),Math.Max(r.Top,r.Bottom-Side));
+        var r=WorkArea();return new Bounds(r.Left,r.Top,Math.Max(r.Left,r.Right-side),Math.Max(r.Top,r.Bottom-side));
     }
     private WPoint Screen(MouseEventArgs e)
     {
@@ -106,25 +119,26 @@ internal sealed class PetWindow : Window
     private void FinishDrag()
     {
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
-        engine.UpdateBounds(CurrentBounds());engine.EndDrag(velocity);Render();
+        engine.UpdateBounds(CurrentBounds(Side));engine.EndDrag(velocity);Render();
     }
-    private void Tick()
+    internal void Step(long dt)
     {
-        if(closed)return;var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
-        engine.UpdateBounds(CurrentBounds());engine.Step(dt);Render();
+        if(closed)return;engine.UpdateBounds(CurrentBounds(Side));engine.Step(dt);
     }
-    private void Render()
+    internal void Render()
     {
+        if(closed)return;
+        if(Width!=Side||Height!=Side)Width=Height=Side;
         Left=body.Position.X;Top=body.Position.Y;
         var frame=role.Animation.Current;
-        if(rendered!=frame)
+        if(rendered!=frame||renderedSize!=Side)
         {
             var bitmap=images.Get(frame);
             // Bitmap has already been transformed. Recover the unrotated dimensions for the logical geometry.
             var (w,h)=frame.Transform is "rotate90" or "rotate270"?(bitmap.PixelHeight,bitmap.PixelWidth):(bitmap.PixelWidth,bitmap.PixelHeight);
             var g=FrameGeometry.Calculate(w,h,role.Package.AnchorRes,frame);var scale=Side/role.Package.AnchorRes;
             image.Source=bitmap;image.Width=g.Width*scale;image.Height=g.Height*scale;
-            Canvas.SetLeft(image,g.Left*scale);Canvas.SetTop(image,g.Top*scale);rendered=frame;
+            Canvas.SetLeft(image,g.Left*scale);Canvas.SetTop(image,g.Top*scale);rendered=frame;renderedSize=Side;
         }
         var facing=engine.Facing;
         var angle=engine.RenderEdge switch{Edge.Left=>90,Edge.Right=>-90,Edge.Top=>180,_=>0};

@@ -1,4 +1,6 @@
 using System.IO;
+using System.Diagnostics;
+using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using CakePet.Core;
@@ -20,6 +22,8 @@ internal static class Program
             var cache=new WpfImageCache(pack);
             foreach(var mode in pack.Modes.Values)foreach(var frame in mode.Frames)
                 if(cache.Get(frame).PixelWidth<=0)throw new InvalidDataException(frame.Resource);
+            foreach(var id in pack.Candidates("feed/food"))
+            {var visual=cache.GetFoodVisual(id);if(visual.Frames.Count==0||visual.Width<=0||visual.Height<=0)throw new InvalidDataException(id);}
             return 0;
         }
         var app=new Application{ShutdownMode=ShutdownMode.OnMainWindowClose};
@@ -33,10 +37,16 @@ internal sealed class Launcher : Window
     private readonly List<PetWindow> pets=new();
     private readonly Dictionary<string,(RolePackage Pack,WpfImageCache Images)> packages=new(StringComparer.OrdinalIgnoreCase);
     private readonly ThinkingCoordinator thoughts=new();
+    private readonly FoodWorld world=new();
+    private readonly Dictionary<FoodInstance,FoodWindow> foodWindows=new();
+    private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
+    private readonly Stopwatch clock=Stopwatch.StartNew();
+    private long lastTick;
+    private bool shuttingDown;
     private readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
     public Launcher(string root)
     {
-        defaultRoot=root;Title="CakePet · 引擎测试版";Width=380;Height=260;MinWidth=330;MinHeight=220;
+        defaultRoot=root;Title="CakePet · 引擎测试版";Width=420;Height=330;MinWidth=350;MinHeight=280;
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         var panel=new StackPanel{Margin=new Thickness(20)};
         panel.Children.Add(new TextBlock{Text="CakePet",FontSize=26,FontWeight=FontWeights.SemiBold});
@@ -44,14 +54,38 @@ internal sealed class Launcher : Window
         Add("召唤白酥",()=>Summon(defaultRoot));
         Add("从素材包目录召唤",()=>{var dialog=new OpenFolderDialog{Title="选择包含 modes.jsonc 的目录"};if(dialog.ShowDialog(this)==true)Summon(dialog.FolderName);});
         Add("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
+        Add("清除全部食物",()=>world.Clear());
         var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",Margin=new Thickness(0,8,0,0)};
         single.Checked+=(_,_)=>thoughts.SingleAcrossRoles=true;single.Unchecked+=(_,_)=>thoughts.SingleAcrossRoles=false;panel.Children.Add(single);
         panel.Children.Add(status);Content=panel;
-        Loaded+=(_,_)=>{if(File.Exists(Path.Combine(defaultRoot,"modes.jsonc")))Summon(defaultRoot);else Refresh();};
-        Closing+=(_,_)=>{foreach(var pet in pets.ToArray())pet.Close();};
+        world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
+        timer.Tick+=(_,_)=>Tick();
+        Loaded+=(_,_)=>{if(File.Exists(Path.Combine(defaultRoot,"modes.jsonc")))Summon(defaultRoot);else Refresh();lastTick=clock.ElapsedMilliseconds;timer.Start();};
+        Closing+=(_,_)=>{shuttingDown=true;timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();};
         void Add(string text,Action action){var button=new Button{Content=text,Margin=new Thickness(0,3,0,3),Padding=new Thickness(10,5,10,5)};button.Click+=(_,_)=>action();panel.Children.Add(button);}
     }
-    private void Refresh()=>status.Text=$"已召唤 {pets.Count} 个角色实例。点击摸头，拖动后松手抛掷；右键查看测试操作。";
+    private void Refresh()=>status.Text=$"已召唤 {pets.Count} 个角色 · {world.Foods.Count} 条食物。右键角色可投食；拖动食物至角色松手。";
+    private void OnFoodSpawned(FoodInstance food)
+    {
+        var owner=pets.FirstOrDefault(p=>p.Engine==food.Owner);if(owner==null){world.Remove(food);return;}
+        try
+        {
+            var window=new FoodWindow(world,food,owner.Images.GetFoodVisual(food.StartMode));
+            foodWindows.Add(food,window);window.Show();Refresh();
+        }
+        catch(Exception e){world.Remove(food);if(!shuttingDown)MessageBox.Show(this,e.Message,"无法显示食物");}
+    }
+    private void OnFoodRemoved(FoodInstance food)
+    {if(foodWindows.Remove(food,out var window))window.CloseFromWorld();Refresh();}
+    private void Tick()
+    {
+        var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
+        world.Advance(dt);
+        foreach(var pet in pets.ToArray())pet.Step(dt);
+        world.UpdateInteractions();
+        foreach(var pet in pets.ToArray())pet.Render();
+        foreach(var food in foodWindows.Values.ToArray())food.Render();
+    }
     private void Summon(string root)
     {
         try
@@ -59,9 +93,9 @@ internal sealed class Launcher : Window
             if(!packages.TryGetValue(root,out var pair))
             {var pack=RolePackage.Load(root,WpfImageCache.IsReadable);pair=(pack,new WpfImageCache(pack));packages[root]=pair;}
             var role=new RoleRuntime(pair.Pack);
-            var pet=new PetWindow(role,pair.Images,pets.Count);
-            pets.Add(pet);thoughts.Add(role.Thoughts);
-            pet.Closed+=(_,_)=>{thoughts.Remove(role.Thoughts);pets.Remove(pet);Refresh();};
+            var pet=new PetWindow(role,pair.Images,pets.Count,world);
+            pets.Add(pet);world.Add(pet.Engine);thoughts.Add(role.Thoughts);
+            pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);Refresh();};
             pet.Show();Refresh();
         }
         catch(Exception e){MessageBox.Show(this,e.Message,"无法召唤角色",MessageBoxButton.OK,MessageBoxImage.Error);}

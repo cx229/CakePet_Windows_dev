@@ -112,6 +112,9 @@ try
  Assert(eater.ChooseForage!()&&eater.Foraging,"forage natural selection hook");
  var before=eater.Body.Position;eater.Step(10);Assert(eater.Body.Position!=before,"forage frame movement");
  world.Remove(feeder);Assert(world.Foods.Count==0&&!eater.Foraging,"owner recall clears owned food");
+ world.Add(feeder);world.SetAutomatic(feeder,true,new Interval(100,100),()=>world.Spawn(feeder,new Bounds(0,0,500,300),40,null,false,1));
+ world.Advance(99);Assert(world.Foods.Count==0,"spawn waits");world.Advance(1);Assert(world.Foods.Count==1,"scheduled spawn");
+ world.Advance(100);Assert(world.Foods.Count==1,"spawn cap");world.SetAutomatic(feeder,false,new Interval(100,100),()=>null);Assert(world.Foods.Count==0,"stop clears owner food");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

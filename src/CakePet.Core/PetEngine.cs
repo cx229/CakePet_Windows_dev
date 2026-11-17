@@ -99,7 +99,7 @@ public sealed class PetEngine : IDisposable
     public bool StartLure(Point target)
     {
         if(!CanInteract||(!Role.Snapped&&CanForage)||!Role.Package.Supports(FeedPath("lure")))return false;
-        if(Role.FunctionPath=="snap/snap_head")return false;
+        if(Role.FunctionPath is "snap/snap_head" or "feed/eat" or "snap/feed/eat")return false;
         if(IsLuring){if(Role.FunctionPath==Role.StateFunction)Face(target);return true;}
         Face(target);return Role.EnterSustained(FeedPath("lure"));
     }
@@ -120,7 +120,17 @@ public sealed class PetEngine : IDisposable
     public void Grow(double amount)
     {
         if(!double.IsFinite(amount)||amount<=0)return;
-        DisplaySize=Math.Min(Math.Max(DisplaySize,MaxDisplaySize),DisplaySize+amount);
+        Resize(Math.Min(Math.Max(DisplaySize,MaxDisplaySize),DisplaySize+amount));
+    }
+    public void Resize(double size)
+    {
+        if(!double.IsFinite(size)||size<=0||size==DisplaySize)return;
+        var diff=size-DisplaySize;var old=Body.Position;
+        var offset=SurfaceMotion.ToScreen(new Point(-diff/2,-diff),RenderEdge);
+        DisplaySize=size;
+        // Window bounds are refreshed by the host; preserve the support-side anchor approximately.
+        Bounds=new Bounds(Bounds.Left,Bounds.Top,Math.Max(Bounds.Left,Bounds.Right-diff),Math.Max(Bounds.Top,Bounds.Bottom-diff));
+        Body.Place(old+offset);Body.Constrain(Bounds);
     }
     private void Face(Point target,bool eating=false)
     {

@@ -8,7 +8,7 @@
     <AssemblyName>CakePet</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.26.11.17</Version>
-    <InformationalVersion>v1.26.11.17.09.08</InformationalVersion>
+    <InformationalVersion>v1.26.11.17.12.05</InformationalVersion>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../CakePet.Core/CakePet.Core.csproj"/></ItemGroup>
 </Project>

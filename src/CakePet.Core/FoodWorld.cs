@@ -9,6 +9,7 @@ public sealed class FoodInstance
     public AnimationCursor Animation { get; }
     public Point Center { get; internal set; }
     public double Size { get; }
+    public string StartMode { get; internal set; }="";
     public bool Held { get; internal set; }
     public long? RemainingMs { get; internal set; }
 }
@@ -22,6 +23,17 @@ public sealed class FoodWorld
     private readonly Dictionary<PetEngine,FoodInstance> lures=new();
     private readonly Dictionary<PetEngine,FoodInstance> forage=new();
     public IReadOnlyList<FoodInstance> Foods=>foods.AsReadOnly();
+    private readonly Dictionary<PetEngine,SpawnSchedule> schedules=new();
+    private sealed record SpawnSchedule(Interval Period,Func<FoodInstance?> Spawn,long Remaining);
+    public void SetAutomatic(PetEngine pet,bool enabled,Interval period,Func<FoodInstance?> spawn)
+    {
+        if(!enabled){schedules.Remove(pet);Clear(pet);return;}
+        if(!pets.Contains(pet)||period.Min<=0||period.Max<period.Min)return;
+        schedules[pet]=new(period,spawn,period.Sample(random));
+    }
+    public bool IsAutomatic(PetEngine pet)=>schedules.ContainsKey(pet);
+    public void ResetSpawnTimer(PetEngine pet)
+    {if(schedules.TryGetValue(pet,out var s))schedules[pet]=s with{Remaining=s.Period.Sample(random)};}
     public event Action<FoodInstance>? Spawned;
     public event Action<FoodInstance>? Removed;
     public FoodWorld(Random? random=null)=>this.random=random??new Random();
@@ -33,7 +45,7 @@ public sealed class FoodWorld
     public void Remove(PetEngine pet)
     {
         if(!pets.Remove(pet))return;
-        pet.ChooseForage=null;lures.Remove(pet);forage.Remove(pet);pet.EndLure(false);pet.StopForage();
+        schedules.Remove(pet);pet.ChooseForage=null;lures.Remove(pet);forage.Remove(pet);pet.EndLure(false);pet.StopForage();
         foreach(var food in foods.Where(f=>f.Owner==pet).ToArray())Remove(food);
     }
     public FoodInstance? Spawn(PetEngine owner,Bounds area,double size=48,long? lifetimeMs=60000,bool edge=true,int maximum=10)
@@ -46,7 +58,7 @@ public sealed class FoodWorld
         var p=new Point(b.Left+random.NextDouble()*(b.Right-b.Left),b.Top+random.NextDouble()*(b.Bottom-b.Top));
         if(edge)p=SurfaceMotion.OnEdge(p,b,SurfaceMotion.Sides[random.Next(4)]);
         var cursor=new AnimationCursor(owner.Role.Package,candidates[random.Next(candidates.Count)],new Random(random.Next()));
-        var food=new FoodInstance(owner,cursor,p,size,lifetimeMs);foods.Add(food);Spawned?.Invoke(food);return food;
+        var food=new FoodInstance(owner,cursor,p,size,lifetimeMs){StartMode=cursor.Mode.Id};foods.Add(food);Spawned?.Invoke(food);return food;
     }
     public bool Hold(FoodInstance food)
     {if(!foods.Contains(food))return false;food.Held=true;UpdateInteractions();return true;}
@@ -64,6 +76,8 @@ public sealed class FoodWorld
         food.Held=false;
         var eater=cancelled?null:FindPet(pointer);
         if(eater!=null)Consume(food,eater);
+        if(cancelled)foreach(var p in lures.Where(x=>x.Value==food).Select(x=>x.Key).ToArray())
+        {lures.Remove(p);p.EndLure(false);}
         UpdateInteractions();return eater!=null;
     }
     public void Remove(FoodInstance food)
@@ -122,6 +136,7 @@ public sealed class FoodWorld
                 if(lures.Remove(pet))pet.EndLure(pet.CanInteract);
                 continue;
             }
+            if(lures.TryGetValue(pet,out var previous)&&previous!=held&&!pet.IsLuring)lures.Remove(pet);
             if(pet.StartLure(held.Center))lures[pet]=held;
             else if(lures.Remove(pet))pet.EndLure(false);
         }
@@ -129,6 +144,13 @@ public sealed class FoodWorld
     public void Advance(long milliseconds)
     {
         if(milliseconds<0)throw new ArgumentOutOfRangeException(nameof(milliseconds));
+        foreach(var pet in schedules.Keys.ToArray())
+        {
+            if(!schedules.TryGetValue(pet,out var s))continue;
+            var remaining=s.Remaining-milliseconds;
+            if(remaining<=0){if(pet.FeedingEnabled)s.Spawn();remaining=s.Period.Sample(random);}
+            if(schedules.ContainsKey(pet))schedules[pet]=s with{Remaining=remaining};
+        }
         foreach(var food in foods.ToArray())
         {
             if(food.RemainingMs is long remaining)
