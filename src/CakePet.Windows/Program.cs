@@ -106,7 +106,7 @@ internal sealed class Launcher : Window
         TrayItem("恢复全部点击",RestoreInput);
         TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
         trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
-        trayIcon=TrayIcon.Load();
+        try{trayIcon=TrayIcon.Load();}catch(System.IO.IOException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}catch(ArgumentException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}
         tray=new Forms.NotifyIcon{Icon=trayIcon,Text="CakePet "+Version,ContextMenuStrip=trayMenu,Visible=true};
         tray.MouseClick+=(_,e)=>{if(e.Button==Forms.MouseButtons.Left)Dispatcher.Invoke(ShowLauncher);};
         StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized)Hide();};
@@ -114,7 +114,7 @@ internal sealed class Launcher : Window
         world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
         timer.Tick+=(_,_)=>Tick();
         
-        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Hide();return;}shuttingDown=true;Safe(FlushSave);timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();Application.Current.Shutdown();};
+        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Safe(FlushSave);Hide();return;}shuttingDown=true;Safe(FlushSave);timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();Dispatcher.BeginInvoke(new Action(()=>Application.Current.Shutdown()));};
     }
     internal void StartResident(){if(started)return;started=true;if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;timer.Start();}
     internal void ShowLauncher(){Show();WindowState=WindowState.Normal;Activate();}
