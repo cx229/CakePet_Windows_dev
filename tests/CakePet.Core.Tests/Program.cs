@@ -133,6 +133,10 @@ try
  eater.ReturnHome();eater.BeginDrag();eater.Body.SnapEnabled=false;eater.EndDrag(new Point(1000,-500));
  var oldVelocity=eater.Body.Velocity;eater.Grow(5);
  Assert(oldVelocity.Length>0&&eater.Body.Velocity==oldVelocity&&eater.Body.State==PhysicalState.Throwing,"resize preserves physics");
+ var screens=new[]{new DesktopScreen("left",new Bounds(-1920,0,0,1080),new Bounds(-1920,0,0,1040),false),new DesktopScreen("primary",new Bounds(0,0,2560,1440),new Bounds(0,0,2560,1400),true)};
+ Assert(DesktopGeometry.Nearest(screens,new Point(-100,50)).Id=="left","negative monitor origin");
+ Assert(DesktopGeometry.Nearest(screens,new Point(200,100)).Id=="primary","monitor transition");
+ Assert(DesktopGeometry.Fit(screens[0].Work,160,160)==new Bounds(-1920,0,-160,880),"physical work area");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

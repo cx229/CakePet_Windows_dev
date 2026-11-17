@@ -46,7 +46,7 @@ internal sealed class Launcher : Window
     private readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
     public Launcher(string root)
     {
-        defaultRoot=root;Title="CakePet · 引擎测试版";Width=420;Height=330;MinWidth=350;MinHeight=280;
+        defaultRoot=root;Title="CakePet · 引擎测试版";Width=420;Height=375;MinWidth=350;MinHeight=280;
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         var panel=new StackPanel{Margin=new Thickness(20)};
         panel.Children.Add(new TextBlock{Text="CakePet",FontSize=26,FontWeight=FontWeights.SemiBold});
@@ -55,6 +55,7 @@ internal sealed class Launcher : Window
         Add("从素材包目录召唤",()=>{var dialog=new OpenFolderDialog{Title="选择包含 modes.jsonc 的目录"};if(dialog.ShowDialog(this)==true)Summon(dialog.FolderName);});
         Add("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
         Add("清除全部食物",()=>world.Clear());
+        Add("恢复全部点击",()=>{foreach(var pet in pets)pet.ClickThrough=false;});
         var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",Margin=new Thickness(0,8,0,0)};
         single.Checked+=(_,_)=>thoughts.SingleAcrossRoles=true;single.Unchecked+=(_,_)=>thoughts.SingleAcrossRoles=false;panel.Children.Add(single);
         panel.Children.Add(status);Content=panel;
