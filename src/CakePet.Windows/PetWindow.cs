@@ -43,6 +43,7 @@ internal sealed class PetWindow : Window
     private RoleSettings settings=new();
     internal event Action<Guid,Func<RoleSettings,RoleSettings>>? ChangeSettings;
     internal event Action<Guid>? RecallRole;
+    internal event Action<Guid>? OpenSettings;
     internal event Action<Guid>? ClearRoleFood;
     internal event Action<Guid>? ClearRoleFreezes;
     internal event Action<Guid>? ResetRoleSize;
@@ -123,6 +124,7 @@ internal sealed class PetWindow : Window
         Add("定格当前画面",Freeze);
         Add("清除本角色定格",()=>ClearRoleFreezes?.Invoke(RoleId));
         Add("实时调试窗口",ToggleDebug);
+        Add("角色设置",()=>OpenSettings?.Invoke(RoleId));
         Add("召回",()=>RecallRole?.Invoke(RoleId));
         menu.Opened+=(_,_)=>{
             menuAction.IsEnabled=role.Package.Supports("menu/pool");still.IsEnabled=role.Package.Supports("standby/static_pool");still.IsChecked=role.StaticStandby;
