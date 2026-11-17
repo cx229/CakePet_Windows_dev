@@ -70,6 +70,7 @@ public sealed class RolePackage
         }
         void Walk(JsonElement node,string path)
         {
+            if(node.ValueKind==JsonValueKind.Array){functions[path]=new Function(node.EnumerateArray().Where(x=>x.ValueKind==JsonValueKind.String).Select(x=>x.GetString()!).ToArray(),Thinking.Empty);return;}
             if (node.ValueKind != JsonValueKind.Object) return;
             var pool = Prop(node,"modes");
             if (pool.ValueKind == JsonValueKind.Array)
@@ -78,7 +79,7 @@ public sealed class RolePackage
                     .Select(x=>x.GetString()!).ToArray(),ReadThinking(Prop(node,"thinking"),warnings,"cycle") ?? Thinking.Empty);
                 return;
             }
-            foreach(var child in node.EnumerateObject()) Walk(child.Value,path.Length==0?child.Name:path+"/"+child.Name);
+            foreach(var child in node.EnumerateObject()) if(child.Name!="thinking"&&child.Name!="modes")Walk(child.Value,path.Length==0?child.Name:path+"/"+child.Name);
         }
         Walk(Prop(doc,"functions"),"");
         var t = Prop(doc,"thinkings");

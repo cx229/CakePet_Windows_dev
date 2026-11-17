@@ -13,7 +13,7 @@ try
  "touch":{"roll":{"modes":["flight"]}},
  "pat_head":{"pat_head":{"modes":["event"],"thinking":{"policy":"hold","pool":{"a":{"min":5,"max":5}}}}},
  "snap":{"pool":{"modes":["idle"]},"feed":{"lure":{"modes":["lure"]},"lure_fail":{"modes":["fail"]},"eat":{"modes":["eat"]}}},
- "feed":{"food":{"modes":["fish"]},"lure":{"modes":["lure"]},"lure_fail":{"modes":["fail"]},"eat":{"modes":["eat"]}},"menu":{"pool":{"modes":["event"]}},
+ "feed":{"food":{"modes":["fish"]},"lure":{"modes":["lure"]},"lure_fail":{"modes":["fail"]},"eat":{"modes":["eat"]}},"menu":{"pool":["event","tail"]},
  "climb":{"leap":{"leap":{"modes":["flight"]},"landing":{"modes":["land"]}},"forage":{"move":{"modes":["walk"]}}}},
  "modes":{
  "bad":{"frames":[{"res":"../escape.png","delay":1}]},
@@ -42,6 +42,8 @@ try
  role.SetEnvironment(true,PhysicalState.Free);
  Assert(role.TriggerMode("menu/pool","event")&&role.Snapped&&role.FunctionPath=="menu/pool"&&role.Animation.Mode.Id=="event","snapped named menu event");
  Assert(!role.TriggerMode("menu/pool","idle"),"menu rejects unbound animation");
+ Assert(role.TriggerMode("menu/pool","tail")&&role.Animation.Mode.Id=="tail","array menu exact choice");
+ var menuDraft=new PackageEditor(root);Assert(menuDraft.FunctionPaths().Contains("menu/pool")&&menuDraft.Function("menu/pool")["modes"]!.AsArray().Count==2,"array menu editor preserves bindings");
  Assert(!role.Trigger("pat_head/pat_head"),"normal event excluded when snapped");
  role.SetEnvironment(false,PhysicalState.Dragging);
  Assert(!role.TriggerMode("menu/pool","event"),"named menu physical lock");

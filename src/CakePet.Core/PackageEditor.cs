@@ -15,13 +15,13 @@ public sealed partial class PackageEditor
     public JsonArray Frames(string id)=>Mode(id)["frames"] as JsonArray??throw new InvalidDataException("Missing frames.");
     public JsonObject Function(string path)
     {
-        var node=Functions;foreach(var part in path.Split('/',StringSplitOptions.RemoveEmptyEntries)){if(node[part] is not JsonObject child){child=new JsonObject();node[part]=child;}node=child;}
+        var node=Functions;foreach(var part in path.Split('/',StringSplitOptions.RemoveEmptyEntries)){if(node[part] is not JsonObject child){var previous=node[part];child=new JsonObject();if(previous is JsonArray array)child["modes"]=array.DeepClone();node[part]=child;}node=child;}
         if(node["modes"] is not JsonArray)node["modes"]=new JsonArray();return node;
     }
     public IEnumerable<string> FunctionPaths()
     {
         IEnumerable<string> Walk(JsonObject o,string prefix)
-        {foreach(var p in o){if(p.Value is not JsonObject child)continue;var path=prefix.Length==0?p.Key:prefix+"/"+p.Key;if(child["modes"] is JsonArray)yield return path;else foreach(var sub in Walk(child,path))yield return sub;}}
+        {foreach(var p in o){var path=prefix.Length==0?p.Key:prefix+"/"+p.Key;if(p.Key is "modes" or "thinking")continue;if(p.Value is JsonArray){yield return path;continue;}if(p.Value is not JsonObject child)continue;if(child["modes"] is JsonArray)yield return path;else foreach(var sub in Walk(child,path))yield return sub;}}
         return Walk(Functions,"");
     }
     public void SetPool(string path,IEnumerable<string> modes)=>Function(path)["modes"]=new JsonArray(modes.Distinct().Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray());
