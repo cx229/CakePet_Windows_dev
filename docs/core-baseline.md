@@ -29,3 +29,5 @@ Stage 8: local catalog separates imported immutable package copies, persistent r
 Stage 9: expanded persistent physics, snap, leap, food and boundary settings; tabbed role settings; right-click commands update catalog and all role instances; default preferences affect new roles unless explicitly applied to all. Numeric limits are provisional Windows ranges; configurable per-setting thresholds and per-item apply are pending. Existing food opacity updates live; size and lifetime apply to new food.
 
 Stage 10 UI: shared WPF resource dictionary, slider/value rows, inline role/default settings navigation, wrap-layout role cards with real package previews. Changes apply immediately and persistence is debounced. Material editor and threshold work remain deferred. Native file pickers and confirmation dialogs are retained.
+
+Stage 10 follow-up: grouped setting cards and expandable gravity/bounce sections, inline package selection, tray-first explicit shutdown and single-instance activation, original 白酥 sit_clam-1.png copied byte-for-byte by CI to assets/tray.png. The tray icon is cropped/scaled only in memory; no generated art. Native confirmation/file dialogs retained.

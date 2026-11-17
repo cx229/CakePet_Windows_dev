@@ -26,6 +26,12 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "artifact=CakePet_winx64-$version-gt" >> $env:GITHUB_OUTPUT
           "CAKEPET_BUILD_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Copy original tray icon asset
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src/CakePet.Windows/Assets | Out-Null
+          Copy-Item -LiteralPath "android-reference/app/src/main/assets/白酥/安静/sit_clam-1.png" -Destination src/CakePet.Windows/Assets/tray.png
+          if ((git -C android-reference hash-object "app/src/main/assets/白酥/安静/sit_clam-1.png") -ne (git hash-object src/CakePet.Windows/Assets/tray.png)) { throw 'Tray asset copy mismatch' }
       - name: Core tests
         shell: pwsh
         run: dotnet run --project tests/CakePet.Core.Tests -c Release -- "android-reference/app/src/main/assets/白酥"
@@ -41,6 +47,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path artifacts/CakePet/assets | Out-Null
           Copy-Item -Recurse -LiteralPath "android-reference/app/src/main/assets/白酥" -Destination artifacts/CakePet/assets/default
+          Copy-Item -LiteralPath src/CakePet.Windows/Assets/tray.png -Destination artifacts/CakePet/assets/tray.png
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact }}

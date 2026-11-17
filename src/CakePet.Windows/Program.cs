@@ -28,10 +28,22 @@ internal static class Program
             {var visual=cache.GetFoodVisual(id);if(visual.Frames.Count==0||visual.Width<=0||visual.Height<=0)throw new InvalidDataException(id);}
             return 0;
         }
-        var app=new Application{ShutdownMode=ShutdownMode.OnMainWindowClose};
+        using var mutex=new System.Threading.Mutex(true,"Local\\CakePet.Windows",out bool first);
+        if(!first){try{using var signal=System.Threading.EventWaitHandle.OpenExisting("Local\\CakePet.ShowLauncher");signal.Set();}catch(System.Threading.WaitHandleCannotBeOpenedException){}return 0;}
+        using var activate=new System.Threading.EventWaitHandle(false,System.Threading.EventResetMode.AutoReset,"Local\\CakePet.ShowLauncher");
+        var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         app.Resources.MergedDictionaries.Add(new ResourceDictionary{Source=new Uri("/CakePet;component/Themes/Modern.xaml",UriKind.Relative)});
-        return app.Run(new Launcher(root));
+        var launcher=new Launcher(root);app.MainWindow=launcher;
+        using var registration=new ActivationRegistration(activate,launcher);
+        launcher.StartResident();return app.Run();
     }
+}
+
+internal sealed class ActivationRegistration:IDisposable
+{
+    private readonly System.Threading.RegisteredWaitHandle wait;
+    public ActivationRegistration(System.Threading.EventWaitHandle signal,Launcher launcher){wait=System.Threading.ThreadPool.RegisterWaitForSingleObject(signal,(_,_)=>launcher.Dispatcher.BeginInvoke(new Action(launcher.ShowLauncher)),null,-1,false);}
+    public void Dispose()=>wait.Unregister(null);
 }
 
 internal sealed class Launcher : Window
@@ -58,6 +70,8 @@ internal sealed class Launcher : Window
     private long lastTick;
     private bool shuttingDown,exitRequested;
     private readonly Forms.NotifyIcon tray;
+    private readonly System.Drawing.Icon trayIcon;
+    private bool started;
     private string Version=>typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??"dev";
     private readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
     public Launcher(string root)
@@ -73,12 +87,12 @@ internal sealed class Launcher : Window
         toolbar.Children.Add(Ui.Button("＋ 新建角色",NewRole,true));toolbar.Children.Add(Button("召回全部",RecallAll));toolbar.Children.Add(Button("恢复全部点击",RestoreInput));
         var homeHeading=new StackPanel{Margin=new Thickness(0,0,0,14)};homeHeading.Children.Add(Ui.Text("我的角色",26));homeHeading.Children.Add(status);DockPanel.SetDock(homeHeading,Dock.Top);roles.Children.Add(homeHeading);DockPanel.SetDock(toolbar,Dock.Top);roles.Children.Add(toolbar);roles.Children.Add(new ScrollViewer{Content=roleCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         
-        var materials=new DockPanel{Margin=new Thickness(12)};var import=Button("导入素材包目录",ImportPack);DockPanel.SetDock(import,Dock.Top);materials.Children.Add(import);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
-        var global=new StackPanel{Margin=new Thickness(20)};
+        var materials=new DockPanel{Margin=new Thickness(12)};var materialsTitle=Ui.Text("素材包管理",26);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);var import=Button("导入素材包目录",ImportPack);DockPanel.SetDock(import,Dock.Top);materials.Children.Add(import);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        var global=new StackPanel{Margin=new Thickness(20),MaxWidth=850};global.Children.Add(Ui.Text("全局设置",26));
         var single=new CheckBox{Content="不同角色的碎碎念只显示最新一条",IsChecked=catalog.SingleThinking,Margin=new Thickness(0,8,0,8)};
-        thoughts.SingleAcrossRoles=catalog.SingleThinking;single.Click+=(_,_)=>{catalog.SingleThinking=single.IsChecked==true;thoughts.SingleAcrossRoles=catalog.SingleThinking;storage.Save();};global.Children.Add(single);
+        thoughts.SingleAcrossRoles=catalog.SingleThinking;single.Click+=(_,_)=>{catalog.SingleThinking=single.IsChecked==true;thoughts.SingleAcrossRoles=catalog.SingleThinking;storage.Save();};global.Children.Add(Ui.Card(single));
         var launch=new CheckBox{Content="启动时召唤第一个角色",IsChecked=catalog.AutoSummon,Margin=new Thickness(0,8,0,8)};
-        launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(launch);
+        launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(launch));
         global.Children.Add(Button("用户习惯 · 新角色默认值",EditDefaults));
         global.Children.Add(Button("清除全部食物",()=>world.Clear()));global.Children.Add(Button("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();}));
         foreach(var item in new[]{("首页",(FrameworkElement)roles),("素材包管理",materials),("全局设置",global)}){int i=navItems.Count;var page=item.Item2;var b=Ui.Button(item.Item1,()=>Navigate(page,i));b.HorizontalContentAlignment=HorizontalAlignment.Left;b.Margin=new Thickness(0,4,0,4);navItems.Add(b);nav.Children.Add(b);}
@@ -86,21 +100,24 @@ internal sealed class Launcher : Window
         saveTimer.Tick+=(_,_)=>Safe(FlushSave);
         var trayMenu=new Forms.ContextMenuStrip();
         void TrayItem(string title,Action action)=>trayMenu.Items.Add(title,null,(_,_)=>Dispatcher.Invoke(action));
-        TrayItem("打开 CakePet",ShowLauncher);TrayItem("召唤第一个角色",()=>{if(catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);});
+        TrayItem("打开 CakePet",ShowLauncher);TrayItem("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);});
+        TrayItem("全部归位",()=>{foreach(var pet in pets)pet.Engine.ReturnHome();});
         TrayItem("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
         TrayItem("恢复全部点击",RestoreInput);
         TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
         trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
-        tray=new Forms.NotifyIcon{Icon=System.Drawing.SystemIcons.Application,Text="CakePet "+Version,ContextMenuStrip=trayMenu,Visible=true};
-        tray.DoubleClick+=(_,_)=>Dispatcher.Invoke(ShowLauncher);
+        trayIcon=TrayIcon.Load();
+        tray=new Forms.NotifyIcon{Icon=trayIcon,Text="CakePet "+Version,ContextMenuStrip=trayMenu,Visible=true};
+        tray.MouseClick+=(_,e)=>{if(e.Button==Forms.MouseButtons.Left)Dispatcher.Invoke(ShowLauncher);};
         StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized)Hide();};
         System.Windows.Application.Current.SessionEnding+=(_,_)=>{exitRequested=true;Close();};
         world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
         timer.Tick+=(_,_)=>Tick();
-        Loaded+=(_,_)=>{if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;timer.Start();};
-        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Hide();return;}shuttingDown=true;Safe(FlushSave);timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayMenu.Dispose();};
+        
+        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Hide();return;}shuttingDown=true;Safe(FlushSave);timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();Application.Current.Shutdown();};
     }
-    private void ShowLauncher(){Show();WindowState=WindowState.Normal;Activate();}
+    internal void StartResident(){if(started)return;started=true;if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;timer.Start();}
+    internal void ShowLauncher(){Show();WindowState=WindowState.Normal;Activate();}
     private void Refresh()=>status.Text=$"已召唤 {pets.Count} 个角色 · {world.Foods.Count} 条食物。右键角色可投食；拖动食物至角色松手。";
     private void OnFoodSpawned(FoodInstance food)
     {
@@ -122,7 +139,7 @@ internal sealed class Launcher : Window
         world.UpdateInteractions();
         foreach(var pet in pets.ToArray())pet.Render();
         foreach(var food in foodWindows.Values.ToArray())food.Render();
-        if(IsVisible&&navigationHost.Content==homeShell)foreach(var preview in previews){preview.Cursor.Advance(dt);if(preview.Cursor.Ended)continue;preview.Image.Source=preview.Cache.Get(preview.Cursor.Current);}
+        if(IsVisible&&navigationHost.Content==homeShell&&roleCards.IsVisible)foreach(var preview in previews){preview.Cursor.Advance(dt);var bitmap=preview.Cache.Get(preview.Cursor.Current);if(preview.Image.Source!=bitmap)preview.Image.Source=bitmap;}
     }
     private static Button Button(string text,Action action){var b=new Button{Content=text,Padding=new Thickness(12,6,12,6),Margin=new Thickness(0,3,6,3)};b.Click+=(_,_)=>action();return b;}
     private (RolePackage Pack,WpfImageCache Images) GetPack(Guid id)
@@ -146,11 +163,9 @@ internal sealed class Launcher : Window
     });
     private void NewRole()=>Safe(()=>{
         if(catalog.Packs.Count==0){ImportPack();if(catalog.Packs.Count==0)return;}
-        var picker=new ComboBox{ItemsSource=catalog.Packs,DisplayMemberPath="Name",SelectedIndex=0,Margin=new Thickness(12)};
-        var win=new Window{Title="选择素材包",Owner=this,Width=360,Height=160,WindowStartupLocation=WindowStartupLocation.CenterOwner};
-        var panel=new StackPanel();panel.Children.Add(picker);panel.Children.Add(Button("新建",()=>win.DialogResult=true));win.Content=panel;
-        if(win.ShowDialog()!=true||picker.SelectedItem is not PackEntry pack)return;
-        var role=catalog.AddRole(pack.Id,pack.Name);storage.Save();RefreshCards();Edit(role);
+        var panel=new StackPanel{Margin=new Thickness(24),MaxWidth=700};panel.Children.Add(Ui.Button("‹ 返回",BackHome));panel.Children.Add(Ui.Text("选择素材包",24));
+        foreach(var pack in catalog.Packs){var choice=Ui.Button(pack.Name,()=>{var role=catalog.AddRole(pack.Id,pack.Name);storage.Save();RefreshCards();Edit(role);});panel.Children.Add(Ui.Card(choice));}
+        navigationHost.Content=new ScrollViewer{Content=panel};
     });
     private void Edit(RoleEntry entry)=>Safe(()=>{
         ShowLauncher();
