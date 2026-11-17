@@ -25,9 +25,9 @@ internal sealed class PackageEditorPage:UserControl
         nav.Children.Add(Ui.Light("‹ 返回",()=>{if(!dirty||MessageBox.Show("放弃尚未保存的配置修改？已导入的图片文件会保留。","返回",MessageBoxButton.YesNo)==MessageBoxResult.Yes)back();}));
         var title=Ui.Caption(editor.Document["name"]?.ToString()??"素材包","素材包编辑",true);title.Margin=new Thickness(4,18,0,18);nav.Children.Add(title);
         var pages=new (string,Action)[]{("基本信息",Info),("功能映射",Functions),("动画",Animations),("图片资源",Images),("碎碎念文本",Thinking)};
-        foreach(var (name,action) in pages){var b=Ui.Nav(name,action);nav.Children.Add(b);}
+        var navButtons=new List<Button>();foreach(var (name,action) in pages){int index=navButtons.Count;var b=Ui.Nav(name,()=>{for(int i=0;i<navButtons.Count;i++)navButtons[i].Background=Ui.Brush(i==index?"AccentSoft":"Sidebar");action();});navButtons.Add(b);nav.Children.Add(b);}navButtons[0].Background=Ui.Brush("AccentSoft");
         var right=new DockPanel{Margin=new Thickness(20)};Grid.SetColumn(right,1);grid.Children.Add(right);
-        var footer=new DockPanel{Margin=new Thickness(0,0,0,12)};var save=Ui.Button("保存素材包",Save,true);DockPanel.SetDock(save,Dock.Right);footer.Children.Add(save);footer.Children.Add(status);DockPanel.SetDock(footer,Dock.Top);right.Children.Add(footer);right.Children.Add(host);Info();
+        status.Text="无未保存修改";var footer=new DockPanel{Margin=new Thickness(0,0,0,12)};var save=Ui.Button("保存素材包",Save,true);DockPanel.SetDock(save,Dock.Right);footer.Children.Add(save);footer.Children.Add(status);DockPanel.SetDock(footer,Dock.Top);right.Children.Add(footer);right.Children.Add(host);Info();
     }
     private void Changed(){dirty=true;status.Text="有未保存的修改";}
     private void Safe(Action a){try{a();}catch(Exception e){MessageBox.Show(e.Message,"素材包编辑");}}
@@ -46,14 +46,46 @@ internal sealed class PackageEditorPage:UserControl
     private static string FunctionTitle(string path)=>string.Join(" / ",path.Split('/').Select((x,i)=>x switch{"standby"=>"待机","static_pool"=>"静止待机池","pool"=>i==1&&path.StartsWith("standby")?"待机池":"待机池","pat_head"=>"摸摸头","snap"=>"吸附","feed"=>"投食","touch"=>"抛掷","lift_up"=>"提起","roll"=>"滚动","jump_down"=>"落地","climb"=>"攀岩","leap"=>"飞跃","landing"=>"落地","forage"=>"觅食","move"=>"移动","menu"=>"菜单动画","preview"=>"预览","summoned"=>"已召唤","food"=>"食物","eat"=>"吃","lure"=>"引诱","lure_fail"=>"引诱失败","snap_head"=>"吸附","slow"=>"缓慢","left_medium"=>"左中速","left_fast"=>"左快速","right_medium"=>"右中速","right_fast"=>"右快速",_=>x}));
     private void Functions()
     {
-        animationDetail=null;animationList=null;var p=Page("功能映射","选择每个功能对应的候选动画。待机池至少保留一个有效动画。");
-        foreach(var path in requiredPaths.Concat(editor.FunctionPaths()).Distinct())
+        animationDetail=null;animationList=null;
+        var layout=new DockPanel();var title=Ui.Caption("功能映射","选择一个功能，再为它绑定动画。",true);((TextBlock)title.Children[0]).FontSize=24;title.Margin=new Thickness(0,0,0,12);DockPanel.SetDock(title,Dock.Top);layout.Children.Add(title);
+        var grid=new Grid();grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(190)});grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        var tree=new StackPanel{Margin=new Thickness(0,0,12,0)};grid.Children.Add(new ScrollViewer{Content=tree,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        var detail=new ContentControl();Grid.SetColumn(detail,1);grid.Children.Add(detail);layout.Children.Add(grid);host.Content=layout;
+        var paths=requiredPaths.Concat(editor.FunctionPaths()).Distinct().ToArray();
+        var ordered=new[]{"standby","pat_head","snap","feed","touch","climb","menu"};
+        var groups=ordered.Select(x=>(Name:FunctionTitle(x),Paths:paths.Where(p=>p.Split('/')[0]==x&&requiredPaths.Contains(p)).ToArray())).Concat(new[]{(Name:"未定义",Paths:paths.Where(p=>!requiredPaths.Contains(p)).ToArray())});
+        var buttons=new Dictionary<string,Button>();string? selected=null;
+        void Show(string path)
         {
-            var pool=editor.Function(path)["modes"]!.AsArray();var selected=pool.Select(x=>x?.ToString()??"").ToHashSet();
-            var card=new SettingCard(FunctionTitle(path),selected.Count==0?"未绑定动画":string.Join(" · ",selected),initiallyExpanded:false);
-            foreach(var id in editor.Modes.Select(x=>x.Key).ToArray())
-            {var c=new CheckBox{Content=id,IsChecked=selected.Contains(id),Style=(Style)Application.Current.FindResource("Direction"),HorizontalAlignment=HorizontalAlignment.Left};c.Click+=(_,_)=>{if(c.IsChecked==true)selected.Add(id);else selected.Remove(id);editor.SetPool(path,editor.Modes.Select(x=>x.Key).Where(selected.Contains));Changed();};card.Add(c);}p.Children.Add(card);
+            selected=path;foreach(var pair in buttons)pair.Value.Background=Ui.Brush(pair.Key==path?"AccentSoft":"Sidebar");
+            var pool=editor.Function(path)["modes"]!.AsArray();var chosen=pool.Select(x=>x?.ToString()??"").ToHashSet();
+            var page=new StackPanel();var header=Ui.Caption(FunctionTitle(path),path=="standby/pool"?"至少保留一个有效动画。":"为此功能选择可以播放的动画。",true);header.Margin=new Thickness(0,0,0,10);page.Children.Add(header);
+            var count=Ui.Text("",12,true);page.Children.Add(count);
+            var search=new TextBox{Margin=new Thickness(0,8,0,8),ToolTip="搜索动画名称"};page.Children.Add(search);
+            var list=new StackPanel();page.Children.Add(list);
+            void RefreshCount(){count.Text=chosen.Count==0?"当前动画：未绑定":"当前动画："+string.Join(" · ",editor.Modes.Select(x=>x.Key).Where(chosen.Contains));}
+            void RefreshList()
+            {
+                list.Children.Clear();
+                foreach(var id in editor.Modes.Select(x=>x.Key).Where(x=>x.Contains(search.Text,StringComparison.OrdinalIgnoreCase)).ToArray())
+                {
+                    var left=new StackPanel{Orientation=Orientation.Horizontal};
+                    try{var frame=editor.Frames(id).FirstOrDefault() as JsonObject;var image=new Image{Width=44,Height=44,Margin=new Thickness(0,0,10,0),Stretch=Stretch.Uniform};if(frame!=null){var b=new BitmapImage();b.BeginInit();b.CacheOption=BitmapCacheOption.OnLoad;b.UriSource=new Uri(Path.Combine(editor.Root,frame["res"]?.ToString()??""));b.EndInit();image.Source=b;}left.Children.Add(image);}catch{}
+                    left.Children.Add(Ui.Caption(id,editor.Frames(id).Count+" 帧 · "+LoopTitle(editor.Mode(id)["loopMode"]?.ToString())));
+                    var check=new CheckBox{IsChecked=chosen.Contains(id),Style=(Style)Application.Current.FindResource("ResourceCheck")};
+                    check.Click+=(_,_)=>{if(check.IsChecked==true)chosen.Add(id);else chosen.Remove(id);editor.SetPool(path,editor.Modes.Select(x=>x.Key).Where(chosen.Contains));Changed();RefreshCount();};
+                    list.Children.Add(Ui.Card(Ui.Pair(left,check)));
+                }
+            }
+            RefreshCount();RefreshList();search.TextChanged+=(_,_)=>RefreshList();
+            detail.Content=new ScrollViewer{Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
         }
+        foreach(var group in groups.Where(g=>g.Paths.Length>0))
+        {
+            var folder=new Expander{Header=group.Name+" · "+group.Paths.Length,IsExpanded=group.Name=="待机",Margin=new Thickness(0,3,0,3),Foreground=Ui.Brush("Ink")};var children=new StackPanel{Margin=new Thickness(8,3,0,0)};folder.Content=children;
+            foreach(var path in group.Paths){var label=FunctionTitle(path);var b=Ui.Nav(label,()=>Show(path));b.ToolTip=label;buttons[path]=b;children.Children.Add(b);}tree.Children.Add(folder);
+        }
+        if(paths.Length>0)Show(paths[0]);
     }
     private void Animations()
     {
