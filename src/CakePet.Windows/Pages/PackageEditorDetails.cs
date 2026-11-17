@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +9,39 @@ using CakePet.Core;
 namespace CakePet.Windows;
 internal sealed partial class PackageEditorPage
 {
+    // Draw with the runtime's logical canvas geometry; the preview never applies frame motion.
+    private sealed class FramePreview:Grid
+    {
+        private readonly Canvas canvas=new(){Width=180,Height=180,ClipToBounds=true};
+        private readonly TextBlock info=Ui.Text("",11,true);
+        private readonly Image image=new(){Stretch=Stretch.Fill};
+        private readonly Rectangle outline=new(){Stroke=new SolidColorBrush(Color.FromRgb(121,184,255)),StrokeThickness=1};
+        private readonly Line h=new(){Stroke=Brushes.Orange,StrokeThickness=1.5},v=new(){Stroke=Brushes.Orange,StrokeThickness=1.5};
+        public FramePreview()
+        {
+            RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+            canvas.Background=Ui.Brush("Canvas");canvas.Children.Add(image);canvas.Children.Add(outline);canvas.Children.Add(h);canvas.Children.Add(v);
+            var border=new Border{BorderBrush=Ui.Brush("Muted"),BorderThickness=new Thickness(1),Child=canvas,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,4,0,8)};Children.Add(border);SetRow(info,1);Children.Add(info);
+        }
+        public void Show(WpfImageCache cache,Frame frame,int side,bool anchor=true)
+        {
+            try
+            {
+                var bitmap=cache.Get(frame);var geometry=cache.Geometry(frame);var scale=180.0/side;
+                image.Source=bitmap;image.Width=outline.Width=geometry.Width*scale;image.Height=outline.Height=geometry.Height*scale;
+                Canvas.SetLeft(image,geometry.Left*scale);Canvas.SetTop(image,geometry.Top*scale);Canvas.SetLeft(outline,geometry.Left*scale);Canvas.SetTop(outline,geometry.Top*scale);
+                double x=geometry.AnchorX*scale,y=geometry.AnchorY*scale;h.X1=x-6;h.X2=x+6;h.Y1=h.Y2=y;v.X1=v.X2=x;v.Y1=y-6;v.Y2=y+6;
+                h.Visibility=v.Visibility=anchor?Visibility.Visible:Visibility.Collapsed;outline.Visibility=Visibility.Visible;
+                info.Text=anchor?"画布 "+side+" × "+side+" · 锚点 ("+geometry.AnchorX+", "+geometry.AnchorY+")":"预览忽略逐帧位移";
+            }
+            catch{image.Source=null;outline.Visibility=h.Visibility=v.Visibility=Visibility.Collapsed;info.Text="图片不可用";}
+        }
+        public void Error(string text){image.Source=null;outline.Visibility=h.Visibility=v.Visibility=Visibility.Collapsed;info.Text=text;}
+    }
+    private static Frame DraftFrame(JsonObject frame)
+    {
+        var (lo,hi)=FrameDelay(frame);return new Frame(frame["res"]?.ToString()??"",new Interval(lo,hi),ReadInt(frame["dx"],0),ReadInt(frame["dy"],0),ReadInt(frame["anchorX"],-1),frame["anchorY"]==null?null:ReadInt(frame["anchorY"],0),frame["verticalAlign"]?.ToString()??"bottom",frame["transform"]?.ToString()??"none");
+    }
     private static void UpdateCaption(StackPanel panel,string note)
     {
         if(panel.Children.Count==1)panel.Children.Add(Ui.Text(note,12,true));else ((TextBlock)panel.Children[1]).Text=note;
