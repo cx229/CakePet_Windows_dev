@@ -14,13 +14,13 @@ internal sealed class RangeSlider:Grid
     private readonly TextBox lowBox=new(),highBox=new();
     private readonly double min,max;private double lo,hi;private readonly Action<double,double> changed;
     private static Thumb Handle()=>new(){Width=18,Height=18,Cursor=System.Windows.Input.Cursors.SizeWE,Template=(ControlTemplate)Application.Current.FindResource("RangeThumb")};
-    public RangeSlider(double min,double max,double low,double high,Action<double,double> changed)
+    public RangeSlider(double min,double max,double low,double high,Action<double,double> changed,string unit="秒")
     {
         this.min=min;this.max=max;lo=low;hi=high;this.changed=changed;
         RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         track.Children.Add(rail);track.Children.Add(fill);track.Children.Add(lower);track.Children.Add(upper);Children.Add(track);
         var values=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,4,0,0)};
-        lowBox.Width=76;highBox.Width=76;values.Children.Add(lowBox);values.Children.Add(Ui.Text(" — "));values.Children.Add(highBox);values.Children.Add(Ui.Text(" 秒",12,true));SetRow(values,1);Children.Add(values);
+        lowBox.Width=76;highBox.Width=76;values.Children.Add(lowBox);values.Children.Add(Ui.Text(" — "));values.Children.Add(highBox);values.Children.Add(Ui.Text(" "+unit,12,true));SetRow(values,1);Children.Add(values);
         track.SizeChanged+=(_,_)=>Draw();lower.DragDelta+=(_,e)=>Move(true,e.HorizontalChange);upper.DragDelta+=(_,e)=>Move(false,e.HorizontalChange);
         lower.KeyDown+=(_,e)=>Key(true,e);upper.KeyDown+=(_,e)=>Key(false,e);
         lower.Focusable=upper.Focusable=true;lowBox.LostKeyboardFocus+=(_,_)=>Commit(true);highBox.LostKeyboardFocus+=(_,_)=>Commit(false);

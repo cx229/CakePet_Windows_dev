@@ -57,3 +57,5 @@ Stage 16 follow-up: role settings navigation summaries and true static preview, 
 Stage 16 editor follow-up: function groups in Android order and split function tree / searchable animation selection, true image thumbnails, dedicated resource checkbox, selected navigation highlight. Does not add animation-group editing or full playback preview.
 
 Stage 17a: Android-compatible modeGroups/thinkingGroups and per-item groups arrays, empty groups and ungrouped fallback, group dissolve and ordering, split thinking editor, draft animation playback using the existing cursor without copying or saving the package. Preview updates on replay; no GUI validation yet.
+
+Stage 17b: function and animation thinking policy/pool editing with per-text min/max milliseconds, text reference list and cancellation, range slider unit correction. No cross-package resource copy yet.

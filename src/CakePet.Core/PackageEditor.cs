@@ -52,6 +52,11 @@ public sealed class PackageEditor
     public bool ImageReferenced(string path)=>References(Modes,path)||References(ArchiveIO.Read(Path.Combine(Root,"modes.jsonc"))["modes"] as JsonObject??new JsonObject(),path);
     private static bool References(JsonObject modes,string path)=>modes.Select(x=>x.Value).OfType<JsonObject>().SelectMany(x=>x["frames"] as JsonArray??new JsonArray()).OfType<JsonObject>().Any(x=>string.Equals(x["res"]?.ToString().Replace('\\','/'),path.Replace('\\','/'),StringComparison.OrdinalIgnoreCase));
     public IReadOnlyList<string> Images()=>Directory.EnumerateFiles(Root,"*",SearchOption.AllDirectories).Where(x=>new[]{".png",".jpg",".jpeg",".webp",".bmp",".gif"}.Contains(Path.GetExtension(x),StringComparer.OrdinalIgnoreCase)).Select(x=>Path.GetRelativePath(Root,x).Replace('\\','/')).OrderBy(x=>x).ToArray();
+    public IEnumerable<(string Label,JsonObject Node)> ThinkingReferences(string id)
+    {
+        foreach(var pair in Modes)if(pair.Value is JsonObject m&&m["thinking"]?["pool"] is JsonObject p&&p.ContainsKey(id))yield return ("动画 / "+pair.Key,m);
+        foreach(var path in FunctionPaths()) {var f=Function(path);if(f["thinking"]?["pool"] is JsonObject p&&p.ContainsKey(id))yield return ("功能 / "+path,f);}
+    }
     public RolePackage Preview()=>RolePackage.FromDraft(Root,Document.ToJsonString(),File.Exists);
     public IReadOnlyList<string> Groups(bool thinking)=> (Document[thinking?"thinkingGroups":"modeGroups"] as JsonArray??new JsonArray()).Select(x=>x?.ToString()??"").Where(x=>x.Length>0).Distinct().ToArray();
     public IReadOnlyList<string> Membership(bool thinking,string id)=>((thinking?Thinkings:Modes)[id]?["groups"] as JsonArray??new JsonArray()).Select(x=>x?.ToString()??"").ToArray();
