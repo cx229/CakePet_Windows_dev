@@ -24,6 +24,13 @@ public static class SettingLimits
         return node.DeserializeRole();
     }
     private static RoleSettings DeserializeRole(this JsonObject node)=>System.Text.Json.JsonSerializer.Deserialize<RoleSettings>(node.ToJsonString(),ArchiveIO.Options)??throw new InvalidDataException("无效设置");
+    public static RoleSettings ApplyItem(RoleSettings target,RoleSettings source,string key)
+    {
+        if(!Specs.Any(s=>s.Key==key))return target;
+        var dest=System.Text.Json.JsonSerializer.SerializeToNode(target,ArchiveIO.Options)!.AsObject();var src=System.Text.Json.JsonSerializer.SerializeToNode(source,ArchiveIO.Options)!.AsObject();
+        dest[key]=src[key]?.DeepClone();var limits=new Dictionary<string,SettingLimit>(target.Limits??new());limits.Remove(key);if(source.Limits?.TryGetValue(key,out var limit)==true)limits[key]=limit;
+        dest["Limits"]=System.Text.Json.JsonSerializer.SerializeToNode(limits,ArchiveIO.Options);return Clamp(dest.DeserializeRole().Normalize());
+    }
     public static RoleSettings ApplyGroup(RoleSettings target,RoleSettings source,string group)
     {
         var keys=group switch{

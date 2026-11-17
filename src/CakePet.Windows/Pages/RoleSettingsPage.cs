@@ -8,7 +8,7 @@ internal sealed class RoleSettingsPage:UserControl
     private readonly Func<RoleEntry> current;
     private readonly Action<Func<RoleEntry,RoleEntry>> change;
     private readonly List<Action> dependencies=new();
-    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null)
+    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null)
     {
         this.current=current;this.change=change;
         var entry=current();var s=entry.Settings.Normalize();
@@ -22,13 +22,19 @@ internal sealed class RoleSettingsPage:UserControl
         nav.Children.Add(Ui.Light("‹ 返回",back));var title=Ui.Caption(defaults?"用户习惯":entry.Name,defaults?"新角色默认设置":"角色设置",true);title.Margin=new Thickness(4,20,0,20);nav.Children.Add(title);
         if(pack!=null&&!defaults){try{var id=pack.Candidates("standby/static_pool").Concat(pack.Candidates("standby/pool")).First();var image=new Image{Source=new WpfImageCache(pack).Get(pack.Modes[id].Frames[0]),Width=94,Height=82,Stretch=System.Windows.Media.Stretch.Uniform};var preview=Ui.Card(image);preview.Margin=new Thickness(4,0,4,12);nav.Children.Add(preview);}catch{}}
         var host=new ContentControl{Margin=new Thickness(22,20,22,12)};Grid.SetColumn(host,1);root.Children.Add(host);
-        if(defaults&&applyHabits!=null)nav.Children.Add(Ui.Light("应用全部到已有角色",()=>applyHabits("全部")));
-        var sections=new List<FrameworkElement>();var buttons=new List<Button>();var summaries=new List<Action>();
-        void Select(int index){host.Content=sections[index];for(int i=0;i<buttons.Count;i++)buttons[i].Background=Ui.Brush(i==index?"AccentSoft":"Sidebar");}
+        if(defaults&&applyHabits!=null)
+        {
+            var more=Ui.Light("用户习惯 ⋯",()=>{});var menu=new ContextMenu();
+            void Menu(string name,Action? action){if(action==null)return;var item=new MenuItem{Header=name};item.Click+=(_,_)=>action();menu.Items.Add(item);}
+            Menu("应用全部到已有角色",()=>applyHabits("全部"));Menu("导出用户习惯",exportHabits);Menu("导入用户习惯",importHabits);Menu("恢复软件默认",resetHabits);
+            more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;nav.Children.Add(more);
+        }
+        int selectedSection=0;var sections=new List<FrameworkElement>();var buttons=new List<Button>();var summaries=new List<Action>();
+        void Select(int index){selectedSection=index;host.Content=sections[index];for(int i=0;i<buttons.Count;i++)buttons[i].Background=Ui.Brush(i==index?"AccentSoft":"Sidebar");}
         StackPanel Section(string name,string note)
         {
             var panel=new StackPanel{MaxWidth=940};var heading=Ui.Caption(name,note,true);((TextBlock)heading.Children[0]).FontSize=24;heading.Margin=new Thickness(0,0,0,16);
-            var layout=new DockPanel();var header=defaults&&applyHabits!=null?Ui.Pair(heading,Ui.Light("应用本项到已有角色",()=>applyHabits(name))):(FrameworkElement)heading;DockPanel.SetDock(header,Dock.Top);layout.Children.Add(header);layout.Children.Add(new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+            var layout=new DockPanel();var header=defaults&&applyHabits!=null&&name!="设置阈值"?Ui.Pair(heading,Ui.Light("应用本项到已有角色",()=>applyHabits(name))):(FrameworkElement)heading;DockPanel.SetDock(header,Dock.Top);layout.Children.Add(header);layout.Children.Add(new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
             int index=sections.Count;sections.Add(layout);var b=Ui.Nav(name,()=>Select(index));buttons.Add(b);nav.Children.Add(b);return panel;
         }
         void Set(Func<RoleSettings,RoleSettings> patch){change(r=>r with{Settings=patch(r.Settings)});foreach(var refresh in dependencies)refresh();foreach(var refresh in summaries)refresh();}
@@ -43,7 +49,7 @@ internal sealed class RoleSettingsPage:UserControl
         void Number(SettingCard c,string name,string note,double value,double min,double max,double step,string unit,Func<RoleSettings,double,RoleSettings> setter,string? key=null,double factor=1)
         {
             if(key!=null&&SettingLimits.Specs.FirstOrDefault(x=>x.Key==key) is NumericSetting spec){var limit=SettingLimits.Get(current().Settings,spec);min=limit.Min*factor;max=limit.Max*factor;}
-            c.Add(Ui.NumberRow(name,note,value,min,max,step,unit,v=>Set(r=>setter(r,v))));
+            var control=Ui.NumberRow(name,note,value,min,max,step,unit,v=>Set(r=>setter(r,v)));if(defaults&&applyHabits!=null&&key!=null)c.Add(Ui.Pair(control,Ui.Light("应用本项",()=>applyHabits("item:"+key))));else c.Add(control);
         }
         void Flag(SettingCard c,string name,string note,bool value,Func<RoleSettings,bool,RoleSettings> setter){var sw=Ui.Switch(value);sw.Click+=(_,_)=>Set(r=>setter(r,sw.IsChecked==true));c.Add(Ui.Pair(Ui.Caption(name,note),sw));}
         void Directions(SettingCard c,string name,string note,Edge value,Func<RoleSettings,Edge,RoleSettings> setter,bool exclusive=false)
@@ -118,11 +124,11 @@ internal sealed class RoleSettingsPage:UserControl
             Group(limitsPage,group.Key);var limitsCard=Card(limitsPage,group.Key,"修改范围后，当前值会被限制在新范围内。",expanded:false);
             foreach(var spec in group)
             {
-                var limit=SettingLimits.Get(current().Settings,spec);var values=new StackPanel{Orientation=Orientation.Horizontal};var lo=new TextBox{Text=limit.Min.ToString(System.Globalization.CultureInfo.InvariantCulture),Width=76};var hi=new TextBox{Text=limit.Max.ToString(System.Globalization.CultureInfo.InvariantCulture),Width=76};values.Children.Add(lo);values.Children.Add(Ui.Text(" — "));values.Children.Add(hi);
-                values.Children.Add(Ui.Light("应用",()=>{if(!double.TryParse(lo.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var a)||!double.TryParse(hi.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var b)||!double.IsFinite(a)||!double.IsFinite(b)||a<spec.Min||b>spec.Max||b-a<spec.Step-1e-9){MessageBox.Show("请输入有效范围："+spec.Min+"–"+spec.Max);return;}Set(r=>{var map=new Dictionary<string,SettingLimit>(r.Limits??new());map[spec.Key]=new(a,b);return SettingLimits.Clamp(r with{Limits=map});});MessageBox.Show("已保存阈值。重新进入设置页后使用新范围。");}));
+                var threshold=SettingLimits.Get(current().Settings,spec);var values=new StackPanel{Orientation=Orientation.Horizontal};var lo=new TextBox{Text=threshold.Min.ToString(System.Globalization.CultureInfo.InvariantCulture),Width=76};var hi=new TextBox{Text=threshold.Max.ToString(System.Globalization.CultureInfo.InvariantCulture),Width=76};values.Children.Add(lo);values.Children.Add(Ui.Text(" — "));values.Children.Add(hi);
+                values.Children.Add(Ui.Light("应用",()=>{if(!double.TryParse(lo.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var a)||!double.TryParse(hi.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var b)||!double.IsFinite(a)||!double.IsFinite(b)||a<spec.Min||b>spec.Max||b-a<spec.Step-1e-9){MessageBox.Show("请输入有效范围："+spec.Min+"–"+spec.Max);return;}Set(r=>{var map=new Dictionary<string,SettingLimit>(r.Limits??new());map[spec.Key]=new(a,b);return SettingLimits.Clamp(r with{Limits=map});});reopen?.Invoke(selectedSection);}));
                 limitsCard.Add(Ui.Pair(Ui.Caption(spec.Label,spec.Min+"–"+spec.Max+" "+spec.Unit),values));
             }
         }
-        Select(0);
+        Select(Math.Clamp(initialSection,0,sections.Count-1));
     }
 }

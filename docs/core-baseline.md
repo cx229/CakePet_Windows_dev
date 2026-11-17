@@ -65,3 +65,5 @@ Stage 18: resource folder tree, actual folder creation/order, image reference li
 Stage 19a: per-role random settings and schedule, Android-compatible semantics (user enabling triggers immediate persistent random values, existing enabled roles wait after summon, change period restarts timer). Desktop physics random ranges adapted; no tilt gravity. Random timer is per role, not per instance. UI uses Android group order. Existing role settings UI does not yet refresh all controls after periodic random changes.
 
 Stage 19b: user habits explicit group/all application to existing roles, new roles inherit defaults/limits; numeric threshold range editor and clamping at catalog updates. Supports scalar settings initially; range controls and style threshold settings pending, threshold UI changes apply on reopening settings. No changes to existing roles unless confirmed.
+
+Stage 19c: fix CS0136 threshold variable collision; user habits standalone Windows JSON import/export/reset, scalar item application, rebuild settings workspace in the same section after threshold change. Existing roles unaffected by import/reset. Non-scalar item application remains pending.

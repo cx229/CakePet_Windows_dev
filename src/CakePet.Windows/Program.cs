@@ -219,12 +219,16 @@ internal sealed class Launcher : Window
         ThinkingStyleSettings.Add(page,()=>catalog.Typing.Style,patch=>Set(x=>x with{Style=patch(x.Style)}),"打字：126 次/分钟　今日：8,642 次",()=>globalEnabled&&catalog.Typing.Enabled,deps);
         navigationHost.Content=new ScrollViewer{Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
     });
-    private void EditDefaults()=>Safe(()=>{
-        navigationHost.Content=new RoleSettingsPage(()=>new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,patch=>{catalog.Defaults=SettingLimits.Clamp(patch(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults)).Settings.Normalize());QueueSave();},BackHome,true,true,ApplyHabits);
+    private void EditDefaults()=>EditDefaultsAt(0);
+    private void EditDefaultsAt(int section)=>Safe(()=>{
+        navigationHost.Content=new RoleSettingsPage(()=>new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,patch=>{catalog.Defaults=SettingLimits.Clamp(patch(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults)).Settings.Normalize());QueueSave();},BackHome,true,true,ApplyHabits,ExportHabits,ImportHabits,ResetHabits,section,EditDefaultsAt);
     });
+    private void ExportHabits()=>Safe(()=>{FlushSave();var path=ChooseSave("CakePet-user-habits.json","JSON 文件|*.json");if(path!=null)ArchiveIO.Write(path,new System.Text.Json.Nodes.JsonObject{["type"]="cakepet-user-habits",["platform"]="windows",["settings"]=System.Text.Json.JsonSerializer.SerializeToNode(catalog.Defaults,ArchiveIO.Options)}.ToJsonString(ArchiveIO.Options));});
+    private void ImportHabits()=>Safe(()=>{var d=new OpenFileDialog{Filter="用户习惯|*.json"};if(d.ShowDialog(this)!=true)return;var doc=ArchiveIO.Read(d.FileName);if(doc["type"]?.ToString()!="cakepet-user-habits"||doc["platform"]?.ToString()!="windows"||doc["settings"] is not System.Text.Json.Nodes.JsonObject fields)throw new InvalidDataException("不支持的用户习惯文件。");if(MessageBox.Show(this,"导入后只影响以后新建的角色，已有角色不受影响。","导入用户习惯",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;catalog.Defaults=SettingLimits.Clamp(ArchiveIO.Overlay(catalog.Defaults,fields));storage.Save();EditDefaults();});
+    private void ResetHabits()=>Safe(()=>{if(MessageBox.Show(this,"恢复软件自带的用户习惯？已有角色不受影响。","恢复默认",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;catalog.Defaults=new RoleSettings();storage.Save();EditDefaults();});
     private void ApplyHabits(string group)=>Safe(()=>{
-        if(MessageBox.Show(this,group=="全部"?"将全部用户习惯应用到已有角色？":"将「"+group+"」的默认设置和阈值应用到所有已有角色？","应用用户习惯",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
-        foreach(var role in catalog.Roles.ToArray()){var next=group=="全部"?catalog.Defaults:SettingLimits.ApplyGroup(role.Settings,catalog.Defaults,group);catalog.Update(role with{Settings=next});var updated=catalog.Roles.Single(r=>r.Id==role.Id);randomSchedule.Forget(role.Id);if(pets.Any(p=>p.RoleId==role.Id)){if(pets.Count(p=>p.RoleId==role.Id)!=updated.Settings.Count)Summon(updated);else ApplyRunning(updated);}}
+        if(MessageBox.Show(this,group=="全部"?"将全部用户习惯应用到已有角色？":"将「"+(group.StartsWith("item:")?SettingLimits.Specs.First(x=>x.Key==group[5..]).Label:group)+"」的默认设置和阈值应用到所有已有角色？","应用用户习惯",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+        foreach(var role in catalog.Roles.ToArray()){var next=group=="全部"?catalog.Defaults:group.StartsWith("item:")?SettingLimits.ApplyItem(role.Settings,catalog.Defaults,group[5..]):SettingLimits.ApplyGroup(role.Settings,catalog.Defaults,group);catalog.Update(role with{Settings=next});var updated=catalog.Roles.Single(r=>r.Id==role.Id);randomSchedule.Forget(role.Id);if(pets.Any(p=>p.RoleId==role.Id)){if(pets.Count(p=>p.RoleId==role.Id)!=updated.Settings.Count)Summon(updated);else ApplyRunning(updated);}}
         FlushSave();storage.Save();RefreshCards();
     });
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}
@@ -255,12 +259,13 @@ internal sealed class Launcher : Window
         foreach(var pack in catalog.Packs){var choice=Ui.Button(pack.Name,()=>{var role=catalog.AddRole(pack.Id,pack.Name);storage.Save();RefreshCards();Edit(role);});panel.Children.Add(Ui.Card(choice));}
         navigationHost.Content=new ScrollViewer{Content=panel};
     });
-    private void Edit(RoleEntry entry)=>Safe(()=>{
+    private void Edit(RoleEntry entry)=>EditAt(entry,0);
+    private void EditAt(RoleEntry entry,int section)=>Safe(()=>{
         ShowLauncher();
         navigationHost.Content=new RoleSettingsPage(()=>catalog.Roles.Single(x=>x.Id==entry.Id),GetPack(entry.PackId).Pack,patch=>Safe(()=>{
             var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;if(!old.Settings.RandomMode.Enabled&&next.Settings.RandomMode.Enabled)next=next with{Settings=next.Settings.RandomMode.Apply(next.Settings,Random.Shared)};if(old.Settings.RandomMode!=next.Settings.RandomMode)randomSchedule.Forget(entry.Id);catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
             var live=pets.Count(p=>p.RoleId==entry.Id);if(live>0&&live!=latest.Settings.Count)Summon(latest);else if(old.Settings!=latest.Settings)ApplyRunning(latest);
-        }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
+        }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,initialSection:section,reopen:i=>EditAt(catalog.Roles.Single(r=>r.Id==entry.Id),i));
     });
     private void RefreshCards()
     {
