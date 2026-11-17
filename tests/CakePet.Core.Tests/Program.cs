@@ -10,6 +10,7 @@ try
  // real v1.12 schema
  "version":"1.12","id":"test","name":"Test","functions":{
  "standby":{"pool":{"modes":["bad","idle"]}},
+ "touch":{"roll":{"modes":["flight"]}},
  "pat_head":{"pat_head":{"modes":["event"],"thinking":{"policy":"hold","pool":{"a":{"min":5,"max":5}}}}},
  "snap":{"pool":{"modes":["idle"]},"feed":{"lure":{"modes":["lure"]},"lure_fail":{"modes":["fail"]},"eat":{"modes":["eat"]}}},
  "feed":{"food":{"modes":["fish"]},"lure":{"modes":["lure"]},"lure_fail":{"modes":["fail"]},"eat":{"modes":["eat"]}},"menu":{"pool":{"modes":["event"]}},
@@ -131,7 +132,7 @@ try
  world.Clear();
  eater.ReturnHome();eater.BeginDrag();eater.Body.SnapEnabled=false;eater.EndDrag(new Point(1000,-500));
  var oldVelocity=eater.Body.Velocity;eater.Grow(5);
- Assert(eater.Body.Velocity==oldVelocity&&eater.Body.State==PhysicalState.Throwing,"resize preserves physics");
+ Assert(oldVelocity.Length>0&&eater.Body.Velocity==oldVelocity&&eater.Body.State==PhysicalState.Throwing,"resize preserves physics");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
