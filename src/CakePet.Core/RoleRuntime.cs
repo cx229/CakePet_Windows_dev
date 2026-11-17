@@ -81,7 +81,7 @@ public sealed class RoleRuntime
         if(StateFunction==path)return;
         StateFunction=path;Resume();
     }
-    private bool CanTrigger(string path)
+    public bool CanTrigger(string path)
     {
         if(Physics!=PhysicalState.Free&&Physics!=PhysicalState.Climbing)return false;
         if(path.StartsWith("snap/",StringComparison.Ordinal)&&!Snapped)return false;
@@ -94,7 +94,18 @@ public sealed class RoleRuntime
         if(StateFunction==path)return true;
         StateFunction=path;return Select(path);
     }
-    public void EndSustained(){StateFunction=Snapped?"snap/pool":null;Resume();}
+    public void EndSustained(bool resume=true)
+    {
+        var old=StateFunction;StateFunction=Snapped?"snap/pool":null;
+        if(resume&&old!=null&&FunctionPath==old)Resume();
+    }
+    public bool EndSustainedWithEvent(string path)
+    {
+        var old=StateFunction;EndSustained(false);
+        if(CanTrigger(path)&&Select(path))return true;
+        if(old!=null&&FunctionPath==old)Resume();return false;
+    }
+    public bool IsNaturalStandby=>FunctionPath.StartsWith("standby/",StringComparison.Ordinal);
     public bool Trigger(string path)=>CanTrigger(path)&&Select(path);
     public bool PhysicalEvent(string path)=>Select(path);
     public void CompletePhysicalMotion(string landing="touch/jump_down",PhysicalState nextState=PhysicalState.Free)

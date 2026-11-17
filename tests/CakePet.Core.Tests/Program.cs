@@ -11,15 +11,21 @@ try
  "version":"1.12","id":"test","name":"Test","functions":{
  "standby":{"pool":{"modes":["bad","idle"]}},
  "pat_head":{"pat_head":{"modes":["event"],"thinking":{"policy":"hold","pool":{"a":{"min":5,"max":5}}}}},
- "snap":{"pool":{"modes":["idle"]}},"menu":{"pool":{"modes":["event"]}},
- "climb":{"leap":{"leap":{"modes":["flight"]},"landing":{"modes":["land"]}}}},
+ "snap":{"pool":{"modes":["idle"]},"feed":{"lure":{"modes":["lure"]},"lure_fail":{"modes":["fail"]},"eat":{"modes":["eat"]}}},
+ "feed":{"food":{"modes":["fish"]},"lure":{"modes":["lure"]},"lure_fail":{"modes":["fail"]},"eat":{"modes":["eat"]}},"menu":{"pool":{"modes":["event"]}},
+ "climb":{"leap":{"leap":{"modes":["flight"]},"landing":{"modes":["land"]}},"forage":{"move":{"modes":["walk"]}}}},
  "modes":{
  "bad":{"frames":[{"res":"../escape.png","delay":1}]},
  "idle":{"loopMode":"infinite","nextMode":"missing","frames":[{"res":"a.png","delay":10,"dx":2}]},
  "event":{"loopMode":"off","nextMode":"tail","frames":[{"res":"a.png","delay":[5,5]}]},
  "tail":{"loopMode":"timed","duration":{"min":12,"max":12},"finishCycle":true,"frames":[{"res":"a.png","delay":10}]},
  "flight":{"loopMode":"infinite","frames":[{"res":"a.png","delay":10}]},
- "land":{"loopMode":"off","frames":[{"res":"a.png","delay":100}]}
+ "land":{"loopMode":"off","frames":[{"res":"a.png","delay":100}]},
+ "fish":{"loopMode":"infinite","frames":[{"res":"a.png","delay":10}]},
+ "lure":{"loopMode":"infinite","frames":[{"res":"a.png","delay":10}]},
+ "fail":{"loopMode":"off","frames":[{"res":"a.png","delay":20}]},
+ "eat":{"loopMode":"off","frames":[{"res":"a.png","delay":30}]},
+ "walk":{"loopMode":"infinite","frames":[{"res":"a.png","delay":10,"dx":8}]}
  },"thinkings":{"a":{"text":"hello"}}
  }
  """);
@@ -80,6 +86,32 @@ try
  noThrow.Grab();noThrow.Release(new Point(1000,1000),new Bounds(0,0,200,200));
  Assert(noThrow.State==PhysicalState.Free&&noThrow.Velocity==default,"disabled throw falls without rolling");
  noThrow.Advance(.1,new Bounds(0,0,200,200));Assert(noThrow.Position.Y>20,"gravity independent of throw");
+ var route=PerimeterRoute.Calculate(new Bounds(0,0,400,200),new Point(100,200),Edge.Bottom,new Point(350,200));
+ Assert(route.Direction==1&&route.Distance==250,"perimeter direction");
+ using var feeder=new PetEngine(new RoleRuntime(pack,new Random(7)),new Bounds(0,0,400,200),100,new Point(50,200));
+ using var eater=new PetEngine(new RoleRuntime(pack,new Random(8)),new Bounds(0,0,400,200),100,new Point(250,200));
+ var world=new FoodWorld(new Random(9));world.Add(feeder);world.Add(eater);
+ feeder.GrowOnFeed=true;feeder.FeedGrowth=10;
+ var fish=world.Spawn(feeder,new Bounds(0,0,500,300),40,1000,false)!;
+ var fish2=world.Spawn(feeder,new Bounds(0,0,500,300),40,1000,false)!;
+ Assert(fish.Animation!=fish2.Animation,"independent food animation");
+ world.Hold(fish);world.Move(fish,eater.Center);
+ Assert(eater.IsLuring&&eater.Role.FunctionPath=="feed/lure","held food lure");
+ world.Release(fish,new Point(0,0));
+ Assert(eater.Role.FunctionPath=="feed/lure_fail"&&!eater.IsLuring,"miss event");
+ eater.Role.Advance(20);world.Hold(fish);world.Move(fish,eater.Center);
+ Assert(world.Release(fish,eater.Center)&&!world.Foods.Contains(fish),"food consumed");
+ Assert(eater.Role.FunctionPath=="feed/eat"&&eater.DisplaySize==110&&feeder.DisplaySize==100,"cross-role grow and eat");
+ world.Hold(fish2);eater.BeginDrag();world.UpdateInteractions();
+ Assert(!eater.IsLuring,"drag cancels lure");
+ eater.ReturnHome();world.Release(fish2,new Point(0,0),true);world.Advance(1000);
+ Assert(world.Foods.Count==0,"expiry");
+ eater.SetClimbing(true);eater.SetAutoForage(true);
+ var target=world.Spawn(feeder,new Bounds(0,0,500,300),40,null,false)!;
+ world.Hold(target);world.Move(target,new Point(450,290));world.Release(target,new Point(0,0),true);
+ Assert(eater.ChooseForage!()&&eater.Foraging,"forage natural selection hook");
+ var before=eater.Body.Position;eater.Step(10);Assert(eater.Body.Position!=before,"forage frame movement");
+ world.Remove(feeder);Assert(world.Foods.Count==0&&!eater.Foraging,"owner recall clears owned food");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
