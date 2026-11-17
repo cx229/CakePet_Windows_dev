@@ -21,6 +21,9 @@ public sealed record RoleSettings
     public bool ClickThrough {get;init;}
     public bool PixelHit {get;init;}=true;
     public bool Thinking {get;init;}=true;
+    public ThinkingStyle ThoughtStyle {get;init;}=new();
+    public int ThoughtRestMin {get;init;}=2;
+    public int ThoughtRestMax {get;init;}=15;
     public double Gravity {get;init;}=1500;
     public double MaxSpeed {get;init;}=2000;
     public double Bounce {get;init;}=.7;
@@ -51,6 +54,7 @@ public sealed record RoleSettings
     public string MonitorId {get;init;}="";
     private static double N(double v,double min,double max,double fallback)=>double.IsFinite(v)?Math.Clamp(v,min,max):fallback;
     public RoleSettings Normalize()=>this with{Count=Math.Clamp(Count,1,30),Scale=double.IsFinite(Scale)?Math.Clamp(Scale,.5,3):1.4,Opacity=double.IsFinite(Opacity)?Math.Clamp(Opacity,.05,1):1,
+        ThoughtStyle=(ThoughtStyle??new()).Normalize(),ThoughtRestMin=Math.Clamp(ThoughtRestMin,1,300),ThoughtRestMax=Math.Clamp(ThoughtRestMax,Math.Clamp(ThoughtRestMin,1,300),300),
         Gravity=N(Gravity,0,10000,1500),MaxSpeed=N(MaxSpeed,100,10000,2000),Bounce=N(Bounce,0,1,.7),
         GravityEdges=GravityEdges&Edge.All,BounceEdges=BounceEdges&Edge.All,SnapEdges=SnapEdges&Edge.All,
         ThrowCoefficient=N(ThrowCoefficient,0,5,1),SnapSpeed=N(SnapSpeed,0,5000,800),SnapDistance=N(SnapDistance,0,500,100),
@@ -72,6 +76,9 @@ public sealed class RoleCatalog
     public List<PackEntry> Packs {get;init;}=new();
     public List<RoleEntry> Roles {get;init;}=new();
     public bool SingleThinking {get;set;}=true;
+    public TypingSettings Typing {get;set;}=new();
+    public string TypingDay {get;set;}="";
+    public long TypingToday {get;set;}
     public ThinkingLocation ThinkingLocation {get;set;}=ThinkingLocation.PrimaryBottom;
     public bool AutoSummon {get;set;}=true;
     public RoleSettings Defaults {get;set;}=new();

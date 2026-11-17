@@ -47,6 +47,7 @@ internal sealed class PetWindow : Window
     internal event Action<Guid>? ResetRoleSize;
     private void Change(Func<RoleSettings,RoleSettings> change)=>ChangeSettings?.Invoke(RoleId,change);
     internal Guid RoleId {get;}
+    internal ThinkingStyle ThoughtStyle=>settings.ThoughtStyle;
     internal string? VisibleThought=>thinkingEnabled?role.Thoughts.VisibleText:null;
     internal bool IsAutomatic=>foodWorld.IsAutomatic(engine);
     internal void ApplySettings(RoleSettings value,bool primary)
@@ -56,7 +57,7 @@ internal sealed class PetWindow : Window
         var b=engine.Body;b.Gravity=settings.Gravity;b.GravityEnabled=settings.GravityEnabled;b.GravityEdges=settings.GravityEdges;b.MaxSpeed=settings.MaxSpeed;b.Bounce=settings.Bounce;b.BounceEnabled=settings.BounceEnabled;b.BounceEdges=settings.BounceEdges;b.ThrowCoefficient=settings.ThrowCoefficient;b.SnapDistance=settings.SnapDistance;b.SnapSpeed=settings.SnapSpeed;b.SnapEdges=settings.SnapEdges;
         engine.LeapProbability=settings.LeapProbability;engine.LeapSpeed=settings.LeapSpeed;engine.ForageMultiplier=settings.ForageMultiplier;engine.FeedGrowth=role.Package.AnchorRes*settings.FeedGrowth;engine.MaxDisplaySize=role.Package.AnchorRes*settings.MaxScale;
         if(old.Scale!=settings.Scale||!configured)engine.Resize(role.Package.AnchorRes*settings.Scale);
-        configured=true;Opacity=settings.Opacity;fullScreen=settings.FullScreen;ClickThrough=settings.ClickThrough;pixelHit=settings.PixelHit;thinkingEnabled=settings.Thinking;
+        configured=true;Opacity=settings.Opacity;fullScreen=settings.FullScreen;ClickThrough=settings.ClickThrough;pixelHit=settings.PixelHit;thinkingEnabled=settings.Thinking;role.Thoughts.Enabled=thinkingEnabled;role.Thoughts.RestDuration=new Interval(settings.ThoughtRestMin*1000,settings.ThoughtRestMax*1000);
         engine.Body.ThrowEnabled=settings.Throw&&role.Package.Supports("touch/roll");engine.Body.SnapEnabled=settings.Snap&&role.Package.Supports("snap/pool");
         engine.SetStaticStandby(!settings.Move);engine.SetClimbing(settings.Climb);engine.SetLeapEnabled(settings.Leap);engine.SetAutoForage(settings.Forage);
         engine.FeedingEnabled=settings.Feed&&role.Package.Supports("feed/food");engine.GrowOnFeed=settings.Grow;

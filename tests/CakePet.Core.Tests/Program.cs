@@ -186,6 +186,13 @@ try
  var moving=new PhysicsBody(new Point(-60,100)){GravityEnabled=false,ThrowEnabled=true};moving.Grab();moving.GravityEnabled=true;moving.Release(new Point(1000,0));moving.GravityEnabled=false;
  var currentRegion=regions[0];moving.ProjectMotion=(from,next)=>{var tr=ConnectedDesktop.Project(regions,currentRegion,from,next,anchor,Edge.None);currentRegion=tr.Region;return new MotionProjection(tr.Position,tr.Limits);};
  moving.Advance(.03,regions[0].Limits);Assert(currentRegion.Id=="R"&&moving.Velocity.X==1000,"throw crosses without bounce");
+ var typing=new TypingThinking();var typingConfig=new TypingSettings{Enabled=true,Seconds=5};typing.Restore("2026-11-17",10,"2026-11-17");var arbitration=new ThinkingCoordinator{SingleAcrossRoles=true};var speaker=new ThinkingTimeline(pack.Texts,new Random(1));arbitration.Add(typing);arbitration.Add(speaker);
+ typing.Press(0,"2026-11-17",typingConfig);Assert(typing.Today==11&&!typing.Suppressed&&typing.CurrentText!=null,"typing event");
+ speaker.Apply(cfg);Assert(typing.Suppressed&&speaker.VisibleText!=null,"role interrupts typing");
+ typing.Press(1000,"2026-11-17",typingConfig);Assert(!typing.Suppressed&&speaker.Suppressed&&typing.Today==12,"typing refresh interrupts role");
+ typing.Advance(5999);Assert(typing.CurrentText!=null,"typing refresh extends duration");typing.Advance(6000);Assert(typing.CurrentText==null&&speaker.Suppressed,"no interrupted replay");
+ typing.Press(62000,"2026-11-18",typingConfig);Assert(typing.Today==1&&typing.CurrentText!.Contains("1 次/分钟"),"rolling count and new day");
+ typing.Stop();typing.Press(63000,"2026-11-18",typingConfig with{Enabled=false});Assert(typing.Today==1&&typing.CurrentText==null,"disabled no counting");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
