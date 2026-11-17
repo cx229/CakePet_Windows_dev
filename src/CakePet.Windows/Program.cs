@@ -74,6 +74,8 @@ internal sealed class Launcher : Window
     private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){catalog.Typing=catalog.Typing with{Enabled=false};storage.Save();MessageBox.Show(e.Message,"无法启用打字统计");}}
     private void ChangeTyping(Func<TypingSettings,TypingSettings> patch){var next=patch(catalog.Typing).Normalize();if(next.Enabled!=catalog.Typing.Enabled){typingInput.SetEnabled(next.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);if(!next.Enabled){typing.Stop();SaveTyping();}}catalog.Typing=next;QueueSave();}
     private readonly FoodWorld world=new();
+    private readonly RandomSchedule randomSchedule=new();
+    private long lastRandomCheck;
     private readonly Dictionary<FoodInstance,FoodWindow> foodWindows=new();
     private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
     private readonly Stopwatch clock=Stopwatch.StartNew();
@@ -175,6 +177,7 @@ internal sealed class Launcher : Window
     private void Tick()
     {
         var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
+        if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));QueueSave();}}
         world.Advance(dt);
         foreach(var pet in pets.ToArray())pet.Step(dt);
         world.UpdateInteractions();
@@ -222,7 +225,7 @@ internal sealed class Launcher : Window
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}
     private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change)=>Safe(()=>{var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));RefreshCards();});
     private void RecallAll(){foreach(var pet in pets.ToArray())pet.Close();}
-    private void Recall(Guid id){foreach(var pet in pets.Where(p=>p.RoleId==id).ToArray())pet.Close();}
+    private void Recall(Guid id){randomSchedule.Forget(id);foreach(var pet in pets.Where(p=>p.RoleId==id).ToArray())pet.Close();}
     private void ImportPack()=>Safe(()=>{
         var dialog=new OpenFolderDialog{Title="选择包含 modes.jsonc 的目录"};if(dialog.ShowDialog(this)!=true)return;
         storage.Import(dialog.FolderName);RefreshCards();
@@ -250,7 +253,7 @@ internal sealed class Launcher : Window
     private void Edit(RoleEntry entry)=>Safe(()=>{
         ShowLauncher();
         navigationHost.Content=new RoleSettingsPage(()=>catalog.Roles.Single(x=>x.Id==entry.Id),GetPack(entry.PackId).Pack,patch=>Safe(()=>{
-            var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
+            var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;if(!old.Settings.RandomMode.Enabled&&next.Settings.RandomMode.Enabled)next=next with{Settings=next.Settings.RandomMode.Apply(next.Settings,Random.Shared)};if(old.Settings.RandomMode!=next.Settings.RandomMode)randomSchedule.Forget(entry.Id);catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
             var live=pets.Count(p=>p.RoleId==entry.Id);if(live>0&&live!=latest.Settings.Count)Summon(latest);else if(old.Settings!=latest.Settings)ApplyRunning(latest);
         }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
     });
@@ -296,7 +299,7 @@ internal sealed class Launcher : Window
             var role=new RoleRuntime(pair.Pack);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id);
             pet.OpenSettings+=id=>Edit(catalog.Roles.Single(x=>x.Id==id));pet.ChangeSettings+=ChangeRole;pet.RecallRole+=Recall;pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};pet.ClearRoleFreezes+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ClearFreezes();};pet.ResetRoleSize+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ResetSize();};
             pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);role.Thoughts.Enabled=settings.Thinking&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;thoughts.Add(role.Thoughts,entry.Id);
-            pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!shuttingDown)RefreshCards();};
+            pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!pets.Any(p=>p.RoleId==entry.Id))randomSchedule.Forget(entry.Id);if(!shuttingDown)RefreshCards();};
             pet.Show();
         }
         for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);

@@ -100,6 +100,13 @@ internal sealed class RoleSettingsPage:UserControl
         var monitor=new ComboBox{ItemsSource=options,DisplayMemberPath="Label",SelectedValuePath="Id",SelectedValue=s.MonitorId,Width=190};monitor.SelectionChanged+=(_,_)=>Set(r=>r with{MonitorId=monitor.SelectedValue as string??""});display.Add(Ui.Pair(Ui.Caption("首选显示器","召唤时优先使用。"),monitor));
         Flag(display,"包含任务栏","允许角色活动到任务栏所在区域。",s.FullScreen,(r,v)=>r with{FullScreen=v});
         var offsets=Card(area,"四边偏移","正值向内收缩，负值向外扩展。");Number(offsets,"左侧","",s.OffsetLeft,-500,500,1,"px",(r,v)=>r with{OffsetLeft=v});Number(offsets,"右侧","",s.OffsetRight,-500,500,1,"px",(r,v)=>r with{OffsetRight=v});Number(offsets,"顶部","",s.OffsetTop,-500,500,1,"px",(r,v)=>r with{OffsetTop=v});Number(offsets,"底部","",s.OffsetBottom,-500,500,1,"px",(r,v)=>r with{OffsetBottom=v});
+        var random=Section("随机模式","「"+petName+"」的行为会偷偷改变");Summary(()=>current().Settings.RandomMode.Enabled?"已开启":"已关闭");Group(random,"变变变");
+        var randomConfig=s.RandomMode;Card(random,"随机模式","开启后，选中的设置会隔一段时间随机改变",randomConfig.Enabled,(r,v)=>r with{RandomMode=r.RandomMode with{Enabled=v}},details:false);
+        bool RandomOn()=>current().Settings.RandomMode.Enabled;
+        Group(random,"随机项",RandomOn);var randomItems=Card(random,"随机项","只改变勾选的设置",dependency:RandomOn);
+        foreach(var (flag,label,note) in new (RandomItems,string,string)[]{(RandomItems.Scale,"大小","0.6–2 倍"),(RandomItems.Opacity,"透明度","30%–100%"),(RandomItems.GravityEnabled,"重力","随机开启或关闭"),(RandomItems.MaxSpeed,"最大速度","500–6000 px/s"),(RandomItems.Gravity,"重力强度","250–3500 px/s²"),(RandomItems.Bounce,"反弹系数","0.45–0.95"),(RandomItems.VerticalGravity,"四边重力 · 上下",""),(RandomItems.HorizontalGravity,"四边重力 · 左右",""),(RandomItems.BounceTop,"四边反弹 · 上",""),(RandomItems.BounceBottom,"四边反弹 · 下",""),(RandomItems.BounceLeft,"四边反弹 · 左",""),(RandomItems.BounceRight,"四边反弹 · 右","")})
+            Flag(randomItems,label,note,randomConfig.Items.HasFlag(flag),(r,v)=>r with{RandomMode=r.RandomMode with{Items=v?r.RandomMode.Items|flag:r.RandomMode.Items&~flag}});
+        Group(random,"周期",RandomOn);var period=Card(random,"周期","两次随机之间的等待时间",dependency:RandomOn);period.Add(Ui.Pair(Ui.Caption("随机间隔","在最短和最长时间之间随机等待"),new RangeSlider(1,144,randomConfig.MinMinutes,randomConfig.MaxMinutes,(lo,hi)=>Set(r=>r with{RandomMode=r.RandomMode with{MinMinutes=(int)lo,MaxMinutes=(int)hi}}),"分钟"),310));
         Select(0);
     }
 }

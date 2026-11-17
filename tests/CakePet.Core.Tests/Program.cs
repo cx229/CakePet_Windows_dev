@@ -202,6 +202,10 @@ try
  layered.Policy=ThinkingDisplayPolicy.Overlap;Assert(x1.Suppressed&&x2.Suppressed,"global resume no revival");
  x2.Press(4,"2026-11-17",typingConfig);Assert(!x2.Suppressed&&x1.Suppressed,"new event after resume");
  var paused=new ThinkingTimeline(pack.Texts,new Random(1));paused.Apply(cfg);paused.Enabled=false;paused.Advance(60000);Assert(paused.CurrentText==null&&paused.CurrentId==null,"disabled timeline stopped");paused.Enabled=true;Assert(paused.CurrentText==null,"resume cycle starts at rest");
+ var randomConfig=new RandomSettings{Enabled=true,Items=RandomItems.VerticalGravity|RandomItems.HorizontalGravity,MinMinutes=1,MaxMinutes=1};var random=new Random(42);var baseSettings=new RoleSettings{Scale=1.4,GravityEdges=Edge.None};
+ for(int i=0;i<100;i++){var v=randomConfig.Apply(baseSettings,random);Assert(v.Scale==baseSettings.Scale&&v.GravityEdges!=Edge.None&&!(v.GravityEdges.HasFlag(Edge.Top)&&v.GravityEdges.HasFlag(Edge.Bottom))&&!(v.GravityEdges.HasFlag(Edge.Left)&&v.GravityEdges.HasFlag(Edge.Right)),"random direction constraints");}
+ var schedule=new RandomSchedule(random);var randomId=Guid.NewGuid();Assert(!schedule.Due(randomId,randomConfig,0)&&!schedule.Due(randomId,randomConfig,59999)&&schedule.Due(randomId,randomConfig,60000),"random schedule");
+ Assert(!schedule.Due(randomId,randomConfig with{Enabled=false},120000)&&!schedule.Due(randomId,randomConfig,120000),"random disable and restart");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
