@@ -76,7 +76,14 @@ internal sealed class PetWindow : Window
         return images.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
     }
     private DesktopScreen Monitor=>DesktopPlatform.Resolve(monitorId,engine.Center);
-    internal Bounds ActivityArea=>settings.ApplyOffsets(fullScreen?Monitor.Full:Monitor.Work);
+    internal Bounds ActivityArea=>AreaOf(Monitor);
+    private Bounds AreaOf(DesktopScreen screen)=>settings.ApplyOffsets(fullScreen?screen.Full:screen.Work);
+    private bool CanConnect=>settings.ScreenConnect&&settings.Move&&DesktopPlatform.Screens.Count>1&&body.SnappedEdge==Edge.None&&body.State is (PhysicalState.Free or PhysicalState.Climbing or PhysicalState.Throwing)&&!engine.Foraging;
+    private ScreenRegion[] Regions()=>DesktopPlatform.Screens.Select(s=>{var a=AreaOf(s);return new ScreenRegion(s.Id,s.Full,a,AnchorGeometry.WindowBounds(a,Side,engine.AnchorOffset,engine.RenderEdge));}).ToArray();
+    private ScreenRegion SourceRegion(ScreenRegion[] regions)=>regions.FirstOrDefault(s=>s.Id==monitorId)??regions.First(s=>s.Id==Monitor.Id);
+    private Bounds ConnectedLimits(Bounds ordinary){if(!CanConnect)return ordinary;var regions=Regions();return ConnectedDesktop.Limits(regions,SourceRegion(regions),body.Position,engine.AnchorOffset,body.ClimbEdge);}
+    private Edge ConnectedEdges(){if(!CanConnect)return Edge.None;var regions=Regions();return ConnectedDesktop.OpenEdges(regions,SourceRegion(regions),body.Position,body.ClimbEdge);}
+    private MotionProjection? ConnectedMotion(P from,P next){if(!CanConnect)return null;var regions=Regions();var transfer=ConnectedDesktop.Project(regions,SourceRegion(regions),from,next,engine.AnchorOffset,body.ClimbEdge);monitorId=transfer.Region.Id;engine.AdoptMotionArea(transfer.Region.Area,transfer.Limits);return new MotionProjection(transfer.Position,transfer.Limits);}
     internal bool ClickThrough {get=>clickThrough;set{clickThrough=value;ApplyInputStyle();}}
     private void ApplyInputStyle()
     {
@@ -92,6 +99,7 @@ internal sealed class PetWindow : Window
         canvas.Children.Add(image);Content=canvas;
         var monitor=DesktopPlatform.Primary;monitorId=monitor.Id;
         var b=DesktopGeometry.Fit(monitor.Work,160,160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
+        engine.ConnectedLimits=ConnectedLimits;engine.ConnectedEdges=ConnectedEdges;engine.ConnectedMotion=ConnectedMotion;
         engine.SetActivityArea(monitor.Work,images.Geometry);
         engine.ReturnHome();
         body.SetPosition(new P(Math.Clamp(body.Position.X+index*30,engine.Bounds.Left,engine.Bounds.Right),body.Position.Y));

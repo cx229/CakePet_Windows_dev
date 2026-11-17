@@ -164,7 +164,7 @@ try
  var imported=ArchiveIO.Overlay(new RoleSettings{Gravity=900,Count=2},new System.Text.Json.Nodes.JsonObject{["Gravity"]="invalid",["Count"]=4,["unknown"]=true});
  Assert(imported.Gravity==900&&imported.Count==4,"partial settings overlay");
  var editor=new PackageEditor(root);var oldDoc=File.ReadAllText(Path.Combine(root,"modes.jsonc"));
- var oldMode=editor.Modes.First().Key;editor.RenameMode(oldMode,"renamed");
+ var oldMode="idle";editor.RenameMode(oldMode,"renamed");
  Assert(!editor.Modes.ContainsKey(oldMode)&&editor.Modes.ContainsKey("renamed"),"animation rename");
  Assert(!editor.FunctionPaths().SelectMany(p=>editor.Function(p)["modes"]!.AsArray()).Any(x=>x?.ToString()==oldMode),"rename references");
  editor.Save();Assert(RolePackage.Load(root).Modes.ContainsKey("renamed"),"editor save");
@@ -173,6 +173,19 @@ try
  Assert(rejected&&RolePackage.Load(root).Candidates("standby/pool").Count>0,"invalid save rollback");
  var archivePath=Path.Combine(root,"unsafe.zip");ArchiveIO.Zip(archivePath,z=>ArchiveIO.Text(z,"../escape.txt","bad"));
  rejected=false;try{ArchiveIO.Extract(archivePath,Path.Combine(root,"extract"));}catch(InvalidDataException){rejected=true;}Assert(rejected,"ZIP path traversal rejected");
+ var regions=new[]{new ScreenRegion("L",new Bounds(-800,0,0,600),new Bounds(-800,0,0,560),new Bounds(-800,0,-100,460)),new ScreenRegion("R",new Bounds(0,0,800,600),new Bounds(0,0,800,560),new Bounds(0,0,700,460))};
+ var anchor=new Point(50,100);
+ var extended=ConnectedDesktop.Limits(regions,regions[0],new Point(-60,460),anchor,Edge.Bottom);
+ Assert(extended.Right==-50,"open seam extends to anchor");
+ var crossing=ConnectedDesktop.Project(regions,regions[0],new Point(-60,460),new Point(-40,460),anchor,Edge.Bottom);
+ Assert(crossing.Region.Id=="R"&&crossing.Position.X==-40&&crossing.Position.Y==460,"walk across seam");
+ var wrapped=ConnectedDesktop.Project(regions,regions[1],new Point(740,460),new Point(760,460),anchor,Edge.Bottom);
+ Assert(wrapped.Region.Id=="L"&&wrapped.Position.X==-840,"horizontal wrap");
+ var offsetRegions=new[]{regions[0],regions[1] with{Area=new Bounds(0,200,800,760),Full=new Bounds(0,200,800,800),Limits=new Bounds(0,200,700,660)}};
+ Assert(!ConnectedDesktop.OpenEdges(offsetRegions,offsetRegions[0],new Point(-100,50),Edge.None).HasFlag(Edge.Right),"no crossing into missing screen space");
+ var moving=new PhysicsBody(new Point(-60,100)){GravityEnabled=false,ThrowEnabled=true};moving.Grab();moving.GravityEnabled=true;moving.Release(new Point(1000,0));moving.GravityEnabled=false;
+ var currentRegion=regions[0];moving.ProjectMotion=(from,next)=>{var tr=ConnectedDesktop.Project(regions,currentRegion,from,next,anchor,Edge.None);currentRegion=tr.Region;return new MotionProjection(tr.Position,tr.Limits);};
+ moving.Advance(.03,regions[0].Limits);Assert(currentRegion.Id=="R"&&moving.Velocity.X==1000,"throw crosses without bounce");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

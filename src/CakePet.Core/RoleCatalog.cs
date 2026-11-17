@@ -16,6 +16,7 @@ public sealed record RoleSettings
     public bool Grow {get;init;}=true;
     public bool Throw {get;init;}=true;
     public bool Snap {get;init;}=true;
+    public bool ScreenConnect {get;init;}=true;
     public bool FullScreen {get;init;}
     public bool ClickThrough {get;init;}
     public bool PixelHit {get;init;}=true;

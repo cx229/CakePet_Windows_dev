@@ -10,6 +10,10 @@ public sealed class PetEngine : IDisposable
     public Bounds Bounds { get; private set; }
     public Bounds? ActivityArea {get;private set;}
     private Func<Frame,FrameGeometry>? geometryProvider;
+    public Func<Bounds,Bounds>? ConnectedLimits {get;set;}
+    public Func<Edge>? ConnectedEdges {get;set;}
+    public Func<Point,Point,MotionProjection?>? ConnectedMotion {get;set;}
+    public void AdoptMotionArea(Bounds area,Bounds limits){ActivityArea=area;Bounds=limits;}
     public Point AnchorOffset=>AnchorAt(DisplaySize);
     private Point AnchorAt(double size)
     {
@@ -22,7 +26,7 @@ public sealed class PetEngine : IDisposable
     public void RefreshGeometry()
     {
         if(ActivityArea is Bounds area&&geometryProvider!=null)
-            UpdateBounds(AnchorGeometry.WindowBounds(area,DisplaySize,AnchorOffset,RenderEdge));
+            {var limits=AnchorGeometry.WindowBounds(area,DisplaySize,AnchorOffset,RenderEdge);UpdateBounds(ConnectedLimits?.Invoke(limits)??limits);}
     }
     public double DisplaySize { get; private set; }
     public double MaxDisplaySize { get; set; }=400;
@@ -56,6 +60,7 @@ public sealed class PetEngine : IDisposable
         Role=role;Bounds=bounds;DisplaySize=displaySize;this.random=random??new Random();
         Body=new PhysicsBody(position){SnapEnabled=role.Package.Supports("snap/pool"),ThrowEnabled=role.Package.Supports("touch/roll"),MotionEnabled=!role.StaticStandby};
         Body.Constrain(bounds);
+        Body.ProjectMotion=(from,next)=>ConnectedMotion?.Invoke(from,next);
         Role.FrameEntered+=OnFrame;
         Role.ChooseAutomaticFunction=()=> (CanForage&&ChooseForage?.Invoke()==true) || (CanStartLeap()&&this.random.NextDouble()<Math.Clamp(LeapProbability,0,1)&&TryStartLeap());
         ApplyFrameMotion(Role.Animation.Current);
@@ -175,7 +180,7 @@ public sealed class PetEngine : IDisposable
     {
         if(!CanStartLeap())return false;
         var touched=SurfaceMotion.Touching(Body.Position,Bounds);
-        var choices=SurfaceMotion.Sides.Where(x=>!touched.HasFlag(x)).ToArray();
+        var open=ConnectedEdges?.Invoke()??Edge.None;var choices=SurfaceMotion.Sides.Where(x=>!touched.HasFlag(x)&&!open.HasFlag(x)).ToArray();
         if(choices.Length==0)return false;
         var side=requested??choices[random.Next(choices.Length)];
         if(!choices.Contains(side))return false;
@@ -189,7 +194,8 @@ public sealed class PetEngine : IDisposable
     {
         if(!ClimbEnabled||Role.StaticStandby||Body.State!=PhysicalState.Free||Body.SnappedEdge!=Edge.None)return;
         var touched=SurfaceMotion.Touching(Body.Position,Bounds);
-        var side=SurfaceMotion.Sides.FirstOrDefault(x=>touched.HasFlag(x));
+        var open=ConnectedEdges?.Invoke()??Edge.None;
+        var side=SurfaceMotion.Sides.FirstOrDefault(x=>touched.HasFlag(x)&&!open.HasFlag(x));
         if(Body.TryAttach(side,Bounds)){Role.SetClimbing(true);RefreshGeometry();}
     }
     private void OnFrame(Frame frame){RefreshGeometry();ApplyFrameMotion(frame);RefreshGeometry();}
@@ -216,10 +222,8 @@ public sealed class PetEngine : IDisposable
         if(Body.State==PhysicalState.Climbing)
         {
             var side=Body.ClimbEdge;
-            var atEnd=side is Edge.Top or Edge.Bottom
-                ? (delta.X<0&&next.X<=Bounds.Left)||(delta.X>0&&next.X>=Bounds.Right)
-                : (delta.Y<0&&next.Y<=Bounds.Top)||(delta.Y>0&&next.Y>=Bounds.Bottom);
-            if(atEnd&&Body.TryAttach(SurfaceMotion.NextWall(side,delta),Bounds))RefreshGeometry();
+            var end=SurfaceMotion.NextWall(side,delta);var atEnd=SurfaceMotion.Touching(Body.Position,Bounds).HasFlag(end);
+            if(atEnd&&!(ConnectedEdges?.Invoke()??Edge.None).HasFlag(end)&&Body.TryAttach(end,Bounds))RefreshGeometry();
         }
         else if(hit&&local.X!=0)Facing=-Facing;
     }
@@ -238,6 +242,6 @@ public sealed class PetEngine : IDisposable
     }
     public void Dispose()
     {
-        Role.FrameEntered-=OnFrame;Role.ChooseAutomaticFunction=null;ChooseForage=null;
+        Body.ProjectMotion=null;ConnectedLimits=null;ConnectedEdges=null;ConnectedMotion=null;Role.FrameEntered-=OnFrame;Role.ChooseAutomaticFunction=null;ChooseForage=null;
     }
 }

@@ -37,6 +37,7 @@ public static class SurfaceMotion
 
 public sealed class PhysicsBody
 {
+    public Func<Point,Point,MotionProjection?>? ProjectMotion {get;set;}
     public Point Position { get; private set; }
     public Point Velocity { get; private set; }
     public PhysicalState State { get; private set; }
@@ -125,6 +126,7 @@ public sealed class PhysicsBody
     {
         if(!MotionEnabled||State is not (PhysicalState.Free or PhysicalState.Climbing)||SnappedEdge!=Edge.None)return false;
         var next=Position+delta;
+        if(bounds.HasValue&&ProjectMotion?.Invoke(Position,next) is MotionProjection projection){next=projection.Position;bounds=projection.Bounds;}
         Position=bounds is Bounds b?Clamp(next,b):next;
         if(bounds is Bounds limits&&ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,limits,ClimbEdge);
         return Position!=next;
@@ -154,6 +156,7 @@ public sealed class PhysicsBody
             var dt=Math.Min(seconds,1.0/120);seconds-=dt;
             Velocity=Limit(Velocity+Acceleration*dt);
             var next=Position+Velocity*dt;
+            if(ProjectMotion?.Invoke(Position,next) is MotionProjection projection){next=projection.Position;bounds=projection.Bounds;}
             var clamped=Clamp(next,bounds);
             Edge xEdge=next.X<bounds.Left?Edge.Left:next.X>bounds.Right?Edge.Right:Edge.None;
             Edge yEdge=next.Y<bounds.Top?Edge.Top:next.Y>bounds.Bottom?Edge.Bottom:Edge.None;
