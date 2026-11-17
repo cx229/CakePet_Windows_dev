@@ -17,6 +17,15 @@ jobs:
           repository: cx229/CakePet_Android_dev
           ref: 8ccf31b3a4427e143d2ab106b85f7f9833482479
           path: android-reference
+      - name: Generate build version
+        id: version
+        shell: pwsh
+        run: |
+          $stamp = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(8)).ToString('yy.MM.dd.HH.mm', [Globalization.CultureInfo]::InvariantCulture)
+          $version = "v1.$stamp"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "artifact=CakePet_winx64-$version-gt" >> $env:GITHUB_OUTPUT
+          "CAKEPET_BUILD_VERSION=$version" >> $env:GITHUB_ENV
       - name: Core tests
         shell: pwsh
         run: dotnet run --project tests/CakePet.Core.Tests -c Release -- "android-reference/app/src/main/assets/白酥"
@@ -28,11 +37,11 @@ jobs:
       - name: Publish desktop executable
         shell: pwsh
         run: |
-          dotnet publish src/CakePet.Windows -c Release -r win-x64 --self-contained true -o artifacts/CakePet
+          dotnet publish src/CakePet.Windows -c Release -r win-x64 --self-contained true -o artifacts/CakePet "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path artifacts/CakePet/assets | Out-Null
           Copy-Item -Recurse -LiteralPath "android-reference/app/src/main/assets/白酥" -Destination artifacts/CakePet/assets/default
       - uses: actions/upload-artifact@v4
         with:
-          name: CakePet-Windows-dev-win-x64
+          name: ${{ steps.version.outputs.artifact }}
           path: artifacts/CakePet
