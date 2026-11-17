@@ -63,6 +63,9 @@ internal sealed class FoodWindow : Window
     {
         if(closingFromWorld)return;
         DesktopPlatform.Place(this,food.Center.X-food.Width/2,food.Center.Y-food.Height/2,food.Width,food.Height);
+        var dpi=DesktopPlatform.DpiScale(this);var w=food.Width/dpi;var h=food.Height/dpi;
+        if(Math.Abs(Width-w)>.01)Width=w;if(Math.Abs(Height-h)>.01)Height=h;
+        DesktopPlatform.Place(this,food.Center.X-food.Width/2,food.Center.Y-food.Height/2,food.Width,food.Height);
         var frame=food.Animation.Current;
         if(frame!=rendered&&visual.Frames.TryGetValue(frame,out var bitmap)){image.Source=bitmap;rendered=frame;}
     }

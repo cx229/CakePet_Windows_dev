@@ -59,6 +59,8 @@ internal sealed class PetWindow : Window
         var monitor=DesktopPlatform.Primary;monitorId=monitor.Id;
         var b=DesktopGeometry.Fit(monitor.Work,160,160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
         engine.SetActivityArea(monitor.Work,images.Geometry);
+        engine.ReturnHome();
+        body.SetPosition(new P(Math.Clamp(body.Position.X+index*30,engine.Bounds.Left,engine.Bounds.Right),body.Position.Y));
         
         thoughtWindow=new Window{Width=360,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,
             AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false};
@@ -100,7 +102,7 @@ internal sealed class PetWindow : Window
         ContextMenu=menu;
         MenuItem Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);return item;}
         MouseLeftButtonDown+=OnDown;MouseMove+=OnMove;MouseLeftButtonUp+=OnUp;
-        LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging)FinishDrag();}};
+        LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging){velocity=default;FinishDrag();}}};
         engine.GrowOnFeed=true;engine.FeedGrowth=role.Package.AnchorRes*.03;engine.MaxDisplaySize=role.Package.AnchorRes*3;
         Loaded+=(_,_)=>Render();
         Closed+=(_,_)=>{closed=true;engine.Dispose();thoughtWindow.Close();};
@@ -134,17 +136,19 @@ internal sealed class PetWindow : Window
     private void FinishDrag()
     {
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
-        engine.UpdateBounds(CurrentBounds(Side));engine.EndDrag(velocity);Render();
+        engine.SetActivityArea(ActivityArea,images.Geometry);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
     }
     internal void Step(long dt)
     {
-        if(closed)return;ApplyInputStyle();var monitor=Monitor;monitorId=monitor.Id;engine.UpdateBounds(CurrentBounds(Side));engine.Step(dt);
+        if(closed)return;ApplyInputStyle();var monitor=Monitor;monitorId=monitor.Id;engine.SetActivityArea(ActivityArea,images.Geometry);engine.Step(dt);
     }
     internal void Render()
     {
         if(closed)return;
         DesktopPlatform.Place(this,body.Position.X,body.Position.Y,Side,Side);
         var dipSide=Side/DesktopPlatform.DpiScale(this);
+        if(Math.Abs(Width-dipSide)>.01||Math.Abs(Height-dipSide)>.01)Width=Height=dipSide;
+        DesktopPlatform.Place(this,body.Position.X,body.Position.Y,Side,Side);
         var frame=role.Animation.Current;
         if(rendered!=frame||renderedSize!=dipSide)
         {

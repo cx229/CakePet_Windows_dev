@@ -39,7 +39,11 @@ internal static class DesktopPlatform
             if(GetMonitorInfo(monitor,ref info))list.Add(new DesktopScreen(info.Device,info.Monitor.Bounds,info.Work.Bounds,(info.Flags&1)!=0));
             return true;
         },0);
-        if(list.Count==0)list.Add(new DesktopScreen("primary",new Bounds(0,0,1920,1080),new Bounds(0,0,1920,1080),true));
+        if(list.Count==0)
+        {
+            var r=SystemParameters.WorkArea;var full=new Bounds(0,0,SystemParameters.PrimaryScreenWidth,SystemParameters.PrimaryScreenHeight);
+            list.Add(new DesktopScreen("primary",full,new Bounds(r.Left,r.Top,r.Right,r.Bottom),true));
+        }
         return list;
     }
     public static DesktopScreen Primary=>Screens.FirstOrDefault(x=>x.Primary)??Screens[0];

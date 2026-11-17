@@ -70,6 +70,7 @@ public sealed class PetEngine : IDisposable
         if(!enabled)StopForage();
         if(!enabled){Body.DetachClimb();Role.SetClimbing(false);}
         else TryAttachCurrent();
+        RefreshGeometry();
     }
     public void SetLeapEnabled(bool enabled)=>LeapEnabled=enabled&&Role.Package.Supports("climb/leap/leap");
     public void SetStaticStandby(bool enabled)
@@ -83,13 +84,14 @@ public sealed class PetEngine : IDisposable
         Body.MotionEnabled=!enabled;
         Role.SetStaticStandby(enabled);
         if(!enabled)TryAttachCurrent();
+        RefreshGeometry();
     }
     public void BeginDrag(){forageTarget=null;Body.Grab();Role.SetEnvironment(false,PhysicalState.Dragging);RefreshGeometry();}
     public void DragTo(Point p,double velocityX){Body.DragTo(p);Role.UpdateDragCondition(velocityX,DisplaySize);}
-    public void EndDrag(Point velocity)
+    public void EndDrag(Point velocity,Point? pointer=null)
     {
         if(Body.State!=PhysicalState.Dragging)return;
-        Body.Release(velocity,Bounds,ActivityArea,AnchorOffset);Role.SetEnvironment(Body.SnappedEdge!=Edge.None,Body.State);
+        Body.Release(velocity,Bounds,ActivityArea,AnchorOffset,pointer);Role.SetEnvironment(Body.SnappedEdge!=Edge.None,Body.State);
         RefreshGeometry();TryAttachCurrent();
     }
     public void ReturnHome()
