@@ -206,6 +206,8 @@ try
  for(int i=0;i<100;i++){var v=randomConfig.Apply(baseSettings,random);Assert(v.Scale==baseSettings.Scale&&v.GravityEdges!=Edge.None&&!(v.GravityEdges.HasFlag(Edge.Top)&&v.GravityEdges.HasFlag(Edge.Bottom))&&!(v.GravityEdges.HasFlag(Edge.Left)&&v.GravityEdges.HasFlag(Edge.Right)),"random direction constraints");}
  var schedule=new RandomSchedule(random);var randomId=Guid.NewGuid();Assert(!schedule.Due(randomId,randomConfig,0)&&!schedule.Due(randomId,randomConfig,59999)&&schedule.Due(randomId,randomConfig,60000),"random schedule");
  Assert(!schedule.Due(randomId,randomConfig with{Enabled=false},120000)&&!schedule.Due(randomId,randomConfig,120000),"random disable and restart");
+ var limited=SettingLimits.Clamp(new RoleSettings{Scale=2,Limits=new(){["Scale"]=new(.8,1.5)}});Assert(limited.Scale==1.5,"setting threshold clamps value");
+ var habit=SettingLimits.ApplyGroup(new RoleSettings{Gravity=900,Count=3},limited with{Count=2},"显示与交互");Assert(habit.Count==2&&habit.Scale==1.5&&habit.Gravity==900&&habit.Limits.ContainsKey("Scale"),"habit group applies values and thresholds only");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }

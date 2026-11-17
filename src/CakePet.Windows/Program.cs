@@ -220,7 +220,12 @@ internal sealed class Launcher : Window
         navigationHost.Content=new ScrollViewer{Content=page,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
     });
     private void EditDefaults()=>Safe(()=>{
-        navigationHost.Content=new RoleSettingsPage(()=>new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,patch=>{catalog.Defaults=patch(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults)).Settings.Normalize();QueueSave();},BackHome,true,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
+        navigationHost.Content=new RoleSettingsPage(()=>new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults),null,patch=>{catalog.Defaults=SettingLimits.Clamp(patch(new RoleEntry(Guid.Empty,Guid.Empty,"新角色",catalog.Defaults)).Settings.Normalize());QueueSave();},BackHome,true,true,ApplyHabits);
+    });
+    private void ApplyHabits(string group)=>Safe(()=>{
+        if(MessageBox.Show(this,group=="全部"?"将全部用户习惯应用到已有角色？":"将「"+group+"」的默认设置和阈值应用到所有已有角色？","应用用户习惯",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+        foreach(var role in catalog.Roles.ToArray()){var next=group=="全部"?catalog.Defaults:SettingLimits.ApplyGroup(role.Settings,catalog.Defaults,group);catalog.Update(role with{Settings=next});var updated=catalog.Roles.Single(r=>r.Id==role.Id);randomSchedule.Forget(role.Id);if(pets.Any(p=>p.RoleId==role.Id)){if(pets.Count(p=>p.RoleId==role.Id)!=updated.Settings.Count)Summon(updated);else ApplyRunning(updated);}}
+        FlushSave();storage.Save();RefreshCards();
     });
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}
     private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change)=>Safe(()=>{var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));RefreshCards();});

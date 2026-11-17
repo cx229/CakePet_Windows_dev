@@ -22,6 +22,7 @@ public sealed record RoleSettings
     public bool PixelHit {get;init;}=true;
     public bool Thinking {get;init;}=true;
     public RandomSettings RandomMode {get;init;}=new();
+    public Dictionary<string,SettingLimit> Limits {get;init;}=new();
     public ThinkingStyle ThoughtStyle {get;init;}=new();
     public int ThoughtRestMin {get;init;}=2;
     public int ThoughtRestMax {get;init;}=15;
@@ -102,12 +103,12 @@ public sealed class RoleCatalog
     {
         if(!Packs.Any(p=>p.Id==packId))throw new ArgumentException("Unknown pack.");
         if(string.IsNullOrWhiteSpace(name))throw new ArgumentException("Empty name.");
-        var role=new RoleEntry(Guid.NewGuid(),packId,name.Trim(),Defaults.Normalize());Roles.Add(role);return role;
+        var role=new RoleEntry(Guid.NewGuid(),packId,name.Trim(),SettingLimits.Clamp(Defaults.Normalize()));Roles.Add(role);return role;
     }
     public void Update(RoleEntry role)
     {
         var index=Roles.FindIndex(x=>x.Id==role.Id);
         if(index<0||!Packs.Any(x=>x.Id==role.PackId)||string.IsNullOrWhiteSpace(role.Name))throw new ArgumentException("Invalid role.");
-        Roles[index]=role with{Name=role.Name.Trim(),Settings=role.Settings.Normalize()};
+        Roles[index]=role with{Name=role.Name.Trim(),Settings=SettingLimits.Clamp(role.Settings.Normalize())};
     }
 }
