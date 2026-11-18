@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Controls;
 using CakePet.Core;
 using Microsoft.Win32;
-using Forms=System.Windows.Forms;
 using System.Reflection;
 
 namespace CakePet.Windows;
@@ -96,8 +95,7 @@ internal sealed class Launcher : Window
         if(!timer.IsEnabled){lastTick=clock.ElapsedMilliseconds;timer.Start();}
     }
     private bool shuttingDown,exitRequested;
-    private readonly Forms.NotifyIcon tray;
-    private readonly System.Drawing.Icon trayIcon;
+    private readonly NativeTray tray;
     private bool started;
     private string Version=>typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??"dev";
     private TextBlock status=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
@@ -107,24 +105,20 @@ internal sealed class Launcher : Window
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         thoughts.Policy=catalog.ThinkingPolicy;
         saveTimer.Tick+=(_,_)=>Safe(FlushSave);
-        var trayMenu=new Forms.ContextMenuStrip();
-        void TrayItem(string title,Action action)=>trayMenu.Items.Add(title,null,(_,_)=>Dispatcher.Invoke(action));
-        TrayItem("打开 CakePet",ShowLauncher);TrayItem("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);});
-        TrayItem("全部归位",()=>{foreach(var pet in pets)pet.Engine.ReturnHome();});
-        TrayItem("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
-        TrayItem("恢复全部点击",RestoreInput);TrayItem("托盘显示设置",OpenTraySettings);
-        TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
-        trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
-        try{trayIcon=TrayIcon.Load();}catch(System.IO.IOException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}catch(ArgumentException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}
-        var iconPath=Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico");if(File.Exists(iconPath)){using var stream=File.OpenRead(iconPath);Icon=System.Windows.Media.Imaging.BitmapFrame.Create(stream,System.Windows.Media.Imaging.BitmapCreateOptions.None,System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);}
-        tray=new Forms.NotifyIcon{Icon=trayIcon,Text="CakePet",ContextMenuStrip=trayMenu,Visible=true};
-        tray.MouseClick+=(_,e)=>{if(e.Button==Forms.MouseButtons.Left)Dispatcher.Invoke(ShowLauncher);};
+        var iconPath=Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico");
+        if(File.Exists(iconPath)){using var stream=File.OpenRead(iconPath);Icon=System.Windows.Media.Imaging.BitmapFrame.Create(stream,System.Windows.Media.Imaging.BitmapCreateOptions.None,System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);}
+        tray=new NativeTray(iconPath,ShowLauncher,action=>Dispatcher.BeginInvoke(new Action(()=>Safe(action))),new (string?,Action?)[]{
+            ("打开 CakePet",ShowLauncher),("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);}),
+            ("全部归位",()=>{foreach(var pet in pets)pet.Engine.ReturnHome();}),("召回全部",RecallAll),
+            ("恢复全部点击",RestoreInput),("托盘显示设置",OpenTraySettings),("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();}),
+            (null,null),("退出",()=>{exitRequested=true;Close();})
+        });
         StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized){Hide();ReleaseLauncherUi(preserveDraft:true);}};
         System.Windows.Application.Current.SessionEnding+=(_,_)=>{exitRequested=true;Close();};
         world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
         timer.Tick+=(_,_)=>Tick();
         
-        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;if(navigationHost.Content is PackageEditorPage editor&&!editor.ConfirmDiscard())return;Safe(FlushSave);Hide();ReleaseLauncherUi();return;}shuttingDown=true;Safe(FlushSave);Safe(SaveTyping);typingInput.Dispose();timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();thinkingPresenter.Dispose();Dispatcher.BeginInvoke(new Action(()=>Application.Current.Shutdown()));};
+        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;if(navigationHost.Content is PackageEditorPage editor&&!editor.ConfirmDiscard())return;Safe(FlushSave);Hide();ReleaseLauncherUi();return;}shuttingDown=true;Safe(FlushSave);Safe(SaveTyping);typingInput.Dispose();timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Dispose();thinkingPresenter.Dispose();Dispatcher.BeginInvoke(new Action(()=>Application.Current.Shutdown()));};
     }
     private string BundledSource()
     {
