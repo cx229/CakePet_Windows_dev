@@ -61,18 +61,7 @@ jobs:
           '@ | Set-Content -Encoding utf8 artifacts/CakePet-lite/运行说明.txt
           foreach ($folder in @('artifacts/CakePet','artifacts/CakePet-lite')) {
             foreach ($dir in (Get-ChildItem $folder -Directory)) {
-              if ($dir.Name -notin @('zh-Hans','zh-Hant','en','assets') -and ($dir.Name -match '^[a-z]{2}(-[A-Za-z]+)?
-            Write-Host "$folder : $($files.Count) files, $([Math]::Round(($files | Measure-Object Length -Sum).Sum / 1MB, 2)) MiB"
-          }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.version.outputs.artifact }}
-          path: artifacts/CakePet
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.version.outputs.artifact }}-lite
-          path: artifacts/CakePet-lite
-)) { Remove-Item $dir.FullName -Recurse -Force }
+              if ($dir.Name -notin @('zh-Hans','zh-Hant','en','assets') -and ($dir.Name -match '^[a-z]{2}(-[A-Za-z]+)?$')) { Remove-Item $dir.FullName -Recurse -Force }
             }
             if (!(Test-Path "$folder/CakePet.exe") -or !(Test-Path "$folder/assets/default/modes.jsonc")) { throw "Incomplete publish: $folder" }
             $files = Get-ChildItem $folder -Recurse -File
