@@ -2,7 +2,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Text.Json;
 namespace CakePet.Windows;
-internal sealed record HostRequest(string Command,Guid? RoleId=null,Guid? InstanceId=null,double? Scale=null,string? Baseline=null,string? Catalog=null);
+internal sealed record HostRequest(string Command,Guid? RoleId=null,Guid? InstanceId=null,double? Scale=null,string? Baseline=null,string? Catalog=null,CakePet.Core.PackEntry? Pack=null);
 internal sealed record LiveInstance(Guid RoleId,Guid InstanceId,int InstanceNumber,double CurrentScale);
 internal sealed record HostReply(bool Success,string? Error,LiveInstance[] Instances,int FoodCount,string? Catalog=null,int HostPid=0);
 internal sealed class LivePet
@@ -15,6 +15,7 @@ internal sealed class LivePet
     public void Update(LiveInstance data){RoleId=data.RoleId;InstanceId=data.InstanceId;InstanceNumber=data.InstanceNumber;CurrentScale=data.CurrentScale;}
     public void SetInstanceScale(double scale){var reply=HostConnection.Call(new("scale",InstanceId:InstanceId,Scale:scale));var next=reply.Instances.FirstOrDefault(i=>i.InstanceId==InstanceId);if(next!=null)Update(next);}
 }
+internal sealed class HostRejectedException(string message):InvalidOperationException(message);
 internal static class HostConnection
 {
     internal static string PipeName=>"CakePet.Host."+Environment.UserName+"."+System.Diagnostics.Process.GetCurrentProcess().SessionId;
@@ -32,10 +33,12 @@ internal static class HostConnection
         using var writer=new StreamWriter(pipe,leaveOpen:true){AutoFlush=true};
         using var reader=new StreamReader(pipe,leaveOpen:true);
         writer.WriteLine(JsonSerializer.Serialize(request,HostJson.Default.HostRequest));
-        var line=reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+        string? line;
+        try{line=reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();}
+        catch(TimeoutException e){throw new TimeoutException($"常驻进程未及时响应（{request.Command}）。",e);}
         var reply=JsonSerializer.Deserialize(line??throw new IOException("常驻进程未响应。"),HostJson.Default.HostReply)??throw new IOException("常驻进程返回无效数据。");
         if(reply.HostPid>0)Volatile.Write(ref lastHostPid,reply.HostPid);
-        if(!reply.Success)throw new InvalidOperationException(reply.Error);
+        if(!reply.Success)throw new HostRejectedException(reply.Error??"常驻进程拒绝操作。");
         return reply;
     }
     internal static bool? IsKnownHostRunning()

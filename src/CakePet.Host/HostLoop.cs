@@ -8,9 +8,8 @@ namespace CakePet.Windows;
 // The host thread owns all windows and engine state. No spin loop and no per-pet timers.
 internal sealed class HostLoop:IDisposable
 {
-    private readonly uint thread=GetCurrentThreadId();
     private readonly ConcurrentQueue<Action> queue=new();
-    private const uint Wake=0x8005;
+    private readonly AutoResetEvent wake=new(false);
     private bool stopped;
     private nint timer;
     private int interval=3;
@@ -26,7 +25,7 @@ internal sealed class HostLoop:IDisposable
         }
     }
     public HostLoop(){PeekMessage(out _,0,0,0,0);}
-    public void Post(Action action){queue.Enqueue(action);PostThreadMessage(thread,Wake,0,0);}
+    public void Post(Action action){queue.Enqueue(action);wake.Set();}
     public void Stop(){stopped=true;PostQuitMessage(0);}
     private long Period=>Math.Max(1,Stopwatch.Frequency*interval/1000);
     private void Arm(long now)
@@ -40,7 +39,7 @@ internal sealed class HostLoop:IDisposable
         timer=CreateWaitableTimerEx(0,null,2,0x1F0003);
         if(timer==0)timer=CreateWaitableTimerEx(0,null,0,0x1F0003);
         if(timer==0)throw new Win32Exception(Marshal.GetLastWin32Error());
-        var handles=new[]{timer};
+        var handles=new[]{timer,wake.SafeWaitHandle.DangerousGetHandle()};
         try
         {
             while(!stopped)
@@ -49,15 +48,13 @@ internal sealed class HostLoop:IDisposable
                 for(int i=0;i<64&&!stopped&&PeekMessage(out var m,0,0,0,1);i++)
                 {
                     if(m.Message==0x12){stopped=true;break;}
-                    if(m.Hwnd==0&&m.Message==Wake)
-                    {
-                        for(int j=0;j<8&&!stopped&&queue.TryDequeue(out var a);j++)a();
-                        if(!queue.IsEmpty)PostThreadMessage(thread,Wake,0,0);
-                    }
-                    else{TranslateMessage(ref m);DispatchMessage(ref m);}
+                    TranslateMessage(ref m);DispatchMessage(ref m);
                     if(nextDeadline!=0&&Stopwatch.GetTimestamp()>=nextDeadline)break;
                 }
+                // Drain even if a native modal menu consumed messages. Keep work bounded.
+                for(int j=0;j<8&&!stopped&&queue.TryDequeue(out var action);j++)action();
                 if(stopped)break;
+                if(!queue.IsEmpty)wake.Set();
                 var now=Stopwatch.GetTimestamp();
                 if(nextDeadline==0)nextDeadline=now+Period;
                 if(now>=nextDeadline)
@@ -70,17 +67,15 @@ internal sealed class HostLoop:IDisposable
                     continue;
                 }
                 Arm(now);
-                var result=MsgWaitForMultipleObjectsEx(1,handles,0xFFFFFFFF,0x04FF,0x0004);
+                var result=MsgWaitForMultipleObjectsEx(2,handles,0xFFFFFFFF,0x04FF,0x0004);
                 if(result==0xFFFFFFFF)throw new Win32Exception(Marshal.GetLastWin32Error());
             }
             return 0;
         }
-        finally{Dispose();}
+        finally{if(timer!=0){CancelWaitableTimer(timer);CloseHandle(timer);timer=0;}}
     }
-    public void Dispose(){if(timer!=0){CancelWaitableTimer(timer);CloseHandle(timer);timer=0;}}
+    public void Dispose(){if(timer!=0){CancelWaitableTimer(timer);CloseHandle(timer);timer=0;}wake.Dispose();}
     [StructLayout(LayoutKind.Sequential)]private struct Msg{public nint Hwnd;public uint Message;public nuint WParam;public nint LParam;public uint Time;public int X,Y;public uint Private;}
-    [DllImport("kernel32.dll")]private static extern uint GetCurrentThreadId();
-    [DllImport("user32.dll",EntryPoint="PostThreadMessageW")]private static extern bool PostThreadMessage(uint id,uint msg,nuint w,nint l);
     [DllImport("user32.dll")]private static extern void PostQuitMessage(int code);
     [DllImport("user32.dll",EntryPoint="PeekMessageW")]private static extern bool PeekMessage(out Msg m,nint h,uint min,uint max,uint remove);
     [DllImport("user32.dll")]private static extern bool TranslateMessage(ref Msg m);

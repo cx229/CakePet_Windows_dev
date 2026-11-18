@@ -30,7 +30,7 @@ internal sealed partial class CatalogStorage
         var result=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(value,CoreJson.Default.RoleCatalog)));
         Adopt(result.Catalog??throw new IOException("Missing catalog"));
     }
-    public void Adopt(string json){if(json==baseline)return;Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);Revision++;}
+    public void Adopt(string json){if(json==baseline&&System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog)==baseline)return;Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);Revision++;}
     public void Reload()=>Adopt(remote?HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog"):File.ReadAllText(FilePath));
     public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}
     public PackEntry Import(string source)
@@ -38,14 +38,48 @@ internal sealed partial class CatalogStorage
         var pack=RolePackage.Load(source,GdiImageCache.IsReadable);
         var id=Guid.NewGuid();var dest=Path.Combine(root,"packs",id.ToString("N"));
         Directory.CreateDirectory(dest);
+        var entry=new PackEntry(id,pack.Name,id.ToString("N"));
+        bool uncertain=false;
         try
         {
             Copy(source,dest);
             RolePackage.Load(dest);
-            var entry=new PackEntry(id,pack.Name,id.ToString("N"));Catalog.Packs.Add(entry);
-            try{Save();}catch{Catalog.Packs.Remove(entry);throw;}return entry;
+            if(!remote)
+            {
+                Catalog.Packs.Add(entry);
+                try{Save();}catch{Catalog.Packs.Remove(entry);throw;}
+                return entry;
+            }
+            Revision++;
+            // A retry uses exactly the same ID. A delayed first request cannot create a duplicate.
+            var request=new HostRequest("register-pack",Pack:entry);
+            for(int attempt=0;attempt<2;attempt++)
+            {
+                try
+                {
+                    var result=HostConnection.Call(request);
+                    uncertain=true;
+                    Adopt(result.Catalog??throw new IOException("缺少素材包注册结果。"));
+                    if(!Catalog.Packs.Contains(entry))throw new IOException("素材包注册结果未确认。");
+                    return entry;
+                }
+                catch(HostRejectedException) when(!uncertain){throw;}
+                catch(Exception e) when(e is IOException or TimeoutException or HostRejectedException or System.Text.Json.JsonException)
+                {
+                    uncertain=true;
+                    if(attempt==0)continue;
+                    // The host may have committed before its reply was lost.
+                    try{Reload();if(Catalog.Packs.Contains(entry))return entry;}catch(Exception){}
+                    throw new IOException("素材包已复制，但常驻进程尚未确认导入。资源已保留，请重新打开设置查看素材包列表，避免重复导入。",e);
+                }
+            }
+            throw new InvalidOperationException("素材包注册未完成。");
         }
-        catch{Directory.Delete(dest,true);throw;}
+        catch
+        {
+            if(!uncertain&&Directory.Exists(dest))Directory.Delete(dest,true);
+            throw;
+        }
     }
     private static void Copy(string source,string dest)
     {

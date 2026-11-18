@@ -170,6 +170,7 @@ internal sealed class ResidentHost:IDisposable
         var gc=GC.GetGCMemoryInfo();
         return MemoryDiagnostics.ToJson(new(){["pid"]=Environment.ProcessId,["runtime"]=System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported?"JIT":"NativeAOT",["managedLiveBytes"]=GC.GetTotalMemory(false),["gcHeapBytes"]=gc.HeapSizeBytes,["gcCommittedBytes"]=gc.TotalCommittedBytes,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes),["ticks"]=ticks,["intervalMs"]=loop.IntervalMs});
     }
+    private static bool SameRole(RoleEntry a,RoleEntry b)=>a==b||JsonSerializer.Serialize(a,CoreJson.Default.RoleEntry)==JsonSerializer.Serialize(b,CoreJson.Default.RoleEntry);
     // Host is the runtime owner. UI writes the catalog atomically, then asks host to reconcile.
     private void ReloadCatalog(bool reloadAssets,RoleCatalog? replacement=null)
     {
@@ -188,10 +189,21 @@ internal sealed class ResidentHost:IDisposable
             bool changed=reloadAssets||!old.TryGetValue(id,out var before)||before.PackId!=next.PackId||!oldPacks.TryGetValue(next.PackId,out var oldPack)||oldPack!=catalog.Packs.Single(p=>p.Id==next.PackId);
             if(changed){Recall(id);Summon(next);}
             else if(pets.Count(p=>p.RoleId==id)!=next.Settings.Count)Summon(next);
-            else if(oldLimits!=catalog.FeatureLimits||oldPolicy!=catalog.ThinkingPolicy||!old.TryGetValue(id,out var prior)||prior!=next)ApplyRunning(next);
+            else if(oldLimits!=catalog.FeatureLimits||oldPolicy!=catalog.ThinkingPolicy||!old.TryGetValue(id,out var prior)||!SameRole(prior,next))ApplyRunning(next);
             }catch(Exception e){var error=e.Message;loop.Post(()=>NativeMessage.Show(error,"角色更新失败"));}
         }
         ReleaseUnused();
+    }
+    private void RegisterPack(PackEntry entry)
+    {
+        if(entry.Id==Guid.Empty||entry.Directory!=entry.Id.ToString("N")||string.IsNullOrWhiteSpace(entry.Name))throw new InvalidDataException("无效素材包记录。");
+        var existing=catalog.Packs.FirstOrDefault(p=>p.Id==entry.Id);
+        if(existing!=null){if(existing!=entry)throw new InvalidDataException("素材包标识冲突。");return;}
+        var path=storage.Resolve(entry);
+        if(!File.Exists(Path.Combine(path,"modes.jsonc")))throw new InvalidDataException("素材包目录不存在。");
+        catalog.Packs.Add(entry);
+        try{storage.Save();}catch{catalog.Packs.Remove(entry);throw;}
+        InvalidateCatalog();
     }
     public HostReply Handle(HostRequest req)
     {
@@ -200,6 +212,7 @@ internal sealed class ResidentHost:IDisposable
             case "open":OpenSettings(req.RoleId);break;
             case "diagnostics":return new(true,null,Array.Empty<LiveInstance>(),0,DiagnosticCounters(),Environment.ProcessId);
             case "snapshot":break;
+            case "register-pack":RegisterPack(req.Pack??throw new InvalidDataException("缺少素材包记录。"));break;
             case "save-catalog":
                 SaveTyping();
                 var merged=CatalogMerge.Merge(req.Baseline??throw new InvalidDataException(),req.Catalog??throw new InvalidDataException(),CatalogJson());

@@ -7,12 +7,12 @@ internal sealed partial class CatalogStorage
 {
     private string Stage()=>Path.Combine(root,"staging",Guid.NewGuid().ToString("N"));
     public void ExportPack(PackEntry pack,string path)=>ArchiveIO.Zip(path,zip=>ArchiveIO.Tree(zip,Resolve(pack)));
-    public string ImportZip(string path)
+    public string ImportZip(string path,Action? beforeRestore=null)
     {
         var stage=Stage();try
         {
             ArchiveIO.Extract(path,stage);var manifest=Path.Combine(stage,"manifest.json");
-            if(File.Exists(manifest)&&ArchiveIO.Read(manifest)["type"]?.GetValue<string>()=="cakepet-backup")return Restore(stage);
+            if(File.Exists(manifest)&&ArchiveIO.Read(manifest)["type"]?.GetValue<string>()=="cakepet-backup"){beforeRestore?.Invoke();return Restore(stage);}
             var candidates=Directory.EnumerateFiles(stage,"modes.jsonc",SearchOption.AllDirectories).ToArray();
             if(candidates.Length!=1)throw new InvalidDataException("ZIP 必须包含一个素材包或软件备份。");
             return "已导入素材包："+Import(Path.GetDirectoryName(candidates[0])!).Name;
@@ -32,7 +32,7 @@ internal sealed partial class CatalogStorage
         if(!File.Exists(source))throw new InvalidDataException("此备份不是支持的 Windows 备份；Android 素材包可单独导入。");
         var data=ArchiveIO.Read(source);var original=Catalog;
         var merged=JsonSerializer.Deserialize<RoleCatalog>(JsonSerializer.Serialize(original,ArchiveIO.Options),ArchiveIO.Options)!;
-        var copied=new List<string>();int packs=0,roles=0,skipped=0;
+        var copied=new List<string>();int packs=0,roles=0,skipped=0;bool committing=false;
         try
         {
             if(data["Packs"] is JsonArray packList)foreach(var item in packList.OfType<JsonObject>())
@@ -72,17 +72,18 @@ internal sealed partial class CatalogStorage
             else if(data["SingleThinking"] is JsonValue single&&single.TryGetValue<bool>(out var st))merged.ThinkingPolicy=st?ThinkingDisplayPolicy.Latest:ThinkingDisplayPolicy.Overlap;
             if(data["RefreshIntervalMs"] is JsonValue refresh&&refresh.TryGetValue<int>(out var interval))merged.RefreshIntervalMs=Math.Clamp(interval,1,50);
             if(data["AutoSummon"] is JsonValue summon&&summon.TryGetValue<bool>(out var au))merged.AutoSummon=au;
-            Commit(merged);
-        }catch{foreach(var dir in copied)if(Directory.Exists(dir))Directory.Delete(dir,true);throw;}
-        foreach(var old in original.Packs.Where(p=>!merged.Packs.Any(x=>x.Directory==p.Directory)))try{Directory.Delete(Resolve(old),true);}catch(IOException){}catch(UnauthorizedAccessException){}
+            committing=true;Commit(merged);
+        }catch(Exception e){if(!remote||!committing||e is HostRejectedException)foreach(var dir in copied)if(Directory.Exists(dir))Directory.Delete(dir,true);throw;}
+        foreach(var old in original.Packs.Where(p=>!Catalog.Packs.Any(x=>x.Directory==p.Directory)))try{Directory.Delete(Resolve(old),true);}catch(IOException){}catch(UnauthorizedAccessException){}
         return $"已恢复 {packs} 个素材包、{roles} 个角色，跳过 {skipped} 项；未包含的数据保留。";
     }
     public void Reset(string bundled)
     {
         var old=Catalog;var fresh=new RoleCatalog();var folder=Guid.NewGuid().ToString("N");var dest=Path.Combine(root,"packs",folder);
-        try{var pack=RolePackage.Load(bundled,GdiImageCache.IsReadable);Directory.CreateDirectory(dest);Copy(bundled,dest);var p=new PackEntry(Guid.NewGuid(),pack.Name,folder);fresh.Packs.Add(p);fresh.AddRole(p.Id,p.Name);Commit(fresh);}
-        catch{if(Directory.Exists(dest))Directory.Delete(dest,true);throw;}
-        foreach(var p in old.Packs)try{Directory.Delete(Resolve(p),true);}catch(IOException){}catch(UnauthorizedAccessException){}
+        bool committing=false;
+        try{var pack=RolePackage.Load(bundled,GdiImageCache.IsReadable);Directory.CreateDirectory(dest);Copy(bundled,dest);var p=new PackEntry(Guid.NewGuid(),pack.Name,folder);fresh.Packs.Add(p);fresh.AddRole(p.Id,p.Name);committing=true;Commit(fresh);}
+        catch(Exception e){if((!remote||!committing||e is HostRejectedException)&&Directory.Exists(dest))Directory.Delete(dest,true);throw;}
+        foreach(var p in old.Packs.Where(p=>!Catalog.Packs.Any(x=>x.Directory==p.Directory)))try{Directory.Delete(Resolve(p),true);}catch(IOException){}catch(UnauthorizedAccessException){}
     }
     public void ExportRole(RoleEntry role,string path)=>ArchiveIO.Write(path,new JsonObject{["type"]="cakepet-role-settings",["platform"]="windows",["version"]=1,["settings"]=JsonSerializer.SerializeToNode(role.Settings,ArchiveIO.Options)}.ToJsonString(ArchiveIO.Options));
     public RoleEntry ImportRole(RoleEntry role,string path)

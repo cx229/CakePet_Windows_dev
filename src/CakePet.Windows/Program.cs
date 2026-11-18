@@ -157,8 +157,8 @@ internal sealed class Launcher : IDisposable
         var homeHeading=Ui.Pair(homeTitle,homeActions);homeHeading.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(homeHeading,Dock.Top);roles.Children.Add(homeHeading);roles.Children.Add(new ScrollViewer{Content=roleCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var materials=new DockPanel{Margin=new Thickness(12)};var importRow=new StackPanel{Orientation=Orientation.Horizontal};
         var import=Ui.Button("导入 ▾",()=>{});var importMenu=new ContextMenu();var zipItem=new MenuItem{Header="导入 ZIP"};zipItem.Click+=(_,_)=>ImportArchive();importMenu.Items.Add(zipItem);var dirItem=new MenuItem{Header="导入目录"};dirItem.Click+=(_,_)=>ImportPack();importMenu.Items.Add(dirItem);import.ContextMenu=importMenu;import.Click+=(_,_)=>importMenu.IsOpen=true;importRow.Children.Add(import);
-        importRow.Children.Add(Ui.Button("＋ 新建",()=>Safe(()=>{var pack=storage.Import(defaultRoot);RefreshCards();EditPack(pack);}),true));
-        var builtIn=Ui.Light("导入内置模板",()=>Safe(()=>{storage.Import(defaultRoot);RefreshCards();}));builtIn.ToolTip="作为新素材包导入，不覆盖已有素材包。";importRow.Children.Add(builtIn);
+        importRow.Children.Add(Ui.Button("＋ 新建",()=>Safe(()=>{FlushSave();var pack=storage.Import(defaultRoot);RefreshCards();EditPack(pack);}),true));
+        var builtIn=Ui.Light("导入内置模板",()=>Safe(()=>{FlushSave();storage.Import(defaultRoot);RefreshCards();}));builtIn.ToolTip="作为新素材包导入，不覆盖已有素材包。";importRow.Children.Add(builtIn);
         var materialsTitle=Ui.Pair(Ui.Caption("素材包管理","管理角色使用的素材包 · 内置模板版本 "+BundledSource(),true),importRow);((TextBlock)((StackPanel)materialsTitle.Children[0]).Children[0]).FontSize=26;materialsTitle.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var global=new StackPanel{Margin=new Thickness(12),MaxWidth=900};global.Children.Add(Ui.Text("全局设置",26));
         void GlobalGroup(string name){var t=Ui.Text(name,12,true);t.Margin=new Thickness(2,14,0,7);global.Children.Add(t);}
@@ -350,16 +350,21 @@ internal sealed class Launcher : IDisposable
     private void Recall(Guid id){Command(new("recall",id));RefreshCards();}
     private void ImportPack()=>Safe(()=>{
         var dialog=new OpenFolderDialog{Title="选择包含 modes.jsonc 的目录"};if(dialog.ShowDialog(window!)!=true)return;
-        storage.Import(dialog.FolderName);RefreshCards();
+        FlushSave();storage.Import(dialog.FolderName);RefreshCards();
     });
     private string? ChooseSave(string filename,string filter){var d=new SaveFileDialog{FileName=filename,Filter=filter};return d.ShowDialog(window!)==true?d.FileName:null;}
     private void ExportBackup()=>Safe(()=>{FlushSave();SaveTyping();var path=ChooseSave("CakePet-backup-"+DateTime.Now.ToString("yyyyMMdd-HHmm")+".zip","ZIP 文件|*.zip");if(path!=null)storage.ExportBackup(path,Version);});
     private void ImportArchive()=>Safe(()=>{
         var d=new OpenFileDialog{Filter="CakePet ZIP|*.zip"};if(d.ShowDialog(window!)!=true)return;
         if(MessageBox.Show(window!,"导入 ZIP。若为软件备份，将选择性覆盖可兼容的数据，其他数据保留。","导入",MessageBoxButton.OKCancel)!=MessageBoxResult.OK)return;
-        FlushSave();SaveTyping();var active=pets.Select(x=>x.RoleId).Distinct().ToArray();RecallAll();packages.Clear();
-        try{var result=storage.ImportZip(d.FileName);ReloadTyping();BackHome();MessageBox.Show(window!,result,"导入完成");}
-        finally{foreach(var id in active)if(catalog.Roles.FirstOrDefault(x=>x.Id==id) is RoleEntry r)Summon(r);}
+        FlushSave();Guid[] active=Array.Empty<Guid>();bool restoring=false;
+        try
+        {
+            var result=storage.ImportZip(d.FileName,()=>{active=pets.Select(x=>x.RoleId).Distinct().ToArray();restoring=true;RecallAll();packages.Clear();});
+            if(restoring){ReloadTyping();BackHome();}else RefreshCards();
+            MessageBox.Show(window!,result,"导入完成");
+        }
+        finally{if(restoring)foreach(var id in active)if(catalog.Roles.FirstOrDefault(x=>x.Id==id) is RoleEntry r)Summon(r);}
     });
     private void ResetSoftware()=>Safe(()=>{if(MessageBox.Show(window!,"清空角色、素材包和设置，恢复首次安装状态？请先导出备份。","重置软件",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;FlushSave();RecallAll();packages.Clear();storage.Reset(defaultRoot);ReloadTyping();BackHome();});
     private void ExportRole(RoleEntry role)=>Safe(()=>{var path=ChooseSave("CakePet-role-settings.json","JSON 文件|*.json");if(path!=null)storage.ExportRole(catalog.Roles.Single(x=>x.Id==role.Id),path);});
@@ -411,7 +416,7 @@ internal sealed class Launcher : IDisposable
             left.Children.Add(Ui.Caption(p.Name,detail,true));
             var actions=new StackPanel{Orientation=Orientation.Horizontal};actions.Children.Add(Ui.Button("编辑",()=>EditPack(p)));var more=Ui.Light("⋯",()=>{});more.Width=32;more.ToolTip="素材包操作";var menu=new ContextMenu();
             void Menu(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>Safe(action);menu.Items.Add(item);}
-            Menu("复制素材包",()=>{var copy=storage.Import(storage.Resolve(p));RefreshCards();EditPack(copy);});Menu("导出素材包",()=>ExportPack(p));Menu("删除素材包",()=>{if(catalog.Roles.Any(r=>r.PackId==p.Id))throw new InvalidOperationException("素材包仍被角色使用");if(MessageBox.Show(window!,"删除这个素材包？","删除素材包",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;packages.Remove(storage.Resolve(p));storage.RemovePack(p);RefreshCards();});
+            Menu("复制素材包",()=>{FlushSave();var copy=storage.Import(storage.Resolve(p));RefreshCards();EditPack(copy);});Menu("导出素材包",()=>ExportPack(p));Menu("删除素材包",()=>{if(catalog.Roles.Any(r=>r.PackId==p.Id))throw new InvalidOperationException("素材包仍被角色使用");if(MessageBox.Show(window!,"删除这个素材包？","删除素材包",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;packages.Remove(storage.Resolve(p));storage.RemovePack(p);RefreshCards();});
             more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;actions.Children.Add(more);packCards.Children.Add(Ui.Card(Ui.Pair(left,actions)));
         }
         foreach(var pair in packages.Values)if(!previews.Any(p=>ReferenceEquals(p.Cache,pair.Images)))pair.Images.Clear();
