@@ -10,10 +10,10 @@ internal static class HostFrameworkProbe
 {
     public static int Run(string[] args)
     {
-        if(args.Length!=5)return 2;
+        if(args.Length is not (5 or 6))return 2;
         var root=Path.GetFullPath(args[1]);int count=int.Parse(args[2]);
         int duration=Math.Clamp(int.Parse(args[3]),1000,600000);
-        string output=Path.GetFullPath(args[4]);
+        string output=Path.GetFullPath(args[4]);int interval=args.Length==6?Math.Clamp(int.Parse(args[5]),1,50):3;
         if(count is not (-1 or 0 or 1 or 10))return 2;
         var dataRoot=Path.Combine(Path.GetDirectoryName(output)!,"probe-data-"+Guid.NewGuid().ToString("N"));
         var samples=new List<Dictionary<string,object?>>();
@@ -30,7 +30,7 @@ internal static class HostFrameworkProbe
                 using var loop=new HostLoop();
                 // This also exercises source-generated configuration, validation and native interop.
                 using var resident=new ResidentHost(root,loop,dataRoot,true);
-                resident.ConfigureProbe(count);
+                resident.ConfigureProbe(count,interval);
                 // Real pipe server and real request/response payloads, but an isolated endpoint.
                 using var server=new HostServer(loop,resident.Handle,"CakePet.Probe."+Environment.ProcessId);
                 var ipc=Task.Run(()=>HostConnection.Call(new("snapshot"),"CakePet.Probe."+Environment.ProcessId));
@@ -43,10 +43,11 @@ internal static class HostFrameworkProbe
                 loop.Run();
                 if(!ipc.GetAwaiter().GetResult().Success)throw new InvalidDataException("IPC smoke test failed");
                 if(samples.Count==0||Convert.ToInt32(samples[^1]["pets"])!=count)throw new InvalidDataException("Probe instance count mismatch");
+                if(count==0&&resident.TickCount<duration*0.75/interval)throw new InvalidDataException("High-resolution scheduler below 75% of target on idle host");
                 if(!RuntimeFeature.IsDynamicCodeSupported&&samples.Any(s=>((IEnumerable<string>)s["frameworkModules"]!).Any(m=>m.Contains("coreclr",StringComparison.OrdinalIgnoreCase)||m.Contains("clrjit",StringComparison.OrdinalIgnoreCase))))throw new InvalidDataException("AOT host loaded CoreCLR/JIT");
                 if(samples.Any(s=>((IEnumerable<string>)s["frameworkModules"]!).Any(m=>m.Contains("wpf",StringComparison.OrdinalIgnoreCase)||m.Contains("Presentation",StringComparison.OrdinalIgnoreCase))))throw new InvalidDataException("Resident loaded WPF");
             }
-            var report=new Dictionary<string,object?>{["runtime"]=RuntimeFeature.IsDynamicCodeSupported?"JIT":"NativeAOT",["count"]=count,["durationMs"]=duration,["samples"]=samples};
+            var report=new Dictionary<string,object?>{["runtime"]=RuntimeFeature.IsDynamicCodeSupported?"JIT":"NativeAOT",["count"]=count,["intervalMs"]=interval,["durationMs"]=duration,["samples"]=samples};
             File.WriteAllText(output,MemoryDiagnostics.ToJson(report));return 0;
         }
         catch(Exception e){File.WriteAllText(output+".error",e.ToString());return 1;}

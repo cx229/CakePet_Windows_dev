@@ -43,6 +43,10 @@ internal sealed class ResidentHost:IDisposable
     private readonly NativeTray tray;
     private long lastTick,lastRandomCheck,lastTypingSave,lastThoughtPaint;
     private bool typingDirty,disposed;
+    private RoleCatalog? cachedCatalog;
+    private string? cachedCatalogJson;
+    private void InvalidateCatalog()=>cachedCatalogJson=null;
+    private string CatalogJson(){if(!ReferenceEquals(cachedCatalog,catalog)||cachedCatalogJson==null){cachedCatalog=catalog;cachedCatalogJson=JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog);}return cachedCatalogJson;}
     private Process? settingsProcess,diagnosticProcess;
     private string Today()=>DateTime.Now.ToString("yyyy-MM-dd");
     public ResidentHost(string root,HostLoop loop,string? dataRoot=null,bool probe=false)
@@ -63,13 +67,13 @@ internal sealed class ResidentHost:IDisposable
     public void Start(){loop.IntervalMs=catalog.RefreshIntervalMs;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Safe(()=>Summon(r));lastTick=clock.ElapsedMilliseconds;}
     private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;SetTyping();}
     private void SetTyping(){try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){NativeMessage.Show(e.Message,"无法启用打字统计");}}
-    private void SaveTyping(){if(!typingDirty)return;catalog.TypingDay=typing.Day;catalog.TypingToday=typing.Today;storage.Save();typingDirty=false;lastTypingSave=clock.ElapsedMilliseconds;}
+    private void SaveTyping(){if(!typingDirty)return;catalog.TypingDay=typing.Day;catalog.TypingToday=typing.Today;storage.Save();InvalidateCatalog();typingDirty=false;lastTypingSave=clock.ElapsedMilliseconds;}
     private void Tick()
     {
         if(disposed)return;
         ticks++;
         var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
-        if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));storage.Save();}}
+        if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));storage.Save();InvalidateCatalog();}}
         world.Advance(dt);var live=pets.ToArray();foreach(var pet in live)pet.Step(dt);world.UpdateInteractions();foreach(var pet in live)pet.Render();foreach(var food in foodWindows.Values.ToArray())food.Render();
         if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)SaveTyping();}
         // Physics and movement follow the configured interval; text layout has its own deadline.
@@ -93,7 +97,7 @@ internal sealed class ResidentHost:IDisposable
     }
     private void OnFoodRemoved(FoodInstance food){if(foodWindows.Remove(food,out var window))window.CloseFromWorld();}
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++){group[i].RoleName=entry.Name;group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}}
-    private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change){var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));}
+    private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change){var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();InvalidateCatalog();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));}
     private void RestoreInput(){foreach(var r in catalog.Roles.ToArray())ChangeRole(r.Id,s=>s with{ClickThrough=false});}
     private void Recall(Guid? id){foreach(var pet in pets.Where(p=>id==null||p.RoleId==id).ToArray())pet.Close();ReleaseUnused();}
     private void Summon(RoleEntry entry)
@@ -147,7 +151,7 @@ internal sealed class ResidentHost:IDisposable
         var oldPolicy=catalog.ThinkingPolicy;
         var old=catalog.Roles.ToDictionary(r=>r.Id);var oldPacks=catalog.Packs.ToDictionary(p=>p.Id);
         var active=pets.Select(p=>p.RoleId).Distinct().ToArray();
-        if(replacement!=null)storage.Commit(replacement);else storage.Reload();
+        if(replacement!=null)storage.Commit(replacement);else storage.Reload();InvalidateCatalog();
         loop.IntervalMs=catalog.RefreshIntervalMs;thoughts.Policy=catalog.ThinkingPolicy;SetTyping();
         if(catalog.ThinkingPolicy==ThinkingDisplayPolicy.None||!catalog.Typing.Enabled){typing.Stop();if(catalog.ThinkingPolicy==ThinkingDisplayPolicy.None)presenter.Clear();}
         foreach(var id in active)
@@ -172,7 +176,7 @@ internal sealed class ResidentHost:IDisposable
             case "snapshot":break;
             case "save-catalog":
                 SaveTyping();
-                var merged=CatalogMerge.Merge(req.Baseline??throw new InvalidDataException(),req.Catalog??throw new InvalidDataException(),JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog));
+                var merged=CatalogMerge.Merge(req.Baseline??throw new InvalidDataException(),req.Catalog??throw new InvalidDataException(),CatalogJson());
                 ReloadCatalog(false,merged);break;
             case "reload":ReloadCatalog(false);break;
             case "reload-assets":ReloadCatalog(true);break;
@@ -186,17 +190,17 @@ internal sealed class ResidentHost:IDisposable
             case "shutdown":loop.Post(loop.Stop);break;
             default:throw new InvalidOperationException("Unknown command: "+req.Command);
         }
-        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog));
+        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,CatalogJson());
     }
-    internal void ConfigureProbe(int count)
+    internal void ConfigureProbe(int count,int interval)
     {
-        catalog.AutoSummon=false;
+        catalog.AutoSummon=false;catalog.RefreshIntervalMs=Math.Clamp(interval,1,50);
         catalog.Typing=new TypingSettings();
         // Same default settings, same assets and same engine for both compiler variants.
         catalog.ThinkingPolicy=ThinkingDisplayPolicy.Latest;
         if(catalog.Roles.FirstOrDefault() is not RoleEntry role)throw new InvalidDataException("Probe package missing");
         catalog.Update(role with{Settings=role.Settings with{Count=Math.Max(1,count)}});
-        storage.Save();Start();
+        storage.Save();InvalidateCatalog();Start();
         if(count>0)Summon(catalog.Roles[0]);
     }
     public void Dispose()
