@@ -18,9 +18,9 @@ internal sealed class LivePet
 internal static class HostConnection
 {
     internal static string PipeName=>"CakePet.Host."+Environment.UserName+"."+System.Diagnostics.Process.GetCurrentProcess().SessionId;
-    internal static HostReply Call(HostRequest request)
+    internal static HostReply Call(HostRequest request,string? pipeName=null)
     {
-        using var pipe=new NamedPipeClientStream(".",PipeName,PipeDirection.InOut,PipeOptions.CurrentUserOnly);
+        using var pipe=new NamedPipeClientStream(".",pipeName??PipeName,PipeDirection.InOut,PipeOptions.CurrentUserOnly);
         pipe.Connect(3000);
         using var writer=new StreamWriter(pipe,leaveOpen:true){AutoFlush=true};
         using var reader=new StreamReader(pipe,leaveOpen:true);
@@ -38,14 +38,14 @@ internal sealed class HostServer:IDisposable
 {
     private readonly CancellationTokenSource cancel=new();
     private readonly Task worker;
-    public HostServer(HostLoop loop,Func<HostRequest,HostReply> handler)
+    public HostServer(HostLoop loop,Func<HostRequest,HostReply> handler,string? pipeName=null)
     {
         worker=Task.Run(async()=>{
             while(!cancel.IsCancellationRequested)
             {
                 try
                 {
-                    using var pipe=new NamedPipeServerStream(HostConnection.PipeName,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+                    using var pipe=new NamedPipeServerStream(pipeName??HostConnection.PipeName,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
                     await pipe.WaitForConnectionAsync(cancel.Token);
                     using var reader=new StreamReader(pipe,leaveOpen:true);using var writer=new StreamWriter(pipe,leaveOpen:true){AutoFlush=true};
                     var line=await reader.ReadLineAsync(cancel.Token);

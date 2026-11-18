@@ -10,7 +10,7 @@ namespace CakePet.Core;
 [JsonSerializable(typeof(PackEntry))]
 [JsonSerializable(typeof(RoleEntry))]
 [JsonSerializable(typeof(TypingSettings))]
-[JsonSerializable(typeof(Dictionary<string,SettingLimit>))]
+[JsonSerializable(typeof(Dictionary<string,SettingLimit>),TypeInfoPropertyName="DictionaryStringSettingLimit")]
 public partial class CoreJson:JsonSerializerContext
 {
     public static CoreJson Indented {get;}=new(new JsonSerializerOptions{PropertyNameCaseInsensitive=true,WriteIndented=true});

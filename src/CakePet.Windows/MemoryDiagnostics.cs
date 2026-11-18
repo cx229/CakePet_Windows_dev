@@ -39,7 +39,7 @@ internal static class MemoryDiagnostics
     {
         var node=new JsonObject();foreach(var entry in report)node[entry.Key]=Node(entry.Value);return node;
     }
-    internal static string ToJson(Dictionary<string,object?> report)=>Object(report).ToJsonString(new System.Text.Json.JsonSerializerOptions{WriteIndented=true,TypeInfoResolver=System.Text.Json.Serialization.Metadata.JsonTypeInfoResolver.Combine()});
+    internal static string ToJson(Dictionary<string,object?> report)=>Object(report).ToJsonString(new System.Text.Json.JsonSerializerOptions{WriteIndented=true,TypeInfoResolver=CakePet.Core.CoreJson.Default});
     internal static string Summary(Dictionary<string,object?> report)
     {
         string Size(string key)=>(Convert.ToDouble(report[key])/(1024*1024)).ToString("F1")+" MiB";
