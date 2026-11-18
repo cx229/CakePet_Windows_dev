@@ -23,7 +23,7 @@ internal static class MemoryDiagnostics
     internal static string Summary(Dictionary<string,object?> report)
     {
         string Size(string key)=>(Convert.ToDouble(report[key])/(1024*1024)).ToString("F1")+" MiB";
-        return $"工作集：{Size("workingSetBytes")}\n专用提交内存：{Size("privateBytes")}\n托管内存估算：{Size("managedLiveBytes")}\nGC 已提交：{Size("gcCommittedBytes")}\n图片缓存：{Size("imageCacheBytes")}\n食物缓存：{Size("foodCacheBytes")}";
+        return $"工作集：{Size("workingSetBytes")}\n专用提交内存：{Size("privateBytes")}\n托管内存估算：{Size("managedLiveBytes")}\nGC 已提交：{Size("gcCommittedBytes")}\n图片缓存：{Size("imageCacheBytes")}\n食物缓存：{Size("foodCacheBytes")}"+(report.ContainsKey("nativeCacheBytes")?"\n原生缓存："+Size("nativeCacheBytes"):"");
     }
 }
 internal static class NativeMessage

@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
+#if !NATIVE_HOST
 using System.Windows;
 using System.Windows.Interop;
+#endif
 using CakePet.Core;
 using P=CakePet.Core.Point;
 
@@ -28,6 +30,8 @@ internal static class DesktopPlatform
     [DllImport("user32.dll")]private static extern bool GetWindowRect(nint hwnd,out Rect r);
     [DllImport("user32.dll")]private static extern uint GetDpiForWindow(nint hwnd);
     [DllImport("user32.dll")]private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")]private static extern int GetSystemMetrics(int index);
+    [DllImport("user32.dll",EntryPoint="SystemParametersInfoW")]private static extern bool SystemParametersInfo(uint action,uint param,out Rect rect,uint flags);
     private static IReadOnlyList<DesktopScreen> screens=ReadScreens();
     public static long ScreenRevision {get;private set;}
     private static long refreshed=Environment.TickCount64;
@@ -45,8 +49,9 @@ internal static class DesktopPlatform
         },0);
         if(list.Count==0)
         {
-            var r=SystemParameters.WorkArea;var full=new Bounds(0,0,SystemParameters.PrimaryScreenWidth,SystemParameters.PrimaryScreenHeight);
-            list.Add(new DesktopScreen("primary",full,new Bounds(r.Left,r.Top,r.Right,r.Bottom),true));
+            var full=new Bounds(0,0,Math.Max(1,GetSystemMetrics(0)),Math.Max(1,GetSystemMetrics(1)));
+            var work=SystemParametersInfo(0x30,0,out var rect,0)?rect.Bounds:full;
+            list.Add(new DesktopScreen("primary",full,work,true));
         }
         return list;
     }
@@ -90,6 +95,7 @@ internal static class DesktopPlatform
     }
     public static P Cursor(){GetCursorPos(out var p);return new P(p.X,p.Y);}
     public static bool ControlDown=>(GetAsyncKeyState(0x11)&0x8000)!=0;
+#if !NATIVE_HOST
     public static double DpiScale(Window window)
     {
         var h=new WindowInteropHelper(window).Handle;var dpi=h==0?96:GetDpiForWindow(h);return dpi==0?1:dpi/96.0;
@@ -115,4 +121,5 @@ internal static class DesktopPlatform
             if(!SetWindowPos(h,0,ix,iy,w,he,0x0010|0x0004|0x0200))return;
         last.Handle=h;last.Revision=ScreenRevision;last.X=ix;last.Y=iy;last.Width=w;last.Height=he;last.Valid=true;
     }
+#endif
 }

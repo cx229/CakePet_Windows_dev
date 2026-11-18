@@ -41,6 +41,13 @@ internal sealed class GdiImageCache:IDisposable
     private nuint token;
     public long CachedBytes {get;private set;}
     public void Clear(){foreach(var image in images.Values)Gdi.GdipDisposeImage(image.Handle);images.Clear();recent.Clear();geometries.Clear();CachedBytes=0;}
+    public static bool IsReadable(string path)
+    {
+        var start=new Gdi.StartupInput{Version=1};nuint token=0;nint image=0;
+        try{if(Gdi.GdiplusStartup(out token,ref start,0)!=0)return false;return Gdi.GdipCreateBitmapFromFile(path,out image)==0&&Gdi.GdipGetImageWidth(image,out var w)==0&&Gdi.GdipGetImageHeight(image,out var h)==0&&w>0&&h>0&&Gdi.GdipBitmapGetPixel(image,0,0,out _)==0;}
+        catch(Exception){return false;}
+        finally{if(image!=0)Gdi.GdipDisposeImage(image);if(token!=0)Gdi.GdiplusShutdown(token);}
+    }
     public GdiImageCache(RolePackage pack)
     {
         this.pack=pack;var input=new Gdi.StartupInput{Version=1};

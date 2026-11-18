@@ -1,16 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Interop;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using CakePet.Core;
 using P= CakePet.Core.Point;
 using Frame= CakePet.Core.Frame;
-using WPoint=System.Windows.Point;
 
 namespace CakePet.Windows;
 
@@ -19,7 +11,7 @@ internal sealed class PetWindow
     private readonly PetEngine engine;
     private RoleRuntime role=>engine.Role;
     private PhysicsBody body=>engine.Body;
-    private readonly WpfImageCache images;
+    private readonly NativeSpriteCache images;
     private readonly NativeLayer layer=new();
     private double opacity=1;
     private bool menuOpen;
@@ -30,12 +22,12 @@ internal sealed class PetWindow
     public void Show(){Render();layer.Show();}
     public void Close()=>layer.Dispose();
     private readonly List<FreezeWindow> freezes=new();
-    private DebugWindow? debug;
+    private NativeDebugWindow? debug;
     private long debugTick;
     private readonly FoodWorld foodWorld;
     private readonly Stopwatch clock=Stopwatch.StartNew();
     private long lastMouse;
-    private WPoint pressedAt,previousMouse;
+    private P pressedAt,previousMouse;
     private P pressedBody,velocity;
     private bool pressed,dragging,closed;
     private bool? lastInputPass;
@@ -44,7 +36,10 @@ internal sealed class PetWindow
     private Frame? rendered;
     private double Side=>engine.DisplaySize;
     internal PetEngine Engine=>engine;
-    internal WpfImageCache Images=>images;
+    internal NativeSpriteCache NativeImages=>images;
+#if !NATIVE_HOST
+    internal WpfImageCache Images {get;private set;}=null!;
+#endif
     private double renderedSize;
     private string monitorId;
     private bool fullScreen,clickThrough,pixelHit=true,thinkingEnabled=true;
@@ -81,13 +76,13 @@ internal sealed class PetWindow
         RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,frameGeometry!);Render();
     }
     private bool configured;
-    private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,settings.FoodLifetimeSeconds==0?null:settings.FoodLifetimeSeconds*1000L,settings.FoodAtEdge,settings.FoodLimit,id=>{var v=images.Native.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*settings.FoodScale,v.LogicalHeight*settings.FoodScale);},settings.FoodOpacity);
+    private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,settings.FoodLifetimeSeconds==0?null:settings.FoodLifetimeSeconds*1000L,settings.FoodAtEdge,settings.FoodLimit,id=>{var v=images.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*settings.FoodScale,v.LogicalHeight*settings.FoodScale);},settings.FoodOpacity);
     private bool HitAt(P pointer)
     {
         var offset=pointer-body.Position;if(offset.X<0||offset.Y<0||offset.X>=Side||offset.Y>=Side)return false;
         var local=AnchorGeometry.Inverse(offset,Side,engine.RenderEdge,engine.Facing);
-        var g=images.Native.Geometry(role.Animation.Current);var scale=Side/role.Package.AnchorRes;
-        return images.Native.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
+        var g=images.Geometry(role.Animation.Current);var scale=Side/role.Package.AnchorRes;
+        return images.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
     }
     private DesktopScreen Monitor=>DesktopPlatform.Resolve(monitorId,engine.Center);
     internal Bounds ActivityArea=>AreaOf(Monitor);
@@ -118,9 +113,12 @@ internal sealed class PetWindow
         if(lastInputPass==pass&&lastInputHandle==handle)return;
         layer.Pass(pass);lastInputPass=pass;lastInputHandle=handle;
     }
-    public PetWindow(RoleRuntime role,WpfImageCache images,int index,FoodWorld world,Guid roleId=default,int instanceNumber=1)
+     #if !NATIVE_HOST
+    public PetWindow(RoleRuntime role,WpfImageCache images,int index,FoodWorld world,Guid roleId=default,int instanceNumber=1):this(role,images.Native,index,world,roleId,instanceNumber){Images=images;}
+#endif
+    public PetWindow(RoleRuntime role,NativeSpriteCache images,int index,FoodWorld world,Guid roleId=default,int instanceNumber=1)
     {
-        this.images=images;frameGeometry=images.Native.Geometry;foodWorld=world;RoleId=roleId;InstanceNumber=instanceNumber;
+        this.images=images;frameGeometry=images.Geometry;foodWorld=world;RoleId=roleId;InstanceNumber=instanceNumber;
         var monitor=DesktopPlatform.Primary;monitorId=monitor.Id;
         var b=DesktopGeometry.Fit(monitor.Work,160,160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
         RefreshDesktopSpace();
@@ -157,7 +155,7 @@ internal sealed class PetWindow
         }
         finally{menuOpen=false;ApplyInputStyle();}
     }
-    private WPoint Screen(){var p=DesktopPlatform.Cursor();return new WPoint(p.X,p.Y);}
+    private P Screen(){var p=DesktopPlatform.Cursor();return new P(p.X,p.Y);}
     private void OnDown()
     {
         pressed=true;dragging=false;pressedAt=previousMouse=Screen();pressedBody=body.Position;velocity=default;lastMouse=clock.ElapsedMilliseconds;
@@ -191,13 +189,13 @@ internal sealed class PetWindow
     private void Freeze()
     {
         var pixels=Math.Max(1,(int)Math.Round(Side));
-        var bitmap=NativePetPixels.Sprite(images,role.Animation.Current,pixels,role.Package.AnchorRes,engine.Facing,engine.RenderEdge,false);
+        var bitmap=images.Get(role.Animation.Current,pixels,engine.Facing,engine.RenderEdge,false);
         var freeze=new FreezeWindow(bitmap,body.Position,Side);freezes.Add(freeze);freeze.Closed+=(_,_)=>freezes.Remove(freeze);freeze.Show();
     }
     private void ToggleDebug()
     {
         if(debug!=null){debug.Close();return;}
-        var window=new DebugWindow((string.IsNullOrWhiteSpace(RoleName)?role.Package.Name:RoleName)+" #"+InstanceNumber);debug=window;window.Closed+=(_,_)=>debug=null;UpdateDebug();window.Show();
+        var window=new NativeDebugWindow((string.IsNullOrWhiteSpace(RoleName)?role.Package.Name:RoleName)+" #"+InstanceNumber);debug=window;window.Closed+=(_,_)=>debug=null;UpdateDebug();window.Show();
     }
     private void UpdateDebug()=>debug?.Refresh(engine,monitorId,layer.Dpi,foodWorld.Foods.Count(f=>f.Owner==engine),ClickThrough,pixelHit,InstanceId,InstanceNumber,settings.Scale,CurrentScale,settings.Count);
     internal void Step(long dt)
@@ -212,7 +210,7 @@ internal sealed class PetWindow
         var size=Math.Max(1,(int)Math.Round(Side));var frame=role.Animation.Current;var facing=engine.Facing;var edge=engine.RenderEdge;bool canvasHit=!pixelHit||DesktopPlatform.ControlDown;
         if(rendered!=frame||renderedSize!=size||renderedFacing!=facing||renderedEdge!=edge||renderedCanvas!=canvasHit)
         {
-            var renderedPixels=NativePetPixels.Sprite(images,frame,size,role.Package.AnchorRes,facing,edge,canvasHit);
+            var renderedPixels=images.Get(frame,size,facing,edge,canvasHit);
             layer.Paint(renderedPixels,size,size,body.Position.X,body.Position.Y,opacity);
             rendered=frame;renderedSize=size;renderedFacing=facing;renderedEdge=edge;renderedCanvas=canvasHit;
         }
@@ -221,18 +219,3 @@ internal sealed class PetWindow
     }
 }
 
-internal static class NativeStyles
-{
-    private const int GwlExStyle=-20;
-    private const long WsExNoActivate=0x08000000,WsExToolWindow=0x80,WsExTransparent=0x20;
-    [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]private static extern nint GetWindowLongPtr(nint hwnd,int index);
-    [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]private static extern nint SetWindowLongPtr(nint hwnd,int index,nint value);
-    public static void NonActivating(Window window,bool clickThrough)
-    {
-        var handle=new WindowInteropHelper(window).Handle;if(handle==0)return;
-        var old=GetWindowLongPtr(handle,GwlExStyle).ToInt64();
-        var next=(old|WsExNoActivate|WsExToolWindow)&~WsExTransparent;
-        if(clickThrough)next|=WsExTransparent;
-        if(next!=old)SetWindowLongPtr(handle,GwlExStyle,(nint)next);
-    }
-}
