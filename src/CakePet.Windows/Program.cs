@@ -89,6 +89,7 @@ internal sealed class Launcher : IDisposable
     private bool shuttingDown,started;
     private string Version=>typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??"dev";
     private TextBlock? status;
+    private readonly List<Action> globalGateRefresh=new();
     public Launcher(string root)
     {
         defaultRoot=root;storage=new CatalogStorage(root,true);
@@ -110,7 +111,7 @@ internal sealed class Launcher : IDisposable
     private HostReply Command(HostRequest request)
     {
         commandRevision++;FlushSave();var reply=HostConnection.Call(request);UpdateLive(reply);
-        if(reply.Catalog!=null)storage.Adopt(reply.Catalog);
+        if(reply.Catalog!=null){storage.Adopt(reply.Catalog);foreach(var sync in globalGateRefresh)sync();if(navigationHost?.Content is RoleSettingsPage rolePage)rolePage.RefreshGlobalLimits();}
         return reply;
     }
     internal void OpenRole(Guid id){if(catalog.Roles.FirstOrDefault(x=>x.Id==id) is RoleEntry entry)Edit(entry);else ShowLauncher();}
@@ -163,6 +164,17 @@ internal sealed class Launcher : IDisposable
         void GlobalGroup(string name){var t=Ui.Text(name,12,true);t.Margin=new Thickness(2,14,0,7);global.Children.Add(t);}
         GlobalGroup("个性化");
         global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("用户习惯","新角色的设置与默认值"),Ui.Light("进入 ›",EditDefaults))));
+        GlobalGroup("功能总开关");
+        var gatesCard=new SettingCard("功能总开关","关闭时限制所有角色，重新允许后恢复各自设置。",collapsible:false);
+        foreach(var feature in RoleMenus.Switches)
+        {
+            var sw=Ui.Switch(feature.Allowed(catalog.FeatureLimits));
+            sw.Click+=(_,_)=>{catalog.FeatureLimits=feature.SetLimit(catalog.FeatureLimits,sw.IsChecked==true);QueueSave();};
+            void SyncGate(){sw.IsChecked=feature.Allowed(catalog.FeatureLimits);}
+            globalGateRefresh.Add(SyncGate);sw.IsVisibleChanged+=(_,_)=>SyncGate();
+            gatesCard.Add(Ui.Pair(Ui.Caption(feature.Name,"允许角色按各自设置运行"),sw));
+        }
+        global.Children.Add(gatesCard);
         GlobalGroup("碎碎念");
         var thinkingCard=new SettingCard("碎碎念","控制所有角色和打字统计的显示方式。");
         var policies=new ComboBox{ItemsSource=new[]{"无","仅显示最新","重叠"},SelectedIndex=(int)catalog.ThinkingPolicy,Width=175};
@@ -204,7 +216,7 @@ internal sealed class Launcher : IDisposable
     private void ReleaseLauncherUi()
     {
         if(navigationHost!=null)navigationHost.Content=null;
-        homeShell=null;previews.Clear();
+        homeShell=null;previews.Clear();globalGateRefresh.Clear();
         roleCards=null!;packCards=null!;navigationHost=null!;status=null;
         ReleaseIdleImages();UpdateTickRate();
     }
@@ -280,7 +292,7 @@ internal sealed class Launcher : IDisposable
             catch(Exception e){LogSyncError("instance update",e);return;}
             if(!dirty&&reply.Catalog!=null)
             {
-                try{storage.Adopt(reply.Catalog);}
+                try{var priorLimits=catalog.FeatureLimits;storage.Adopt(reply.Catalog);if(priorLimits!=catalog.FeatureLimits){foreach(var sync in globalGateRefresh)sync();if(navigationHost?.Content is RoleSettingsPage rolePage)rolePage.RefreshGlobalLimits();}}
                 catch(Exception e){LogSyncError("catalog parsing",e);}
             }
             try
@@ -368,7 +380,7 @@ internal sealed class Launcher : IDisposable
             var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;if(!old.Settings.RandomMode.Enabled&&next.Settings.RandomMode.Enabled)next=next with{Settings=next.Settings.RandomMode.Apply(next.Settings,Random.Shared)};if(old.Settings.RandomMode!=next.Settings.RandomMode)randomSchedule.Forget(entry.Id);catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
             // Debounced save sends the changed catalog to the resident host, which reconciles live instances.
             if(!old.Settings.RandomMode.Enabled&&latest.Settings.RandomMode.Enabled&&navigationHost.Content is RoleSettingsPage page){int selected=page.SelectedSection;Dispatcher.BeginInvoke(new Action(()=>{if(ReferenceEquals(navigationHost?.Content,page))EditAt(latest,selected);}));}
-        }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,initialSection:section,reopen:i=>EditAt(catalog.Roles.Single(r=>r.Id==entry.Id),i),instances:()=>pets.Where(p=>p.RoleId==entry.Id).ToArray(),debugInstance:id=>Safe(()=>Command(new("debug-instance",entry.Id,id))));
+        }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,initialSection:section,reopen:i=>EditAt(catalog.Roles.Single(r=>r.Id==entry.Id),i),instances:()=>pets.Where(p=>p.RoleId==entry.Id).ToArray(),debugInstance:id=>Safe(()=>Command(new("debug-instance",entry.Id,id))),globalLimits:()=>catalog.FeatureLimits);
     });
     private void RefreshCards()
     {

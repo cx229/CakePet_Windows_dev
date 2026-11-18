@@ -85,5 +85,11 @@ internal sealed class SettingCard:Border
     private void UpdateFold(){expanded=CanExpand&&requestedExpanded;body.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;body.IsEnabled=CanExpand;if(arrow!=null){arrow.Content=expanded?"⌄":"›";arrow.IsEnabled=CanExpand;}}
     public void ForceOn(string message){forcedOn=true;SetWarning(message);if(master!=null){master.IsChecked=true;master.IsEnabled=false;}UpdateFold();}
     public void SetWarning(string message){warning=message;heading.Foreground=Brushes.IndianRed;remark.Foreground=Brushes.IndianRed;remark.Text=message;}
+    public void SetMasterState(bool value,bool available,string note,string? restriction=null)
+    {
+        forcedOn=false;warning=restriction;heading.Foreground=restriction==null?Ui.Brush("Ink"):Brushes.IndianRed;
+        remark.Foreground=restriction==null?Ui.Brush("Muted"):Brushes.IndianRed;remark.Text=restriction??note;
+        if(master!=null)master.IsChecked=value;SetAvailable(available);
+    }
     public void SetAvailable(bool value){permitted=value;if(master!=null)master.IsEnabled=value&&!forcedOn;Opacity=1;UpdateFold();}
 }
