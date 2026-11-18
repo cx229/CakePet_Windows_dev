@@ -5,7 +5,7 @@ public sealed record PackEntry(Guid Id,string Name,string Directory);
 public sealed record RoleSettings
 {
     public int Count {get;init;}=1;
-    public double Scale {get;init;}=1.4;
+    public double Scale {get;init;}=.5;
     public double Opacity {get;init;}=1;
     public bool Move {get;init;}=true;
     public bool Climb {get;init;}=true;
@@ -45,7 +45,7 @@ public sealed record RoleSettings
     public int FoodMaxSeconds {get;init;}=120;
     public int FoodLifetimeSeconds {get;init;}=60;
     public int FoodLimit {get;init;}=3;
-    public double FoodScale {get;init;}=1.4;
+    public double FoodScale {get;init;}=.5;
     public double FoodOpacity {get;init;}=.7;
     public bool FoodAtEdge {get;init;}=true;
     public double FeedGrowth {get;init;}=.03;
@@ -56,13 +56,13 @@ public sealed record RoleSettings
     public double OffsetBottom {get;init;}
     public string MonitorId {get;init;}="";
     private static double N(double v,double min,double max,double fallback)=>double.IsFinite(v)?Math.Clamp(v,min,max):fallback;
-    public RoleSettings Normalize()=>this with{Count=Math.Clamp(Count,1,30),Scale=double.IsFinite(Scale)?Math.Clamp(Scale,.5,3):1.4,Opacity=double.IsFinite(Opacity)?Math.Clamp(Opacity,.05,1):1,
+    public RoleSettings Normalize()=>this with{Count=Math.Clamp(Count,1,30),Scale=double.IsFinite(Scale)?Math.Clamp(Scale,.5,3):.5,Opacity=double.IsFinite(Opacity)?Math.Clamp(Opacity,.05,1):1,
         RandomMode=(RandomMode??new()).Normalize(),ThoughtStyle=(ThoughtStyle??new()).Normalize(),ThoughtRestMin=Math.Clamp(ThoughtRestMin,1,300),ThoughtRestMax=Math.Clamp(ThoughtRestMax,Math.Clamp(ThoughtRestMin,1,300),300),
         Gravity=N(Gravity,0,10000,1500),MaxSpeed=N(MaxSpeed,100,10000,2000),Bounce=N(Bounce,0,1,.7),
         GravityEdges=GravityEdges&Edge.All,BounceEdges=BounceEdges&Edge.All,SnapEdges=SnapEdges&Edge.All,
         ThrowCoefficient=N(ThrowCoefficient,0,5,1),SnapSpeed=N(SnapSpeed,0,5000,800),SnapDistance=N(SnapDistance,0,500,100),
         LeapProbability=N(LeapProbability,0,1,.1),LeapSpeed=N(LeapSpeed,100,5000,840),ForageMultiplier=N(ForageMultiplier,.1,5,1),
-        FoodMinSeconds=Math.Clamp(FoodMinSeconds,1,3600),FoodMaxSeconds=Math.Clamp(FoodMaxSeconds,Math.Clamp(FoodMinSeconds,1,3600),3600),FoodLifetimeSeconds=Math.Clamp(FoodLifetimeSeconds,0,86400),FoodLimit=Math.Clamp(FoodLimit,1,100),FoodScale=N(FoodScale,.1,5,1.4),FoodOpacity=N(FoodOpacity,.05,1,.7),FeedGrowth=N(FeedGrowth,0,1,.03),MaxScale=N(MaxScale,Math.Clamp(double.IsFinite(Scale)?Scale:1.4,.5,3),10,3),
+        FoodMinSeconds=Math.Clamp(FoodMinSeconds,1,3600),FoodMaxSeconds=Math.Clamp(FoodMaxSeconds,Math.Clamp(FoodMinSeconds,1,3600),3600),FoodLifetimeSeconds=Math.Clamp(FoodLifetimeSeconds,0,86400),FoodLimit=Math.Clamp(FoodLimit,1,100),FoodScale=N(FoodScale,.1,5,.5),FoodOpacity=N(FoodOpacity,.05,1,.7),FeedGrowth=N(FeedGrowth,0,1,.03),MaxScale=N(MaxScale,Math.Clamp(double.IsFinite(Scale)?Scale:.5,.5,3),10,3),
         OffsetLeft=N(OffsetLeft,-500,500,0),OffsetRight=N(OffsetRight,-500,500,0),OffsetTop=N(OffsetTop,-500,500,0),OffsetBottom=N(OffsetBottom,-500,500,0),MonitorId=MonitorId??""};
     public Bounds ApplyOffsets(Bounds area)
     {

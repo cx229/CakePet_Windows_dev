@@ -221,7 +221,7 @@ public sealed class PetEngine : IDisposable
     private void UpdateForageFacing()
     {
         if(forageTarget is not Point target||Body.ClimbEdge==Edge.None)return;
-        if(Space!=null&&CurrentContact() is BoundaryContact contact){if(Space.Route(contact.Segment,contact.Position,target) is {} route)Facing=-route.Direction;return;}
+        if(Space!=null&&CurrentContact() is BoundaryContact contact){if(Space.Route(contact.Segment,contact.Position,target) is {} desktopRoute)Facing=-desktopRoute.Direction;return;}
         var route=PerimeterRoute.Calculate(Bounds,Body.Position,Body.ClimbEdge,target-new Point(DisplaySize/2,DisplaySize/2));
         Facing=route.Direction;
     }

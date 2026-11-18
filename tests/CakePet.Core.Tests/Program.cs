@@ -226,6 +226,8 @@ try
  var wrapSpace=new DesktopSpace(new[]{new Bounds(-100,0,100,100)});
  Assert(wrapSpace.Move(new Point(95,50),new Point(10,0),true).Position==new Point(-95,50),"independent horizontal wrap");
  Assert(!new RoleSettings().HorizontalWrap&&new RoleSettings().ScreenConnect,"screen defaults");
+ Assert(new RoleSettings().Scale==.5&&new RoleSettings().FoodScale==.5,"Windows initial pet and food size");
+ var invalidSize=new RoleSettings{Scale=double.NaN,FoodScale=double.NaN}.Normalize();Assert(invalidSize.Scale==.5&&invalidSize.FoodScale==.5,"Windows invalid size fallback");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");var menuModes=real.Candidates("menu/pool");Assert(menuModes.Count>1,"Android menu pool");var menuRole=new RoleRuntime(real,new Random(7));foreach(var mode in menuModes){Assert(menuRole.TriggerMode("menu/pool",mode)&&menuRole.Animation.Mode.Id==mode,"exact Android menu mode "+mode);}Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
