@@ -64,7 +64,7 @@ internal sealed partial class CatalogStorage
                     return entry;
                 }
                 catch(HostRejectedException) when(!uncertain){throw;}
-                catch(Exception e) when(e is IOException or TimeoutException or HostRejectedException or System.Text.Json.JsonException)
+                catch(Exception e)
                 {
                     uncertain=true;
                     if(attempt==0)continue;

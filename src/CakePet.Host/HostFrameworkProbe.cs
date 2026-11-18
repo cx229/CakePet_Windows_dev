@@ -8,8 +8,48 @@ namespace CakePet.Windows;
 // Data and IPC are isolated from the user's normal installation.
 internal static class HostFrameworkProbe
 {
+    private static int ImportProbe(string root,string output)
+    {
+        string dataRoot=Path.Combine(Path.GetTempPath(),"cakepet-import-probe-"+Guid.NewGuid().ToString("N"));
+        string pipe="CakePet.ImportProbe."+Environment.ProcessId;
+        try
+        {
+            using var loop=new HostLoop();
+            using var resident=new ResidentHost(Path.GetFullPath(root),loop,dataRoot,true);
+            resident.ConfigureProbe(1,3);
+            using var server=new HostServer(loop,resident.Handle,pipe);
+            var work=Task.Run(()=>{
+                try
+                {
+                    var before=HostConnection.Call(new("snapshot"),pipe);
+                    var initial=RoleCatalog.Parse(before.Catalog!);
+                    var id=Guid.NewGuid();var entry=new PackEntry(id,"Import probe",id.ToString("N"));
+                    var dest=Path.Combine(dataRoot,"packs",entry.Directory);
+                    Directory.CreateDirectory(dest);
+                    foreach(var file in Directory.EnumerateFiles(root,"*",SearchOption.AllDirectories))
+                    {
+                        var target=Path.Combine(dest,Path.GetRelativePath(root,file));Directory.CreateDirectory(Path.GetDirectoryName(target)!);File.Copy(file,target);
+                    }
+                    for(int i=0;i<2;i++)
+                    {
+                        var after=HostConnection.Call(new("register-pack",Pack:entry),pipe);
+                        var catalog=RoleCatalog.Parse(after.Catalog!);
+                        if(catalog.Packs.Count!=initial.Packs.Count+1||catalog.Packs.Count(p=>p.Id==id)!=1)throw new InvalidDataException("Registration must be idempotent");
+                        if(!after.Instances.Select(p=>p.InstanceId).SequenceEqual(before.Instances.Select(p=>p.InstanceId)))throw new InvalidDataException("Import must preserve running instances");
+                    }
+                    if(!RoleCatalog.Load(Path.Combine(dataRoot,"catalog.json")).Packs.Contains(entry))throw new InvalidDataException("Registration not persisted");
+                }
+                finally{loop.Post(loop.Stop);}
+            });
+            loop.Run();work.GetAwaiter().GetResult();
+            File.WriteAllText(output,"Package registration IPC passed");return 0;
+        }
+        catch(Exception e){File.WriteAllText(output,e.ToString());return 1;}
+        finally{if(Directory.Exists(dataRoot))Directory.Delete(dataRoot,true);}
+    }
     public static int Run(string[] args)
     {
+        if(args.Length==3&&args[0]=="--import-probe")return ImportProbe(args[1],args[2]);
         if(args.Length is not (5 or 6))return 2;
         var root=Path.GetFullPath(args[1]);int count=int.Parse(args[2]);
         int duration=Math.Clamp(int.Parse(args[3]),1000,600000);

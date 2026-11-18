@@ -9,7 +9,7 @@ internal static class HostProgram
     [STAThread]
     public static int Main(string[] args)
     {
-        if(args.Length>0&&args[0]=="--framework-probe")return HostFrameworkProbe.Run(args);
+        if(args.Length>0&&args[0] is "--framework-probe" or "--import-probe")return HostFrameworkProbe.Run(args);
         var root=Path.Combine(AppContext.BaseDirectory,"assets","default");
         if(args.Length>=2&&args[0]=="--package")root=Path.GetFullPath(args[1]);
         using var mutex=new Mutex(true,"Local\\CakePet.NativeHost",out bool first);

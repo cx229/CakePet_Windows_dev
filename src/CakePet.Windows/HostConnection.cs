@@ -15,7 +15,7 @@ internal sealed class LivePet
     public void Update(LiveInstance data){RoleId=data.RoleId;InstanceId=data.InstanceId;InstanceNumber=data.InstanceNumber;CurrentScale=data.CurrentScale;}
     public void SetInstanceScale(double scale){var reply=HostConnection.Call(new("scale",InstanceId:InstanceId,Scale:scale));var next=reply.Instances.FirstOrDefault(i=>i.InstanceId==InstanceId);if(next!=null)Update(next);}
 }
-internal sealed class HostRejectedException(string message):InvalidOperationException(message);
+internal sealed class HostRejectedException(string message):InvalidOperationException(message) {}
 internal static class HostConnection
 {
     internal static string PipeName=>"CakePet.Host."+Environment.UserName+"."+System.Diagnostics.Process.GetCurrentProcess().SessionId;
@@ -24,11 +24,26 @@ internal static class HostConnection
     internal static int LastHostPid=>Volatile.Read(ref lastHostPid);
     internal static HostReply Call(HostRequest request,string? pipeName=null)
     {
-        lock(requestGate)return Exchange(request,pipeName);
+        lock(requestGate)
+        {
+            try{return Exchange(request,pipeName);}
+            catch(Exception e)
+            {
+                try
+                {
+                    var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet","diagnostics");
+                    Directory.CreateDirectory(dir);
+                    var path=Path.Combine(dir,"ipc-errors.log");
+                    if(File.Exists(path)&&new FileInfo(path).Length>1024*1024)File.Move(path,path+".old",true);
+                    File.AppendAllText(path,$"{DateTimeOffset.Now:O} {request.Command}: {e}{Environment.NewLine}");
+                }catch(Exception){}
+                throw;
+            }
+        }
     }
     private static HostReply Exchange(HostRequest request,string? pipeName)
     {
-        using var pipe=new NamedPipeClientStream(".",pipeName??PipeName,PipeDirection.InOut,PipeOptions.CurrentUserOnly);
+        using var pipe=new NamedPipeClientStream(".",pipeName??PipeName,PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
         pipe.Connect(3000);
         using var writer=new StreamWriter(pipe,leaveOpen:true){AutoFlush=true};
         using var reader=new StreamReader(pipe,leaveOpen:true);

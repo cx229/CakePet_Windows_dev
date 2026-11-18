@@ -71,6 +71,14 @@ jobs:
           if (Test-Path "$folder/coreclr.dll") { throw "Resident package still contains CoreCLR" }
           $files = Get-ChildItem $folder -Recurse -File
           Write-Host "$folder : $($files.Count) files, $([Math]::Round(($files | Measure-Object Length -Sum).Sum / 1MB, 2)) MiB"
+      - name: Verify package registration IPC
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'cakepet-import-probe.txt'
+          $p = Start-Process -FilePath (Resolve-Path artifacts/CakePet/CakePet.exe) -ArgumentList @('--import-probe', ('"' + (Resolve-Path assets/default).Path + '"'), ('"' + $report + '"')) -PassThru
+          if (!$p.WaitForExit(45000)) { $p.Kill(); throw 'Import IPC probe timed out' }
+          if (Test-Path $report) { Get-Content $report }
+          if ($p.ExitCode -ne 0) { throw 'Import IPC probe failed' }
       - name: Compare production JIT and Native AOT
         shell: pwsh
         run: |
