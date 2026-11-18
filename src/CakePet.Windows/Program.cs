@@ -155,7 +155,8 @@ internal sealed class Launcher : IDisposable
         var report=MemoryDiagnostics.Sample("resident",new Dictionary<string,object?>{
             ["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=IsVisible,
             ["loadedPackages"]=packages.Count,["imageCacheBytes"]=packages.Values.Sum(x=>x.Images.CachedImageBytes),
-            ["foodCacheBytes"]=packages.Values.Sum(x=>x.Images.CachedFoodBytes)});
+            ["foodCacheBytes"]=packages.Values.Sum(x=>x.Images.CachedFoodBytes),
+            ["nativeCacheBytes"]=packages.Values.Sum(x=>x.Images.CachedNativeBytes)});
         var directory=Path.Combine(Path.GetDirectoryName(storage.FilePath)!,"diagnostics");Directory.CreateDirectory(directory);
         var path=Path.Combine(directory,"memory-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".json");
         File.WriteAllText(path,System.Text.Json.JsonSerializer.Serialize(report,new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));
@@ -244,7 +245,7 @@ internal sealed class Launcher : IDisposable
         var owner=pets.FirstOrDefault(p=>p.Engine==food.Owner);if(owner==null){world.Remove(food);return;}
         try
         {
-            var window=new FoodWindow(world,food,owner.Images.GetFoodVisual(food.StartMode));
+            var window=new FoodWindow(world,food,owner.Images.Native,owner.Images.Native.GetFoodVisual(food.StartMode));
             foodWindows.Add(food,window);window.Show();Refresh();
         }
         catch(Exception e){world.Remove(food);if(!shuttingDown)ShowMessage(e.Message,"无法显示食物");}

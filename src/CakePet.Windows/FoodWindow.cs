@@ -7,14 +7,15 @@ internal sealed class FoodWindow
     private readonly NativeLayer layer=new();
     private readonly FoodWorld world;
     private readonly FoodInstance food;
-    private readonly WpfImageCache.FoodVisual visual;
+    private readonly NativeSpriteCache cache;
+    private readonly NativeSpriteCache.FoodVisual visual;
     private P grabOffset,pressedAt;
     private bool held,moved,closingFromWorld;
     private Frame? rendered;
     private int lastW,lastH;
-    public FoodWindow(FoodWorld world,FoodInstance food,WpfImageCache.FoodVisual visual)
+    public FoodWindow(FoodWorld world,FoodInstance food,NativeSpriteCache cache,NativeSpriteCache.FoodVisual visual)
     {
-        this.world=world;this.food=food;this.visual=visual;
+        this.world=world;this.food=food;this.visual=visual;this.cache=cache;
         layer.Down+=OnDown;layer.Move+=OnMove;layer.Up+=OnUp;
         layer.Menu+=()=>NativeMenu.Show(layer.Handle,new NativeMenu.Item[]{new("清除这条食物",()=>world.Remove(food)),new("清除本角色食物",()=>world.Clear(food.Owner))});
         layer.Lost+=()=>{if(held&&!closingFromWorld){held=false;world.Release(food,food.Center,true);}};
@@ -43,8 +44,8 @@ internal sealed class FoodWindow
         if(closingFromWorld)return;
         int w=Math.Max(1,(int)Math.Round(food.Width)),h=Math.Max(1,(int)Math.Round(food.Height));
         var x=food.Center.X-food.Width/2;var y=food.Center.Y-food.Height/2;var frame=food.Animation.Current;
-        if((frame!=rendered||lastW!=w||lastH!=h)&&visual.Frames.TryGetValue(frame,out var bitmap))
-        {layer.Paint(NativePetPixels.Image(bitmap,w,h),w,h,x,y,food.Opacity);rendered=frame;lastW=w;lastH=h;}
+        if(frame!=rendered||lastW!=w||lastH!=h)
+        {layer.Paint(cache.GetFoodPixels(visual,frame,w,h),w,h,x,y,food.Opacity);rendered=frame;lastW=w;lastH=h;}
         else layer.Place(x,y,food.Opacity);
     }
     internal void CloseFromWorld(){if(closingFromWorld)return;closingFromWorld=true;held=false;layer.Release();layer.Dispose();}

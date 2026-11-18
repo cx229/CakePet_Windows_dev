@@ -28,6 +28,7 @@ internal static class Gdi
     [DllImport("gdiplus.dll")]internal static extern int GdipTranslateWorldTransform(nint graphics,float x,float y,int order);
     [DllImport("gdiplus.dll")]internal static extern int GdipScaleWorldTransform(nint graphics,float x,float y,int order);
     [DllImport("gdiplus.dll")]internal static extern int GdipRotateWorldTransform(nint graphics,float angle,int order);
+    [DllImport("gdiplus.dll")]internal static extern int GdipBitmapGetPixel(nint bitmap,int x,int y,out uint argb);
     [DllImport("gdiplus.dll")]internal static extern int GdipFlush(nint graphics,int intention);
 }
 internal sealed class GdiImageCache:IDisposable
@@ -65,6 +66,9 @@ internal sealed class GdiImageCache:IDisposable
             Gdi.GdipDeleteGraphics(graphics);graphics=0;
             int transform=frame.Transform switch{"rotate90"=>1,"rotate180"=>2,"rotate270"=>3,"flipX"=>4,"flipY"=>6,_=>0};
             if(transform!=0)Gdi.Check(Gdi.GdipImageRotateFlip(bitmap,transform));
+            // RotateFlip changes the actual decoded dimensions for quarter turns.
+            Gdi.Check(Gdi.GdipGetImageWidth(bitmap,out var actualW));Gdi.Check(Gdi.GdipGetImageHeight(bitmap,out var actualH));
+            width=checked((int)actualW);height=checked((int)actualH);
             var entry=new Image(bitmap,width,height,(long)width*height*4,recent.AddLast(key));images.Add(key,entry);bitmap=0;
             CachedBytes+=entry.Bytes;
             while(CachedBytes>32L*1024*1024&&images.Count>1&&recent.First is {} node)
@@ -74,6 +78,11 @@ internal sealed class GdiImageCache:IDisposable
             return entry;
         }
         finally{if(graphics!=0)Gdi.GdipDeleteGraphics(graphics);if(bitmap!=0)Gdi.GdipDisposeImage(bitmap);if(source!=0)Gdi.GdipDisposeImage(source);}
+    }
+    public bool OpaqueAt(Frame frame,double u,double v)
+    {
+        if(!double.IsFinite(u)||!double.IsFinite(v)||u<0||v<0||u>=1||v>=1)return false;
+        var image=Get(frame);Gdi.Check(Gdi.GdipBitmapGetPixel(image.Handle,(int)(u*image.Width),(int)(v*image.Height),out var argb));return (argb>>24)>8;
     }
     public FrameGeometry Geometry(Frame frame)
     {
@@ -88,19 +97,20 @@ internal sealed class GdiImageCache:IDisposable
 }
 internal sealed class GdiSurface:IDisposable
 {
-    private readonly int side;
+    private readonly int side,width,height;
     private nint dc,dib,old,bitmap,graphics,bits;
     public nint Dc=>dc;
-    public GdiSurface(int side)
+    public GdiSurface(int side):this(side,side){}
+    public GdiSurface(int width,int height)
     {
-        this.side=side;
+        this.width=width;this.height=height;side=width;
         try
         {
             dc=CreateCompatibleDC(0);if(dc==0)throw new Win32Exception(Marshal.GetLastWin32Error());
-            var info=new BitmapInfo{Size=40,Width=side,Height=-side,Planes=1,BitCount=32};
+            var info=new BitmapInfo{Size=40,Width=width,Height=-height,Planes=1,BitCount=32};
             dib=CreateDIBSection(dc,ref info,0,out bits,0,0);if(dib==0||bits==0)throw new Win32Exception(Marshal.GetLastWin32Error());
             old=SelectObject(dc,dib);if(old==0||old==(nint)(-1))throw new Win32Exception(Marshal.GetLastWin32Error());
-            Gdi.Check(Gdi.GdipCreateBitmapFromScan0(side,side,side*4,Gdi.Pargb32,bits,out bitmap));
+            Gdi.Check(Gdi.GdipCreateBitmapFromScan0(width,height,width*4,Gdi.Pargb32,bits,out bitmap));
             Gdi.Check(Gdi.GdipGetImageGraphicsContext(bitmap,out graphics));
             Gdi.Check(Gdi.GdipSetInterpolationMode(graphics,6));
         }
@@ -119,7 +129,12 @@ internal sealed class GdiSurface:IDisposable
         Gdi.Check(Gdi.GdipDrawImageRect(graphics,image,g.Left*scale,g.Top*scale,g.Width*scale,g.Height*scale));
         Gdi.Check(Gdi.GdipFlush(graphics,1));
     }
-    public byte[] CopyPixels(){var bytes=new byte[checked(side*side*4)];Marshal.Copy(bits,bytes,0,bytes.Length);return bytes;}
+    public void DrawRect(nint image,float x,float y,float w,float h)
+    {
+        Gdi.Check(Gdi.GdipResetWorldTransform(graphics));Gdi.Check(Gdi.GdipGraphicsClear(graphics,0));
+        Gdi.Check(Gdi.GdipDrawImageRect(graphics,image,x,y,w,h));Gdi.Check(Gdi.GdipFlush(graphics,1));
+    }
+    public byte[] CopyPixels(){var bytes=new byte[checked(width*height*4)];Marshal.Copy(bits,bytes,0,bytes.Length);return bytes;}
     public void Dispose()
     {
         if(graphics!=0){Gdi.GdipDeleteGraphics(graphics);graphics=0;}

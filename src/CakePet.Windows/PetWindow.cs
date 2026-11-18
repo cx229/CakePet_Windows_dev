@@ -81,13 +81,13 @@ internal sealed class PetWindow
         RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,frameGeometry!);Render();
     }
     private bool configured;
-    private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,settings.FoodLifetimeSeconds==0?null:settings.FoodLifetimeSeconds*1000L,settings.FoodAtEdge,settings.FoodLimit,id=>{var v=images.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*settings.FoodScale,v.LogicalHeight*settings.FoodScale);},settings.FoodOpacity);
+    private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,settings.FoodLifetimeSeconds==0?null:settings.FoodLifetimeSeconds*1000L,settings.FoodAtEdge,settings.FoodLimit,id=>{var v=images.Native.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*settings.FoodScale,v.LogicalHeight*settings.FoodScale);},settings.FoodOpacity);
     private bool HitAt(P pointer)
     {
         var offset=pointer-body.Position;if(offset.X<0||offset.Y<0||offset.X>=Side||offset.Y>=Side)return false;
         var local=AnchorGeometry.Inverse(offset,Side,engine.RenderEdge,engine.Facing);
-        var g=images.Geometry(role.Animation.Current);var scale=Side/role.Package.AnchorRes;
-        return images.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
+        var g=images.Native.Geometry(role.Animation.Current);var scale=Side/role.Package.AnchorRes;
+        return images.Native.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
     }
     private DesktopScreen Monitor=>DesktopPlatform.Resolve(monitorId,engine.Center);
     internal Bounds ActivityArea=>AreaOf(Monitor);
@@ -120,7 +120,7 @@ internal sealed class PetWindow
     }
     public PetWindow(RoleRuntime role,WpfImageCache images,int index,FoodWorld world,Guid roleId=default,int instanceNumber=1)
     {
-        this.images=images;frameGeometry=images.Geometry;foodWorld=world;RoleId=roleId;InstanceNumber=instanceNumber;
+        this.images=images;frameGeometry=images.Native.Geometry;foodWorld=world;RoleId=roleId;InstanceNumber=instanceNumber;
         var monitor=DesktopPlatform.Primary;monitorId=monitor.Id;
         var b=DesktopGeometry.Fit(monitor.Work,160,160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
         RefreshDesktopSpace();
