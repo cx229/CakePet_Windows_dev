@@ -65,7 +65,7 @@ internal sealed class PetWindow : Window
         if(automatic!=foodWorld.IsAutomatic(engine)||(automatic&&(old.FoodMinSeconds!=settings.FoodMinSeconds||old.FoodMaxSeconds!=settings.FoodMaxSeconds)))foodWorld.SetAutomatic(engine,automatic,new Interval(settings.FoodMinSeconds*1000,settings.FoodMaxSeconds*1000),SpawnFood);
         foreach(var food in foodWorld.Foods.Where(f=>f.Owner==engine))food.Opacity=settings.FoodOpacity;
         if(!engine.FeedingEnabled)foodWorld.Clear(engine);
-        engine.SetActivityArea(ActivityArea,images.Geometry);Render();
+        RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,images.Geometry);Render();
     }
     private bool configured;
     private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,settings.FoodLifetimeSeconds==0?null:settings.FoodLifetimeSeconds*1000L,settings.FoodAtEdge,settings.FoodLimit,id=>{var v=images.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*settings.FoodScale,v.LogicalHeight*settings.FoodScale);},settings.FoodOpacity);
@@ -78,12 +78,19 @@ internal sealed class PetWindow : Window
     private DesktopScreen Monitor=>DesktopPlatform.Resolve(monitorId,engine.Center);
     internal Bounds ActivityArea=>AreaOf(Monitor);
     private Bounds AreaOf(DesktopScreen screen)=>settings.ApplyOffsets(fullScreen?screen.Full:screen.Work);
-    private bool CanConnect=>settings.ScreenConnect&&settings.Move&&DesktopPlatform.Screens.Count>1&&body.SnappedEdge==Edge.None&&body.State is (PhysicalState.Free or PhysicalState.Climbing or PhysicalState.Throwing)&&!engine.Foraging;
+    private bool LegacyCanConnect=>settings.ScreenConnect&&settings.Move&&DesktopPlatform.Screens.Count>1&&body.SnappedEdge==Edge.None&&body.State is (PhysicalState.Free or PhysicalState.Climbing or PhysicalState.Throwing)&&!engine.Foraging;
     private ScreenRegion[] Regions()=>DesktopPlatform.Screens.Select(s=>{var a=AreaOf(s);return new ScreenRegion(s.Id,s.Full,a,AnchorGeometry.WindowBounds(a,Side,engine.AnchorOffset,engine.RenderEdge));}).ToArray();
     private ScreenRegion SourceRegion(ScreenRegion[] regions)=>regions.FirstOrDefault(s=>s.Id==monitorId)??regions.First(s=>s.Id==Monitor.Id);
-    private Bounds ConnectedLimits(Bounds ordinary){if(!CanConnect)return ordinary;var regions=Regions();return ConnectedDesktop.Limits(regions,SourceRegion(regions),body.Position,engine.AnchorOffset,body.ClimbEdge);}
-    private Edge ConnectedEdges(){if(!CanConnect)return Edge.None;var regions=Regions();return ConnectedDesktop.OpenEdges(regions,SourceRegion(regions),body.Position,body.ClimbEdge);}
-    private MotionProjection? ConnectedMotion(P from,P next){if(!CanConnect)return null;var regions=Regions();var transfer=ConnectedDesktop.Project(regions,SourceRegion(regions),from,next,engine.AnchorOffset,body.ClimbEdge);monitorId=transfer.Region.Id;engine.AdoptMotionArea(transfer.Region.Area,transfer.Limits);return new MotionProjection(transfer.Position,transfer.Limits);}
+    private Bounds ConnectedLimits(Bounds ordinary){if(!LegacyCanConnect)return ordinary;var regions=Regions();return ConnectedDesktop.Limits(regions,SourceRegion(regions),body.Position,engine.AnchorOffset,body.ClimbEdge);}
+    private Edge ConnectedEdges(){if(!LegacyCanConnect)return Edge.None;var regions=Regions();return ConnectedDesktop.OpenEdges(regions,SourceRegion(regions),body.Position,body.ClimbEdge);}
+    private MotionProjection? ConnectedMotion(P from,P next){if(!LegacyCanConnect)return null;var regions=Regions();var transfer=ConnectedDesktop.Project(regions,SourceRegion(regions),from,next,engine.AnchorOffset,body.ClimbEdge);monitorId=transfer.Region.Id;engine.AdoptMotionArea(transfer.Region.Area,transfer.Limits);return new MotionProjection(transfer.Position,transfer.Limits);}
+    private Bounds[] spaceAreas=Array.Empty<Bounds>();private DesktopSpace? desktopSpace;
+    private void RefreshDesktopSpace()
+    {
+        var areas=(settings.ScreenConnect?DesktopPlatform.Screens:new[]{Monitor}).Select(AreaOf).Distinct().OrderBy(a=>a.Left).ThenBy(a=>a.Top).ThenBy(a=>a.Right).ThenBy(a=>a.Bottom).ToArray();
+        if(areas.Length==0)areas=new[]{ActivityArea};if(!areas.SequenceEqual(spaceAreas)){spaceAreas=areas;desktopSpace=new DesktopSpace(areas);}
+        engine.SetDesktopSpace(desktopSpace,settings.HorizontalWrap);
+    }
     internal bool ClickThrough {get=>clickThrough;set{clickThrough=value;ApplyInputStyle();}}
     private void ApplyInputStyle()
     {
@@ -99,7 +106,7 @@ internal sealed class PetWindow : Window
         canvas.Children.Add(image);Content=canvas;
         var monitor=DesktopPlatform.Primary;monitorId=monitor.Id;
         var b=DesktopGeometry.Fit(monitor.Work,160,160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
-        engine.ConnectedLimits=ConnectedLimits;engine.ConnectedEdges=ConnectedEdges;engine.ConnectedMotion=ConnectedMotion;
+        RefreshDesktopSpace();
         engine.SetActivityArea(monitor.Work,images.Geometry);
         engine.ReturnHome();
         body.SetPosition(new P(Math.Clamp(body.Position.X+index*30,engine.Bounds.Left,engine.Bounds.Right),body.Position.Y));
@@ -179,7 +186,7 @@ internal sealed class PetWindow : Window
     private void FinishDrag()
     {
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
-        engine.SetActivityArea(ActivityArea,images.Geometry);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
+        RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,images.Geometry);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
     }
     internal void ResetSize(){engine.Resize(role.Package.AnchorRes*settings.Scale);Render();}
     internal void ClearFreezes(){foreach(var freeze in freezes.ToArray())freeze.Close();}
@@ -206,7 +213,7 @@ internal sealed class PetWindow : Window
     private void UpdateDebug()=>debug?.Refresh(engine,monitorId,DesktopPlatform.DpiScale(this),foodWorld.Foods.Count(f=>f.Owner==engine),ClickThrough,pixelHit);
     internal void Step(long dt)
     {
-        if(closed)return;ApplyInputStyle();var monitor=Monitor;monitorId=monitor.Id;engine.SetActivityArea(ActivityArea,images.Geometry);engine.Step(dt);
+        if(closed)return;ApplyInputStyle();var monitor=Monitor;monitorId=monitor.Id;RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,images.Geometry);engine.Step(dt);if(body.State!=PhysicalState.Dragging)monitorId=DesktopPlatform.At(body.Position+engine.AnchorOffset).Id;
         foreach(var freeze in freezes.ToArray())freeze.Refresh();
         debugTick+=dt;if(debugTick>=150){debugTick=0;UpdateDebug();}
     }

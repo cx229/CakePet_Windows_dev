@@ -38,6 +38,9 @@ public static class SurfaceMotion
 public sealed class PhysicsBody
 {
     public Func<Point,Point,MotionProjection?>? ProjectMotion {get;set;}
+    public Func<Point,Point,SpaceMotion>? SpaceMotionProject {get;set;}
+    public bool UseDesktopSpace {get;set;}
+    public void AttachSurface(Edge side,Point origin,bool snapped=false){if(!SurfaceMotion.IsSingle(side))return;Position=origin;Velocity=default;ClearPhysicalState();if(snapped)SnappedEdge=side;else{State=PhysicalState.Climbing;ClimbEdge=side;}}
     public Point Position { get; private set; }
     public Point Velocity { get; private set; }
     public PhysicalState State { get; private set; }
@@ -76,6 +79,7 @@ public sealed class PhysicsBody
     public void DragTo(Point point){if(State==PhysicalState.Dragging)Position=point;}
     public void Constrain(Bounds b)
     {
+        if(UseDesktopSpace)return;
         if(State!=PhysicalState.Dragging)Position=Clamp(Position,b);
         if(SnappedEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,b,SnappedEdge);
         if(ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,b,ClimbEdge);
@@ -126,6 +130,7 @@ public sealed class PhysicsBody
     {
         if(!MotionEnabled||State is not (PhysicalState.Free or PhysicalState.Climbing)||SnappedEdge!=Edge.None)return false;
         var next=Position+delta;
+        if(SpaceMotionProject!=null){var motion=SpaceMotionProject(Position,next);Position=motion.Position;return motion.Hit!=Edge.None;}
         if(bounds.HasValue&&ProjectMotion?.Invoke(Position,next) is MotionProjection projection){next=projection.Position;bounds=projection.Bounds;}
         Position=bounds is Bounds b?Clamp(next,b):next;
         if(bounds is Bounds limits&&ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,limits,ClimbEdge);
@@ -145,10 +150,10 @@ public sealed class PhysicsBody
             var delta=target-Position;var distance=delta.Length;var travel=leapSpeed*seconds;
             if(distance<=travel||distance<.001)
             {
-                Position=target;Velocity=default;State=PhysicalState.Free;
-                LastImpactEdge=LeapTargetEdge;LeapTargetEdge=Edge.None;LeapTarget=null;return true;
+                var projected=SpaceMotionProject?.Invoke(Position,target);Position=projected?.Position??target;Velocity=default;State=PhysicalState.Free;
+                LastImpactEdge=projected is SpaceMotion m&&m.Hit!=Edge.None?SurfaceMotion.Sides.First(e=>m.Hit.HasFlag(e)):LeapTargetEdge;LeapTargetEdge=Edge.None;LeapTarget=null;return true;
             }
-            Velocity=delta*(leapSpeed/distance);Position+=delta*(travel/distance);return false;
+            Velocity=delta*(leapSpeed/distance);var movement=delta*(travel/distance);if(SpaceMotionProject!=null){var projected=SpaceMotionProject(Position,Position+movement);Position=projected.Position;if(projected.Hit!=Edge.None){LastImpactEdge=SurfaceMotion.Sides.First(e=>projected.Hit.HasFlag(e));Velocity=default;State=PhysicalState.Free;LeapTargetEdge=Edge.None;LeapTarget=null;return true;}}else Position+=movement;return false;
         }
         if(State is not (PhysicalState.Free or PhysicalState.Throwing))return false;
         while(seconds>0)
@@ -157,6 +162,7 @@ public sealed class PhysicsBody
             Velocity=Limit(Velocity+Acceleration*dt);
             var next=Position+Velocity*dt;
             if(ProjectMotion?.Invoke(Position,next) is MotionProjection projection){next=projection.Position;bounds=projection.Bounds;}
+            if(SpaceMotionProject!=null){var motion=SpaceMotionProject(Position,next);Position=motion.Position;var horizontal=motion.Hit&(Edge.Left|Edge.Right);var vertical=motion.Hit&(Edge.Top|Edge.Bottom);if(horizontal!=Edge.None)Velocity=Velocity with{X=Collide(Velocity.X,horizontal.HasFlag(Edge.Left)?Edge.Left:Edge.Right)};if(vertical!=Edge.None)Velocity=Velocity with{Y=Collide(Velocity.Y,vertical.HasFlag(Edge.Top)?Edge.Top:Edge.Bottom)};var gravity=GravitySurface;if(State==PhysicalState.Throwing&&((gravity!=Edge.None&&motion.Hit.HasFlag(gravity)&&(gravity is Edge.Left or Edge.Right?Math.Abs(Velocity.X):Math.Abs(Velocity.Y))<LandingSpeed)||(gravity==Edge.None&&Velocity.Length<10))){Velocity=default;State=PhysicalState.Free;LastImpactEdge=gravity;return true;}continue;}
             var clamped=Clamp(next,bounds);
             Edge xEdge=next.X<bounds.Left?Edge.Left:next.X>bounds.Right?Edge.Right:Edge.None;
             Edge yEdge=next.Y<bounds.Top?Edge.Top:next.Y>bounds.Bottom?Edge.Bottom:Edge.None;
