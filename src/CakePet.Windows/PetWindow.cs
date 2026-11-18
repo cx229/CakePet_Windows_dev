@@ -43,7 +43,8 @@ internal sealed class PetWindow
     private double renderedSize;
     private string monitorId;
     private bool fullScreen,clickThrough,pixelHit=true,thinkingEnabled=true;
-    private RoleSettings settings=new();
+    private RoleSettings settings=new(),rawSettings=new();
+    private GlobalFeatureLimits featureLimits=new();
     internal event Action<Guid,Func<RoleSettings,RoleSettings>>? ChangeSettings;
     internal event Action<Guid>? RecallRole;
     internal event Action<Guid>? OpenSettings;
@@ -63,9 +64,9 @@ internal sealed class PetWindow
     internal ThinkingStyle ThoughtStyle=>settings.ThoughtStyle;
     internal string? VisibleThought=>thinkingEnabled?role.Thoughts.VisibleText:null;
     internal bool IsAutomatic=>foodWorld.IsAutomatic(engine);
-    internal void ApplySettings(RoleSettings value,bool primary,bool globalThinking=true)
+    internal void ApplySettings(RoleSettings value,bool primary,bool globalThinking=true,GlobalFeatureLimits? limits=null)
     {
-        var old=settings;settings=value.Effective(role.Package);
+        var old=settings;rawSettings=value;featureLimits=limits??new();settings=value.Effective(role.Package,featureLimits);
         if(!configured||old.MonitorId!=settings.MonitorId){monitorId=DesktopPlatform.Resolve(settings.MonitorId,engine.Center).Id;}
         var b=engine.Body;b.Gravity=settings.Gravity;b.GravityEnabled=settings.GravityEnabled;b.GravityEdges=settings.GravityEdges;b.MaxSpeed=settings.MaxSpeed;b.Bounce=settings.Bounce;b.BounceEnabled=settings.BounceEnabled;b.BounceEdges=settings.BounceEdges;b.ThrowCoefficient=settings.ThrowCoefficient;b.SnapDistance=settings.SnapDistance;b.SnapSpeed=settings.SnapSpeed;b.SnapEdges=settings.SnapEdges;
         engine.LeapProbability=settings.LeapProbability;engine.LeapSpeed=settings.LeapSpeed;engine.ForageMultiplier=settings.ForageMultiplier;engine.FeedGrowth=role.Package.AnchorRes*settings.FeedGrowth;engine.MaxDisplaySize=role.Package.AnchorRes*settings.MaxScale;
@@ -73,7 +74,7 @@ internal sealed class PetWindow
         else if(old.MaxScale!=settings.MaxScale&&CurrentScale>settings.MaxScale)engine.Resize(role.Package.AnchorRes*settings.MaxScale);
         configured=true;opacity=settings.Opacity;fullScreen=settings.FullScreen;ClickThrough=settings.ClickThrough;pixelHit=settings.PixelHit;thinkingEnabled=settings.Thinking&&globalThinking;role.Thoughts.Enabled=thinkingEnabled;role.Thoughts.RestDuration=new Interval(settings.ThoughtRestMin*1000,settings.ThoughtRestMax*1000);
         engine.Body.ThrowEnabled=settings.Throw&&role.Package.Supports("touch/roll");engine.Body.SnapEnabled=settings.Snap&&role.Package.Supports("snap/pool");
-        engine.SetStaticStandby(!settings.Move);engine.SetClimbing(settings.Climb);engine.SetLeapEnabled(settings.Leap);engine.SetAutoForage(settings.Forage);
+        engine.SetStaticStandby(!settings.Move,allowFallback:!featureLimits.Move);engine.SetClimbing(settings.Climb);engine.SetLeapEnabled(settings.Leap);engine.SetAutoForage(settings.Forage);
         engine.FeedingEnabled=settings.Feed&&role.Package.Supports("feed/food");engine.GrowOnFeed=settings.Grow;
         var automatic=primary&&engine.FeedingEnabled&&settings.AutoFeed;
         if(automatic!=foodWorld.IsAutomatic(engine)||(automatic&&(old.FoodMinSeconds!=settings.FoodMinSeconds||old.FoodMaxSeconds!=settings.FoodMaxSeconds)))foodWorld.SetAutomatic(engine,automatic,new Interval(settings.FoodMinSeconds*1000,settings.FoodMaxSeconds*1000),SpawnFood);
@@ -143,7 +144,7 @@ internal sealed class PetWindow
         menuOpen=true;layer.Pass(false);
         try
         {
-            var items=BuildContextMenu?.Invoke()??RoleMenus.Build(settings,role.Package,new[]{this},this,
+            var items=BuildContextMenu?.Invoke()??RoleMenus.Build(rawSettings,featureLimits,role.Package,new[]{this},this,
                 null,()=>RecallRole?.Invoke(RoleId),()=>OpenSettings?.Invoke(RoleId),Change,()=>ClearRoleFood?.Invoke(RoleId),HasRoleFood);
             NativeMenu.Show(layer.Handle,items);
         }

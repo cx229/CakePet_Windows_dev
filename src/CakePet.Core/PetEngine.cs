@@ -133,16 +133,16 @@ public sealed class PetEngine : IDisposable
         RefreshGeometry();
     }
     public void SetLeapEnabled(bool enabled)=>LeapEnabled=enabled&&Role.Package.Supports("climb/leap/leap");
-    public void SetStaticStandby(bool enabled)
+    public void SetStaticStandby(bool enabled,bool allowFallback=false)
     {
-        enabled=enabled&&Role.Package.Supports("standby/static_pool");
+        enabled=enabled&&(allowFallback||Role.Package.Supports("standby/static_pool"));
         if(Role.StaticStandby==enabled)return;
         if(enabled)StopForage();
         if(enabled&&Body.State==PhysicalState.Climbing){surfaceSegment=null;surfacePosition=null;Body.DetachClimb();Role.SetClimbing(false);}
         if(enabled&&Body.State is PhysicalState.Throwing or PhysicalState.Flying)
         {Body.Reset(Body.Position,Bounds);Role.ResetToStandby();}
         Body.MotionEnabled=!enabled;
-        Role.SetStaticStandby(enabled);
+        Role.SetStaticStandby(enabled,allowFallback);
         if(!enabled)TryAttachCurrent();
         RefreshGeometry();
     }

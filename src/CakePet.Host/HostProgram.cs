@@ -90,21 +90,15 @@ internal sealed class ResidentHost:IDisposable
         catch(Exception e){world.Remove(food);if(probe)throw;NativeMessage.Show(e.Message,"无法显示食物");}
     }
     private void OnFoodRemoved(FoodInstance food){if(foodWindows.Remove(food,out var window))window.CloseFromWorld();}
-    private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++){group[i].RoleName=entry.Name;group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}}
+    private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++){group[i].RoleName=entry.Name;group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,catalog.FeatureLimits);}}
     private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change){var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();InvalidateCatalog();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));}
-    private void RestoreInput()=>ChangeAllRoles(RoleMenus.Switches[0],false);
-    private void ChangeAllRoles(RoleMenus.Feature feature,bool value)
+    private void RestoreInput()=>SetGlobalLimit(RoleMenus.Switches[0],false);
+    private void SetGlobalLimit(RoleMenus.Feature feature,bool allowed)
     {
-        var changed=new List<RoleEntry>();
-        foreach(var entry in catalog.Roles.ToArray())
-        {
-            if(!feature.Supported(MenuPack(entry)))continue;
-            var next=entry with{Settings=feature.Set(entry.Settings,value)};
-            if(next==entry)continue;catalog.Update(next);changed.Add(next);
-        }
-        if(changed.Count==0)return;
-        storage.Save();InvalidateCatalog();
-        foreach(var entry in changed)ApplyRunning(entry);
+        var next=feature.SetLimit(catalog.FeatureLimits,allowed);
+        if(next==catalog.FeatureLimits)return;
+        catalog.FeatureLimits=next;storage.Save();InvalidateCatalog();
+        foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())ApplyRunning(entry);
     }
     // For recalled roles read package metadata only; do not allocate native image caches.
     private RolePackage? MenuPack(RoleEntry entry)
@@ -120,7 +114,7 @@ internal sealed class ResidentHost:IDisposable
     {
         var entry=catalog.Roles.Single(r=>r.Id==id);
         var live=pets.Where(p=>p.RoleId==id).OrderBy(p=>p.InstanceNumber).ToArray();
-        return RoleMenus.Build(entry.Settings,pack??MenuPack(entry),live,instance,
+        return RoleMenus.Build(entry.Settings,catalog.FeatureLimits,pack??MenuPack(entry),live,instance,
             ()=>Summon(catalog.Roles.Single(r=>r.Id==id)),()=>Recall(id),()=>OpenSettings(id),patch=>ChangeRole(id,patch),
             ()=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);},
             live.Any(p=>world.Foods.Any(f=>f.Owner==p.Engine)));
@@ -137,10 +131,8 @@ internal sealed class ResidentHost:IDisposable
         var items=new List<NativeMenu.Item>{new("打开 CakePet",()=>OpenSettings()),new("角色",Children:children),new(null)};
         foreach(var feature in RoleMenus.Switches)
         {
-            var eligible=roles.Where(r=>feature.Supported(packs[r.Id])).ToArray();
-            bool all=eligible.Length>0&&eligible.All(r=>feature.Get(r.Settings));
-            bool mixed=!all&&eligible.Any(r=>feature.Get(r.Settings));
-            items.Add(new(feature.Name+"（全局-"+(eligible.Length==0?"不可用":mixed?"部分开启":all?"开":"关")+"）",()=>ChangeAllRoles(feature,!all),eligible.Length>0,all));
+            bool allowed=feature.Allowed(catalog.FeatureLimits);
+            items.Add(new(feature.Name+(allowed?"（全局-允许）":"（全局-关）"),()=>SetGlobalLimit(feature,!allowed),true,allowed));
         }
         items.Add(new(null));items.Add(new("退出",()=>loop.Stop()));return items;
     }
@@ -159,7 +151,7 @@ internal sealed class ResidentHost:IDisposable
             pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!pets.Any(p=>p.RoleId==entry.Id))randomSchedule.Forget(entry.Id);};
             created.Add(pet);
         }
-        for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
+        for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,catalog.FeatureLimits);
         foreach(var pet in created)pet.Show();
     }
     private void OpenSettings(Guid? id=null)
@@ -182,7 +174,7 @@ internal sealed class ResidentHost:IDisposable
     private void ReloadCatalog(bool reloadAssets,RoleCatalog? replacement=null)
     {
         SaveTyping();
-        var oldPolicy=catalog.ThinkingPolicy;
+        var oldPolicy=catalog.ThinkingPolicy;var oldLimits=catalog.FeatureLimits;
         var old=catalog.Roles.ToDictionary(r=>r.Id);var oldPacks=catalog.Packs.ToDictionary(p=>p.Id);
         var active=pets.Select(p=>p.RoleId).Distinct().ToArray();
         if(replacement!=null)storage.Commit(replacement);else storage.Reload();InvalidateCatalog();
@@ -196,7 +188,7 @@ internal sealed class ResidentHost:IDisposable
             bool changed=reloadAssets||!old.TryGetValue(id,out var before)||before.PackId!=next.PackId||!oldPacks.TryGetValue(next.PackId,out var oldPack)||oldPack!=catalog.Packs.Single(p=>p.Id==next.PackId);
             if(changed){Recall(id);Summon(next);}
             else if(pets.Count(p=>p.RoleId==id)!=next.Settings.Count)Summon(next);
-            else if(oldPolicy!=catalog.ThinkingPolicy||!old.TryGetValue(id,out var prior)||prior!=next)ApplyRunning(next);
+            else if(oldLimits!=catalog.FeatureLimits||oldPolicy!=catalog.ThinkingPolicy||!old.TryGetValue(id,out var prior)||prior!=next)ApplyRunning(next);
             }catch(Exception e){var error=e.Message;loop.Post(()=>NativeMessage.Show(error,"角色更新失败"));}
         }
         ReleaseUnused();

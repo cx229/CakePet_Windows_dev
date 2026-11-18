@@ -3,15 +3,15 @@ namespace CakePet.Windows;
 
 internal static class RoleMenus
 {
-    internal sealed record Feature(string Name,Func<RoleSettings,bool> Get,Func<RoleSettings,bool,RoleSettings> Set,Func<RolePackage?,bool> Supported);
+    internal sealed record Feature(string Name,Func<RoleSettings,bool> Get,Func<RoleSettings,bool,RoleSettings> Set,Func<RolePackage?,bool> Supported,Func<GlobalFeatureLimits,bool> Allowed,Func<GlobalFeatureLimits,bool,GlobalFeatureLimits> SetLimit);
     internal static readonly Feature[] Switches={
-        new("点击穿透",s=>s.ClickThrough,(s,v)=>s with{ClickThrough=v},_=>true),
-        new("投食",s=>s.Feed,(s,v)=>s with{Feed=v},p=>p?.Supports("feed/food")==true),
-        new("移动",s=>s.Move,(s,v)=>s with{Move=v},p=>p?.Supports("standby/static_pool")==true),
-        new("自动攀爬",s=>s.Climb,(s,v)=>s with{Climb=v},p=>p!=null),
-        new("飞跃",s=>s.Leap,(s,v)=>s with{Leap=v},p=>p?.Supports("climb/leap/leap")==true)
+        new("点击穿透",s=>s.ClickThrough,(s,v)=>s with{ClickThrough=v},_=>true,g=>g.ClickThrough,(g,v)=>g with{ClickThrough=v}),
+        new("投食",s=>s.Feed,(s,v)=>s with{Feed=v},p=>p?.Supports("feed/food")==true,g=>g.Feed,(g,v)=>g with{Feed=v}),
+        new("移动",s=>s.Move,(s,v)=>s with{Move=v},p=>p?.Supports("standby/static_pool")==true,g=>g.Move,(g,v)=>g with{Move=v}),
+        new("自动攀爬",s=>s.Climb,(s,v)=>s with{Climb=v},p=>p!=null,g=>g.Climb,(g,v)=>g with{Climb=v}),
+        new("飞跃",s=>s.Leap,(s,v)=>s with{Leap=v},p=>p?.Supports("climb/leap/leap")==true,g=>g.Leap,(g,v)=>g with{Leap=v})
     };
-    internal static IReadOnlyList<NativeMenu.Item> Build(RoleSettings settings,RolePackage? pack,IReadOnlyList<PetWindow> live,PetWindow? instance,
+    internal static IReadOnlyList<NativeMenu.Item> Build(RoleSettings settings,GlobalFeatureLimits limits,RolePackage? pack,IReadOnlyList<PetWindow> live,PetWindow? instance,
         Action? summon,Action recall,Action openSettings,Action<Func<RoleSettings,RoleSettings>> change,Action clearFood,bool hasFood)
     {
         var items=new List<NativeMenu.Item>();
@@ -44,7 +44,10 @@ internal static class RoleMenus
         {
             bool supported=feature.Supported(pack);
             bool on=feature.Name=="移动"&&pack!=null&&!supported||supported&&feature.Get(settings);
-            items.Add(new(feature.Name,()=>change(s=>feature.Set(s,!on)),supported,on));
+            bool allowed=feature.Allowed(limits);
+            bool parentAllowed=feature.Name switch{"自动攀爬"=>limits.Move,"飞跃"=>limits.Move&&limits.Climb,_=>true};
+            string label=feature.Name+(!allowed||!parentAllowed?"（全局限制）":"");
+            items.Add(new(label,()=>change(s=>feature.Set(s,!on)),supported&&allowed&&parentAllowed,on));
         }
         if(active)
         {
