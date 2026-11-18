@@ -74,9 +74,9 @@ internal static class DesktopPlatform
         if(spaces.Count>=64)spaces.Clear();
         return spaces[key]=new DesktopSpace(areas);
     }
-    public static DesktopScreen Primary=>Screens.FirstOrDefault(x=>x.Primary)??Screens[0];
+    public static DesktopScreen Primary{get{var all=Screens;foreach(var s in all)if(s.Primary)return s;return all[0];}}
     public static DesktopScreen At(P p)=>DesktopGeometry.Nearest(Screens,p);
-    public static DesktopScreen Resolve(string id,P fallback)=>Screens.FirstOrDefault(x=>x.Id==id)??At(fallback);
+    public static DesktopScreen Resolve(string id,P fallback){var all=Screens;foreach(var s in all)if(s.Id==id)return s;return DesktopGeometry.Nearest(all,fallback);}
     private static long taskbarRead=-1000;
     private static (Bounds Bar,Bounds? Tray)? taskbar;
     public static (Bounds Bar,Bounds? Tray)? Taskbar()

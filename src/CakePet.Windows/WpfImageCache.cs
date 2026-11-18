@@ -13,6 +13,8 @@ internal sealed class WpfImageCache(RolePackage pack)
     private readonly Dictionary<(string,string),(BitmapSource Bitmap,long Bytes,LinkedListNode<(string,string)> Node)> cache=new();
     private readonly LinkedList<(string,string)> recent=new();
     private long imageBytes,foodBytes;
+    internal long CachedImageBytes=>imageBytes;
+    internal long CachedFoodBytes=>foodBytes;
     private readonly LinkedList<string> recentFood=new();
     public void Clear(){cache.Clear();recent.Clear();imageBytes=0;foodVisuals.Clear();recentFood.Clear();foodBytes=0;alpha=new();}
     private static long Bytes(BitmapSource b)=>(long)b.PixelWidth*b.PixelHeight*4;
@@ -37,34 +39,31 @@ internal sealed class WpfImageCache(RolePackage pack)
     {
         if(foodVisuals.TryGetValue(start,out var cached)){recentFood.Remove(start);recentFood.AddLast(start);return cached;}
         var side=pack.AnchorRes;var canvasSide=Math.Clamp(pack.DecodeTarget>0?pack.DecodeTarget:side,1,2048);
-        var source=new Dictionary<Frame,BitmapSource>();var visited=new HashSet<string>();string? next=start;
+        var frames=new HashSet<Frame>();var visited=new HashSet<string>();string? next=start;
         while(next!=null&&visited.Add(next)&&pack.Modes.TryGetValue(next,out var mode))
         {
-            foreach(var frame in mode.Frames)
-            {
-                if(source.ContainsKey(frame))continue;
-                var bitmap=Get(frame);
-                var (w,h)=frame.Transform is "rotate90" or "rotate270"?(bitmap.PixelHeight,bitmap.PixelWidth):(bitmap.PixelWidth,bitmap.PixelHeight);
-                var g=FrameGeometry.Calculate(w,h,canvasSide,frame);
-                var visual=new DrawingVisual();using(var dc=visual.RenderOpen())dc.DrawImage(bitmap,new Rect(g.Left,g.Top,g.Width,g.Height));
-                var canvas=new RenderTargetBitmap(canvasSide,canvasSide,96,96,PixelFormats.Pbgra32);canvas.Render(visual);canvas.Freeze();source[frame]=canvas;
-            }
+            foreach(var frame in mode.Frames)frames.Add(frame);
             next=mode.Loop==LoopKind.Infinite?null:mode.Next;
         }
-        if(source.Count==0)throw new InvalidDataException("Food mode has no images.");
-        var left=canvasSide;var top=canvasSide;var right=-1;var bottom=-1;
-        foreach(var bitmap in source.Values)
+        if(frames.Count==0)throw new InvalidDataException("Food mode has no images.");
+        RenderTargetBitmap Draw(Frame frame,int width,int height,int offsetX,int offsetY)
         {
-            var bytes=new byte[checked(canvasSide*canvasSide*4)];bitmap.CopyPixels(bytes,canvasSide*4,0);
-            for(int y=0;y<canvasSide;y++)for(int x=0;x<canvasSide;x++)if(bytes[(y*canvasSide+x)*4+3]>8)
+            var bitmap=Get(frame);
+            var (w,h)=frame.Transform is "rotate90" or "rotate270"?(bitmap.PixelHeight,bitmap.PixelWidth):(bitmap.PixelWidth,bitmap.PixelHeight);
+            var g=FrameGeometry.Calculate(w,h,canvasSide,frame);
+            var visual=new DrawingVisual();using(var dc=visual.RenderOpen())dc.DrawImage(bitmap,new Rect(g.Left-offsetX,g.Top-offsetY,g.Width,g.Height));
+            var target=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);target.Render(visual);target.Freeze();return target;
+        }
+        var left=canvasSide;var top=canvasSide;var right=-1;var bottom=-1;
+        var scan=new byte[checked(canvasSide*canvasSide*4)];
+        foreach(var frame in frames)
+        {
+            Draw(frame,canvasSide,canvasSide,0,0).CopyPixels(scan,canvasSide*4,0);
+            for(int y=0;y<canvasSide;y++)for(int x=0;x<canvasSide;x++)if(scan[(y*canvasSide+x)*4+3]>8)
             {left=Math.Min(left,x);top=Math.Min(top,y);right=Math.Max(right,x);bottom=Math.Max(bottom,y);}
         }
         var rect=right<left?new Int32Rect(0,0,canvasSide,canvasSide):new Int32Rect(left,top,right-left+1,bottom-top+1);
-        var cropped=source.ToDictionary(x=>x.Key,x=>{
-            // Copy only the cropped pixels; CroppedBitmap alone retains its full-size source.
-            var stride=checked(rect.Width*4);var bytes=new byte[checked(stride*rect.Height)];x.Value.CopyPixels(rect,bytes,stride,0);
-            var b=BitmapSource.Create(rect.Width,rect.Height,96,96,PixelFormats.Pbgra32,null,bytes,stride);b.Freeze();return b;
-        });
+        var cropped=frames.ToDictionary(frame=>frame,frame=>(BitmapSource)Draw(frame,rect.Width,rect.Height,rect.X,rect.Y));
         var result=new FoodVisual(cropped,rect.Width,rect.Height,rect.Width*(double)side/canvasSide,rect.Height*(double)side/canvasSide);
         foodVisuals[start]=result;recentFood.AddLast(start);foodBytes+=Bytes(result);
         while(foodBytes>FoodBudget&&foodVisuals.Count>1&&recentFood.First is {} node){foodBytes-=Bytes(foodVisuals[node.Value]);foodVisuals.Remove(node.Value);recentFood.RemoveFirst();}

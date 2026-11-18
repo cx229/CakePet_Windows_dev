@@ -26,6 +26,11 @@ internal static class Program
                 if(cache.Get(frame).PixelWidth<=0)throw new InvalidDataException(frame.Resource);
             foreach(var id in pack.Candidates("feed/food"))
             {var visual=cache.GetFoodVisual(id);if(visual.Frames.Count==0||visual.Width<=0||visual.Height<=0)throw new InvalidDataException(id);}
+            cache.Clear();
+            if(cache.CachedImageBytes!=0||cache.CachedFoodBytes!=0)throw new InvalidDataException("Image cache did not release entries.");
+            var first=pack.Modes.Values.First().Frames[0];
+            var bitmap=cache.Get(first);
+            if(bitmap.PixelWidth<=0||!ReferenceEquals(bitmap,cache.Get(first)))throw new InvalidDataException("Image cache reload failed.");
             return 0;
         }
         using var mutex=new System.Threading.Mutex(true,"Local\\CakePet.Windows",out bool first);
@@ -80,7 +85,16 @@ internal sealed class Launcher : Window
     private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
     private readonly Stopwatch clock=Stopwatch.StartNew();
     private long lastTick;
-    private void UpdateTickRate(){var desired=pets.Count>0||foodWindows.Count>0||IsVisible?16:100;if(timer.Interval.TotalMilliseconds!=desired)timer.Interval=TimeSpan.FromMilliseconds(desired);}
+    private void UpdateTickRate()
+    {
+        if(shuttingDown||!started)return;
+        bool active=pets.Count>0||foodWindows.Count>0||IsVisible;
+        bool typingActive=catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;
+        if(!active&&!typingActive){timer.Stop();thinkingPresenter.Clear();return;}
+        var desired=active?16:100;
+        if(timer.Interval.TotalMilliseconds!=desired)timer.Interval=TimeSpan.FromMilliseconds(desired);
+        if(!timer.IsEnabled){lastTick=clock.ElapsedMilliseconds;timer.Start();}
+    }
     private bool shuttingDown,exitRequested;
     private readonly Forms.NotifyIcon tray;
     private readonly System.Drawing.Icon trayIcon;
@@ -175,7 +189,7 @@ internal sealed class Launcher : Window
     }
     private void ReleaseLauncherUi(bool preserveDraft=false)
     {
-        if(preserveDraft&&navigationHost.Content is PackageEditorPage editor&&editor.HasUnsavedChanges)return;
+        if(preserveDraft&&navigationHost.Content is PackageEditorPage editor&&editor.HasUnsavedChanges){UpdateTickRate();return;}
         navigationHost.Content=null;Content=null;homeShell=null;previews.Clear();roleCards.Children.Clear();packCards.Children.Clear();
         ReleaseIdleImages();UpdateTickRate();
     }
@@ -185,7 +199,7 @@ internal sealed class Launcher : Window
         foreach(var pair in packages.Values)
             if(!pets.Any(p=>ReferenceEquals(p.Images,pair.Images)))pair.Images.Clear();
     }
-    internal void StartResident(){if(started)return;started=true;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;UpdateTickRate();timer.Start();}
+    internal void StartResident(){if(started)return;started=true;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;UpdateTickRate();}
     internal void ShowLauncher(){BuildLauncherUi();Show();WindowState=WindowState.Normal;Activate();UpdateTickRate();}
     private void Refresh(){UpdateTickRate();status.Text=$"已召唤 {pets.Count} 个角色 · {world.Foods.Count} 条食物。右键角色可投食；拖动食物至角色松手。";}
     private void OnFoodSpawned(FoodInstance food)
@@ -287,6 +301,7 @@ internal sealed class Launcher : Window
     });
     private void Edit(RoleEntry entry)=>EditAt(entry,0);
     private void EditAt(RoleEntry entry,int section)=>Safe(()=>{
+        if(navigationHost.Content is PackageEditorPage draft&&!draft.ConfirmDiscard()){ShowLauncher();return;}
         ShowLauncher();
         navigationHost.Content=new RoleSettingsPage(()=>catalog.Roles.Single(x=>x.Id==entry.Id),GetPack(entry.PackId).Pack,patch=>Safe(()=>{
             var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;if(!old.Settings.RandomMode.Enabled&&next.Settings.RandomMode.Enabled)next=next with{Settings=next.Settings.RandomMode.Apply(next.Settings,Random.Shared)};if(old.Settings.RandomMode!=next.Settings.RandomMode)randomSchedule.Forget(entry.Id);catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
@@ -338,7 +353,7 @@ internal sealed class Launcher : Window
             var role=new RoleRuntime(pair.Pack);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id,existing.Count+1){RoleName=entry.Name};
             pet.OpenSettings+=id=>Edit(catalog.Roles.Single(x=>x.Id==id));pet.ChangeSettings+=ChangeRole;pet.RecallRole+=Recall;pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};
             pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);role.Thoughts.Enabled=settings.Thinking&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;thoughts.Add(role.Thoughts,entry.Id);
-            pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!pets.Any(p=>p.RoleId==entry.Id))randomSchedule.Forget(entry.Id);if(!shuttingDown)RefreshCards();};
+            pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!pets.Any(p=>p.RoleId==entry.Id))randomSchedule.Forget(entry.Id);if(!pets.Any(p=>ReferenceEquals(p.Images,pet.Images)))pet.Images.Clear();if(!shuttingDown)RefreshCards();};
             pet.Show();
         }
         for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);

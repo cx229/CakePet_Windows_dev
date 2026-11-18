@@ -120,7 +120,7 @@ internal sealed class PetWindow : Window
         var monitor=DesktopPlatform.Primary;monitorId=monitor.Id;
         var b=DesktopGeometry.Fit(monitor.Work,160,160);engine=new PetEngine(role,b,160,new P(Math.Clamp((b.Left+b.Right)/2+index*30,b.Left,b.Right),b.Bottom));
         RefreshDesktopSpace();
-        engine.SetActivityArea(monitor.Work,images.Geometry);
+        engine.SetActivityArea(monitor.Work,frameGeometry!);
         engine.ReturnHome();
         body.SetPosition(new P(Math.Clamp(body.Position.X+index*30,engine.Bounds.Left,engine.Bounds.Right),body.Position.Y));
         

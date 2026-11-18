@@ -7,7 +7,7 @@ public static class DesktopGeometry
     public static DesktopScreen Nearest(IReadOnlyList<DesktopScreen> screens,Point p)
     {
         if(screens.Count==0)throw new ArgumentException("No screens.");
-        return screens.OrderBy(s=>Distance(s.Full,p)).ThenByDescending(s=>s.Primary).First();
+        var best=screens[0];var distance=Distance(best.Full,p);for(int i=1;i<screens.Count;i++){var candidate=screens[i];var next=Distance(candidate.Full,p);if(next<distance||next==distance&&candidate.Primary&&!best.Primary){best=candidate;distance=next;}}return best;
     }
     private static double Distance(Bounds b,Point p)
     {
