@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -10,20 +12,38 @@ internal static class MemoryDiagnostics
         using var process=Process.GetCurrentProcess();process.Refresh();
         var gc=GC.GetGCMemoryInfo();
         var result=extra??new();
-        result["phase"]=phase;result["timestamp"]=DateTimeOffset.Now;
+        result["runtime"]=RuntimeFeature.IsDynamicCodeSupported?"JIT":"NativeAOT";result["phase"]=phase;result["timestamp"]=DateTimeOffset.Now;
         result["workingSetBytes"]=process.WorkingSet64;result["privateBytes"]=process.PrivateMemorySize64;
         result["managedLiveBytes"]=GC.GetTotalMemory(false);result["gcHeapBytes"]=gc.HeapSizeBytes;result["gcCommittedBytes"]=gc.TotalCommittedBytes;
         result["handles"]=process.HandleCount;result["threads"]=process.Threads.Count;
         result["managedFrameworkAssemblies"]=AppDomain.CurrentDomain.GetAssemblies().Select(a=>a.GetName().Name).Where(n=>n!=null&&(n.Contains("Presentation",StringComparison.OrdinalIgnoreCase)||n.Contains("WindowsForms",StringComparison.OrdinalIgnoreCase)||n.Contains("System.Drawing",StringComparison.OrdinalIgnoreCase)||n=="WindowsBase"||n=="System.Xaml")).OrderBy(n=>n).ToArray();
         result["cpuMilliseconds"]=process.TotalProcessorTime.TotalMilliseconds;
         result["frameworkModules"]=process.Modules.Cast<ProcessModule>().Select(x=>x.ModuleName)
-            .Where(x=>x!=null&&(x.Contains("wpf",StringComparison.OrdinalIgnoreCase)||x.Contains("Presentation",StringComparison.OrdinalIgnoreCase)||x.Contains("WindowsForms",StringComparison.OrdinalIgnoreCase)||x.Contains("System.Drawing",StringComparison.OrdinalIgnoreCase)||x.Contains("coreclr",StringComparison.OrdinalIgnoreCase)||x.Contains("milcore",StringComparison.OrdinalIgnoreCase)||x.Contains("wpfgfx",StringComparison.OrdinalIgnoreCase))).ToArray();
+            .Where(x=>x!=null&&(x.Contains("wpf",StringComparison.OrdinalIgnoreCase)||x.Contains("Presentation",StringComparison.OrdinalIgnoreCase)||x.Contains("WindowsForms",StringComparison.OrdinalIgnoreCase)||x.Contains("System.Drawing",StringComparison.OrdinalIgnoreCase)||x.Contains("clrjit",StringComparison.OrdinalIgnoreCase)||x.Contains("coreclr",StringComparison.OrdinalIgnoreCase)||x.Contains("milcore",StringComparison.OrdinalIgnoreCase)||x.Contains("wpfgfx",StringComparison.OrdinalIgnoreCase))).ToArray();
         return result;
     }
+    // Diagnostic data is a small, explicitly supported set of primitives. Avoid reflection-based
+    // object serialization in the resident process (Native AOT has no reflection fallback).
+    private static JsonNode? Node(object? value)=>value switch
+    {
+        null=>null,
+        string s=>JsonValue.Create(s),bool b=>JsonValue.Create(b),
+        int i=>JsonValue.Create(i),long l=>JsonValue.Create(l),double d=>JsonValue.Create(d),
+        DateTimeOffset t=>JsonValue.Create(t.ToString("O")),
+        Dictionary<string,object?> map=>Object(map),
+        IEnumerable<string?> strings=>new JsonArray(strings.Select(s=>(JsonNode?)JsonValue.Create(s)).ToArray()),
+        IEnumerable<Dictionary<string,object?>> maps=>new JsonArray(maps.Select(m=>(JsonNode?)Object(m)).ToArray()),
+        _=>throw new InvalidOperationException("Unsupported diagnostic value")
+    };
+    private static JsonObject Object(Dictionary<string,object?> report)
+    {
+        var node=new JsonObject();foreach(var entry in report)node[entry.Key]=Node(entry.Value);return node;
+    }
+    internal static string ToJson(Dictionary<string,object?> report)=>Object(report).ToJsonString(new System.Text.Json.JsonSerializerOptions{WriteIndented=true,TypeInfoResolver=System.Text.Json.Serialization.Metadata.JsonTypeInfoResolver.Combine()});
     internal static string Summary(Dictionary<string,object?> report)
     {
         string Size(string key)=>(Convert.ToDouble(report[key])/(1024*1024)).ToString("F1")+" MiB";
-        return $"工作集：{Size("workingSetBytes")}\n专用提交内存：{Size("privateBytes")}\n托管内存估算：{Size("managedLiveBytes")}\nGC 已提交：{Size("gcCommittedBytes")}\n图片缓存：{Size("imageCacheBytes")}\n食物缓存：{Size("foodCacheBytes")}"+(report.ContainsKey("nativeCacheBytes")?"\n原生缓存："+Size("nativeCacheBytes"):"");
+        return $"运行时：{report.GetValueOrDefault("runtime")}\n工作集：{Size("workingSetBytes")}\n专用提交内存：{Size("privateBytes")}\n托管内存估算：{Size("managedLiveBytes")}\nGC 已提交：{Size("gcCommittedBytes")}\n图片缓存：{Size("imageCacheBytes")}\n食物缓存：{Size("foodCacheBytes")}"+(report.ContainsKey("nativeCacheBytes")?"\n原生缓存："+Size("nativeCacheBytes"):"");
     }
 }
 internal static class NativeMessage

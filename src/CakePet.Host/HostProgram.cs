@@ -9,6 +9,7 @@ internal static class HostProgram
     [STAThread]
     public static int Main(string[] args)
     {
+        if(args.Length>0&&args[0]=="--framework-probe")return HostFrameworkProbe.Run(args);
         var root=Path.Combine(AppContext.BaseDirectory,"assets","default");
         if(args.Length>=2&&args[0]=="--package")root=Path.GetFullPath(args[1]);
         using var mutex=new Mutex(true,"Local\\CakePet.NativeHost",out bool first);
@@ -35,14 +36,17 @@ internal sealed class ResidentHost:IDisposable
     private readonly TypingInput typingInput;
     private readonly RandomSchedule randomSchedule=new();
     private readonly Stopwatch clock=Stopwatch.StartNew();
+    private readonly bool probe;
+    private long ticks;
+    internal long TickCount=>ticks;
     private readonly NativeTray tray;
     private long lastTick,lastRandomCheck,lastTypingSave;
     private bool typingDirty,disposed;
     private Process? settingsProcess;
     private string Today()=>DateTime.Now.ToString("yyyy-MM-dd");
-    public ResidentHost(string root,HostLoop loop)
+    public ResidentHost(string root,HostLoop loop,string? dataRoot=null,bool probe=false)
     {
-        this.loop=loop;defaultRoot=root;storage=new(root);
+        this.loop=loop;this.probe=probe;defaultRoot=root;storage=new(root,dataRoot:dataRoot);
         typingInput=new TypingInput(()=>{if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){typing.Press(clock.ElapsedMilliseconds,Today(),catalog.Typing);typingDirty=true;}});
         thoughts.Add(typing);thoughts.Policy=catalog.ThinkingPolicy;
         world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
@@ -51,10 +55,10 @@ internal sealed class ResidentHost:IDisposable
             ("全部归位",()=>{foreach(var p in pets)p.Engine.ReturnHome();}),("召回全部",()=>Recall(null)),
             ("恢复全部点击",RestoreInput),("托盘显示设置",()=>Process.Start(new ProcessStartInfo("ms-settings:taskbar"){UseShellExecute=true})),
             ("清除全部定格",()=>{foreach(var p in pets)p.ClearFreezes();}),("内存诊断",MemoryReport),(null,null),("退出",()=>loop.Stop())
-        });
+        },probe?new Guid("36fbddc0-3cd6-4e04-9349-c90700fb2140"):null,probe?"CakePet framework probe":"CakePet");
         loop.Tick+=Tick;
     }
-    private void Safe(Action action){try{action();}catch(Exception e){NativeMessage.Show(e.Message,"CakePet");}}
+    private void Safe(Action action){try{action();}catch(Exception e){if(probe)throw;NativeMessage.Show(e.Message,"CakePet");}}
     public void Start(){ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Safe(()=>Summon(r));lastTick=clock.ElapsedMilliseconds;}
     private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;SetTyping();}
     private void SetTyping(){try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){NativeMessage.Show(e.Message,"无法启用打字统计");}}
@@ -62,6 +66,7 @@ internal sealed class ResidentHost:IDisposable
     private void Tick()
     {
         if(disposed)return;
+        ticks++;
         var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
         if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));storage.Save();}}
         world.Advance(dt);var live=pets.ToArray();foreach(var pet in live)pet.Step(dt);world.UpdateInteractions();foreach(var pet in live)pet.Render();foreach(var food in foodWindows.Values.ToArray())food.Render();
@@ -80,7 +85,7 @@ internal sealed class ResidentHost:IDisposable
     {
         var owner=pets.FirstOrDefault(p=>p.Engine==food.Owner);if(owner==null){world.Remove(food);return;}
         try{var window=new FoodWindow(world,food,owner.NativeImages,owner.NativeImages.GetFoodVisual(food.StartMode));foodWindows.Add(food,window);window.Show();}
-        catch(Exception e){world.Remove(food);NativeMessage.Show(e.Message,"无法显示食物");}
+        catch(Exception e){world.Remove(food);if(probe)throw;NativeMessage.Show(e.Message,"无法显示食物");}
     }
     private void OnFoodRemoved(FoodInstance food){if(foodWindows.Remove(food,out var window))window.CloseFromWorld();}
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++){group[i].RoleName=entry.Name;group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}}
@@ -94,7 +99,7 @@ internal sealed class ResidentHost:IDisposable
         while(existing.Count>settings.Count){var last=existing[^1];existing.RemoveAt(existing.Count-1);last.Close();}
         while(existing.Count<settings.Count)
         {
-            var role=new RoleRuntime(pair.Pack);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id,existing.Count+1){RoleName=entry.Name};
+            var role=new RoleRuntime(pair.Pack,probe?new Random(1234+existing.Count):null);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id,existing.Count+1){RoleName=entry.Name};
             pet.OpenSettings+=id=>OpenSettings(id);pet.ChangeSettings+=ChangeRole;pet.RecallRole+=id=>Recall(id);
             pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};
             pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);role.Thoughts.Enabled=settings.Thinking&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;thoughts.Add(role.Thoughts,entry.Id);
@@ -113,9 +118,10 @@ internal sealed class ResidentHost:IDisposable
         var info=new ProcessStartInfo(path){UseShellExecute=false};info.ArgumentList.Add("--settings-client");if(id.HasValue)info.ArgumentList.Add(id.Value.ToString());
         settingsProcess=Process.Start(info);
     }
+    internal Dictionary<string,object?> Sample(string phase)=>MemoryDiagnostics.Sample(phase,new(){["ticks"]=ticks,["trayRegistered"]=tray.Registered,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
     private void MemoryReport()
     {
-        var report=MemoryDiagnostics.Sample("native-resident",new(){["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
+        var report=Sample("native-resident");
         var directory=Path.Combine(Path.GetDirectoryName(storage.FilePath)!,"diagnostics");Directory.CreateDirectory(directory);
         var path=Path.Combine(directory,"memory-host-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".json");File.WriteAllText(path,MemoryDiagnostics.ToJson(report));
         NativeMessage.Show(MemoryDiagnostics.Summary(report)+"\n\n诊断文件：\n"+path,"CakePet · 内存诊断");
@@ -166,6 +172,17 @@ internal sealed class ResidentHost:IDisposable
             default:throw new InvalidOperationException("Unknown command: "+req.Command);
         }
         return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog));
+    }
+    internal void ConfigureProbe(int count)
+    {
+        catalog.AutoSummon=false;
+        catalog.Typing=new TypingSettings();
+        // Same default settings, same assets and same engine for both compiler variants.
+        catalog.ThinkingPolicy=ThinkingDisplayPolicy.Latest;
+        if(catalog.Roles.FirstOrDefault() is not RoleEntry role)throw new InvalidDataException("Probe package missing");
+        catalog.Update(role with{Settings=role.Settings with{Count=Math.Max(1,count)}});
+        storage.Save();Start();
+        if(count>0)Summon(catalog.Roles[0]);
     }
     public void Dispose()
     {

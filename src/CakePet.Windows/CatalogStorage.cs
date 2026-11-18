@@ -4,13 +4,14 @@ namespace CakePet.Windows;
 
 internal sealed partial class CatalogStorage
 {
-    private readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet");
+    private readonly string root;
     public string FilePath=>Path.Combine(root,"catalog.json");
     public RoleCatalog Catalog {get;private set;}
     private readonly bool remote;
     private string baseline="";
-    public CatalogStorage(string bundled,bool remote=false)
+    public CatalogStorage(string bundled,bool remote=false,string? dataRoot=null)
     {
+        root=dataRoot??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet");
         this.remote=remote;
         Catalog=remote?RoleCatalog.Parse(HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog")):RoleCatalog.Load(FilePath);
         baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);
