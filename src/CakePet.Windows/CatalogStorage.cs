@@ -16,10 +16,11 @@ internal sealed partial class CatalogStorage
         }
     }
     public void Save()=>Catalog.Save(FilePath);
+    public void Reload()=>Catalog=RoleCatalog.Load(FilePath);
     public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}
     public PackEntry Import(string source)
     {
-        var pack=RolePackage.Load(source,WpfImageCache.IsReadable);
+        var pack=RolePackage.Load(source,GdiImageCache.IsReadable);
         var id=Guid.NewGuid();var dest=Path.Combine(root,"packs",id.ToString("N"));
         Directory.CreateDirectory(dest);
         try

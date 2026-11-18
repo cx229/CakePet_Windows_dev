@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CakePet.Host</AssemblyName><DefineConstants>$(DefineConstants);NATIVE_HOST</DefineConstants>
+    <ApplicationManifest>../CakePet.Windows/app.manifest</ApplicationManifest>
+    <ApplicationIcon Condition="Exists('../CakePet.Windows/Assets/CakePet.ico')">../CakePet.Windows/Assets/CakePet.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CakePet.Core/CakePet.Core.csproj"/>
+    <Compile Include="../CakePet.Windows/NativeLayer.cs;../CakePet.Windows/TrayIcon.cs;../CakePet.Windows/GdiSurface.cs;../CakePet.Windows/NativeSpriteCache.cs;../CakePet.Windows/PetWindow.cs;../CakePet.Windows/FoodWindow.cs;../CakePet.Windows/FreezeWindow.cs;../CakePet.Windows/ThinkingPresenter.cs;../CakePet.Windows/TypingInput.cs;../CakePet.Windows/DesktopPlatform.cs;../CakePet.Windows/NativeDebugWindow.cs;../CakePet.Windows/MemoryDiagnostics.cs;../CakePet.Windows/CatalogStorage.cs;../CakePet.Windows/CatalogArchive.cs;../CakePet.Windows/HostConnection.cs" Link="Shared/%(Filename)%(Extension)"/>
+  </ItemGroup>
+</Project>

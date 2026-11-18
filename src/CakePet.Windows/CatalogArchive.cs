@@ -41,7 +41,7 @@ internal sealed partial class CatalogStorage
                 {
                     var p=item.Deserialize<PackEntry>(ArchiveIO.Options)??throw new InvalidDataException();
                     if(p.Id==Guid.Empty||!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException();
-                    var dir=Path.Combine(stage,"packs",p.Directory);var validated=RolePackage.Load(dir,WpfImageCache.IsReadable);
+                    var dir=Path.Combine(stage,"packs",p.Directory);var validated=RolePackage.Load(dir,GdiImageCache.IsReadable);
                     var folder=Guid.NewGuid().ToString("N");dest=Path.Combine(root,"packs",folder);Directory.CreateDirectory(dest);Copy(dir,dest);
                     merged.Packs.RemoveAll(x=>x.Id==p.Id);merged.Packs.Add(new PackEntry(p.Id,validated.Name,folder));copied.Add(dest);packs++;
                 }catch(Exception){if(dest!=null&&Directory.Exists(dest))Directory.Delete(dest,true);skipped++;}
@@ -73,7 +73,7 @@ internal sealed partial class CatalogStorage
     public void Reset(string bundled)
     {
         var old=Catalog;var fresh=new RoleCatalog();var folder=Guid.NewGuid().ToString("N");var dest=Path.Combine(root,"packs",folder);
-        try{var pack=RolePackage.Load(bundled,WpfImageCache.IsReadable);Directory.CreateDirectory(dest);Copy(bundled,dest);var p=new PackEntry(Guid.NewGuid(),pack.Name,folder);fresh.Packs.Add(p);fresh.AddRole(p.Id,p.Name);fresh.Save(FilePath);Catalog=fresh;}
+        try{var pack=RolePackage.Load(bundled,GdiImageCache.IsReadable);Directory.CreateDirectory(dest);Copy(bundled,dest);var p=new PackEntry(Guid.NewGuid(),pack.Name,folder);fresh.Packs.Add(p);fresh.AddRole(p.Id,p.Name);fresh.Save(FilePath);Catalog=fresh;}
         catch{if(Directory.Exists(dest))Directory.Delete(dest,true);throw;}
         foreach(var p in old.Packs)try{Directory.Delete(Resolve(p),true);}catch(IOException){}catch(UnauthorizedAccessException){}
     }
