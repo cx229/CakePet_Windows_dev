@@ -24,8 +24,10 @@ try {
         (Invoke-Probe -Project $native -Arguments @('sprite',$root) -Name 'native-sprite')
         (Invoke-Probe -Project $wpf -Arguments @('--memory-probe','tray',$root) -Name 'wpf-tray')
         (Invoke-Probe -Project $wpf -Arguments @('--memory-probe','sprite',$root) -Name 'wpf-sprite')
+        (Invoke-Probe -Project $wpf -Arguments @('--memory-probe','sprite5',$root) -Name 'wpf-sprite5')
+        (Invoke-Probe -Project $wpf -Arguments @('--memory-probe','sprite10',$root) -Name 'wpf-sprite10')
     )
-    $lines=@('## Isolated host memory probe','These are short-running Windows CI samples, not measurements of the user desktop. The sprite cases use one half-scale pet, with food and thoughts disabled. No forced GC or working-set trimming.','', '| Phase | Working set MiB | Private bytes MiB | Managed estimate MiB | Cache MiB | Tray registered |','|---|---:|---:|---:|---:|---|')
+    $lines=@('## Isolated host memory probe','These are short-running Windows CI samples, not measurements of the user desktop. The sprite cases use one, five or ten half-scale pets, with food and thoughts disabled. No forced GC or working-set trimming.','', '| Phase | Working set MiB | Private bytes MiB | Managed estimate MiB | Cache MiB | Tray registered |','|---|---:|---:|---:|---:|---|')
     foreach($r in $rows){
         $line='| {0} | {1:F1} | {2:F1} | {3:F1} | {4:F1} | {5} |' -f $r.phase,($r.workingSetBytes/1MB),($r.privateBytes/1MB),($r.managedLiveBytes/1MB),($r.imageCacheBytes/1MB),$r.trayRegistered
         $lines+=$line;Write-Host $line

@@ -17,6 +17,7 @@ internal sealed class NativeLayer:IDisposable
     private byte opacity=255;
     private bool pass,closed;
     public event Action? Down,Move,Up,Lost,Menu,Closed;
+    public event Action<nint>? RawInput;
     public nint Handle=>hwnd;
     public bool IsCaptured=>GetCapture()==hwnd&&hwnd!=0;
     public double Dpi=>hwnd==0?1:Math.Max(1,GetDpiForWindow(hwnd))/96.0;
@@ -39,6 +40,7 @@ internal sealed class NativeLayer:IDisposable
         {
             switch(msg)
             {
+                case 0x00FF:layer.RawInput?.Invoke(l);break;
                 case 0x21:return 3;
                 case 0x14:return 1;
                 case 0x10:layer.Dispose();return 0;
