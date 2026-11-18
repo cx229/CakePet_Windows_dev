@@ -2,4 +2,5 @@ bin/
 obj/
 .vs/
 artifacts/
-assets/default/
+/src/CakePet.Windows/Assets/tray.png
+/src/CakePet.Windows/Assets/CakePet.ico

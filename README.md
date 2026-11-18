@@ -1,33 +1,32 @@
 # CakePet Windows Dev
 
-全新 C# / .NET 10 / WPF 实现，共享 Android 素材包 v1.12 语义。核心引擎与平台宿主分离。
+C# / .NET 10，原生 Win32 常驻宿主与独立 WPF 设置界面。素材包遵循共享格式，但 Windows 内置素材独立维护。
+
+## 素材
+
+`assets/default/` 是 Windows 自己的完整白酥素材包，包含 `modes.jsonc` 与全部原始 PNG。首次迁入来自 Android 提交 `8ccf31b3a4427e143d2ab106b85f7f9833482479`；之后 Windows 可独立修改，不自动同步 Android。
+
+构建、测试及托盘图标均使用本仓库资源。托盘 PNG 从静坐第一帧生成，ICO 为构建产物，不重复提交。发布包的 `assets/windows-source.txt` 记录当前素材树 SHA。
 
 ## 开发
 
+在仓库根目录运行：
+
 ```powershell
-dotnet run --project tests/CakePet.Core.Tests
-dotnet run --project src/CakePet.Windows -- --package "素材包目录"
+dotnet run --project tests/CakePet.Core.Tests -c Release -- assets/default
+dotnet run --project src/CakePet.Windows -c Release -- --validate-assets assets/default
+dotnet build src/CakePet.Host -c Release
+dotnet build src/CakePet.Windows -c Release
 ```
 
-自动构建从 Android 固定提交复制白酥模板，只发布自包含 Windows x64 完整包，解压运行 CakePet.exe，无需额外安装 .NET。开发包名称为 CakePet_winx64-v1.YY.MM.DD.hh.mm-gt（北京时间）。
+GitHub Actions 仅依赖本仓库源码与素材，发布自包含 Windows x64 完整包。解压后运行根目录 CakePet.exe，无需额外安装 .NET。开发包名为 CakePet_winx64-v1.YY.MM.DD.hh.mm-gt（北京时间）。
 
 ## 使用
 
-启动后常驻托盘；托盘左键打开设置，右键可以召唤、召回、归位、恢复点击、调整系统托盘设置或退出。关闭设置窗口会释放其窗口与界面；未保存的素材包草稿会提示。角色右键可投食、定格、调试、调整设置；支持多实例、多屏幕与素材包编辑。
+常驻托盘；左键打开设置，右键召唤、召回、归位、恢复点击或退出。角色右键支持投食、定格、调试与设置。关闭设置后独立 WPF 进程退出（未保存草稿除外）。
 
-## 内存诊断
+内存诊断入口：全局设置 → 系统与调试 → 调试信息 → 内存占用。仅在页面可见时采集，可复制或导出，不强制 GC，不上传数据。
 
-托盘右键「内存诊断」记录当前工作集、专用提交内存、托管内存估算、GC 提交内存和图片缓存，并保存 JSON 到本地数据目录 diagnostics。建议分别在启动后、打开设置后、关闭设置后、召回全部后记录，比较相同场景的工作集和专用提交内存。诊断不会强制 GC 或清空工作集，不会上传数据。当前角色渲染仍使用 WPF；托盘使用原生 Win32，设置窗口和主题按需加载。
+## 性能测试
 
-## 原生窗口实验（仅开发测试，不随安装包发布）
-
-`tests/CakePet.NativeProbe` 不引用 WPF、WinForms 或 System.Drawing，使用 Win32 分层透明窗口、GDI+ 和共享 Core 引擎，实现半倍角色动画、拖动和原生托盘。它不是正式宿主，尚不实现正式版的所有功能。
-
-```powershell
-dotnet run --project tests/CakePet.NativeProbe -c Release -- interactive "素材包目录"
-dotnet build src/CakePet.Windows -c Release
-dotnet build tests/CakePet.NativeProbe -c Release
-& .github/scripts/Measure-Host.ps1 -Package "素材包目录"
-```
-
-测量在独立进程内进行，比较纯 .NET、原生托盘、原生桌宠、WPF 托盘和 WPF 桌宠。CI 的结果会显示在构建摘要；CI 若没有交互桌面，测量失败不阻止正式发行，但原生实验必须编译通过。正式版的桌宠渲染仍然使用 WPF。
+`tests/CakePet.NativeProbe` 为开发实验；正式宿主为 Native AOT。CI 使用同一份本地素材比较 JIT 与 Native AOT 的内存和调度频率。

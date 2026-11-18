@@ -135,7 +135,7 @@ internal sealed class Launcher : IDisposable
     }
     private string BundledSource()
     {
-        try{var path=Path.Combine(AppContext.BaseDirectory,"..","assets","android-source.txt");var sha=File.Exists(path)?File.ReadAllText(path).Trim():"";return sha.Length>=8?sha[..8]:"本地";}catch(IOException){return "本地";}
+        try{var path=Path.Combine(AppContext.BaseDirectory,"..","assets","windows-source.txt");var sha=File.Exists(path)?File.ReadAllText(path).Trim():"";return sha.Length>=8?sha[..8]:"本地";}catch(IOException){return "本地";}
     }
     private void OpenTraySettings()=>Safe(()=>Process.Start(new ProcessStartInfo("ms-settings:taskbar"){UseShellExecute=true}));
     private void BuildLauncherUi()
@@ -158,7 +158,7 @@ internal sealed class Launcher : IDisposable
         var import=Ui.Button("导入 ▾",()=>{});var importMenu=new ContextMenu();var zipItem=new MenuItem{Header="导入 ZIP"};zipItem.Click+=(_,_)=>ImportArchive();importMenu.Items.Add(zipItem);var dirItem=new MenuItem{Header="导入目录"};dirItem.Click+=(_,_)=>ImportPack();importMenu.Items.Add(dirItem);import.ContextMenu=importMenu;import.Click+=(_,_)=>importMenu.IsOpen=true;importRow.Children.Add(import);
         importRow.Children.Add(Ui.Button("＋ 新建",()=>Safe(()=>{var pack=storage.Import(defaultRoot);RefreshCards();EditPack(pack);}),true));
         var builtIn=Ui.Light("导入内置模板",()=>Safe(()=>{storage.Import(defaultRoot);RefreshCards();}));builtIn.ToolTip="作为新素材包导入，不覆盖已有素材包。";importRow.Children.Add(builtIn);
-        var materialsTitle=Ui.Pair(Ui.Caption("素材包管理","管理角色使用的素材包 · 内置模板来源 "+BundledSource(),true),importRow);((TextBlock)((StackPanel)materialsTitle.Children[0]).Children[0]).FontSize=26;materialsTitle.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        var materialsTitle=Ui.Pair(Ui.Caption("素材包管理","管理角色使用的素材包 · 内置模板版本 "+BundledSource(),true),importRow);((TextBlock)((StackPanel)materialsTitle.Children[0]).Children[0]).FontSize=26;materialsTitle.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var global=new StackPanel{Margin=new Thickness(12),MaxWidth=900};global.Children.Add(Ui.Text("全局设置",26));
         void GlobalGroup(string name){var t=Ui.Text(name,12,true);t.Margin=new Thickness(2,14,0,7);global.Children.Add(t);}
         GlobalGroup("个性化");
