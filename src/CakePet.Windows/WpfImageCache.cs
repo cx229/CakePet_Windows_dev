@@ -8,14 +8,26 @@ namespace CakePet.Windows;
 
 internal sealed class WpfImageCache(RolePackage pack)
 {
-    private readonly Dictionary<(string,string),BitmapSource> cache=new();
+    private const long ImageBudget=32L*1024*1024;
+    private const long FoodBudget=16L*1024*1024;
+    private readonly Dictionary<(string,string),(BitmapSource Bitmap,long Bytes,LinkedListNode<(string,string)> Node)> cache=new();
+    private readonly LinkedList<(string,string)> recent=new();
+    private long imageBytes,foodBytes;
+    private readonly LinkedList<string> recentFood=new();
+    public void Clear(){cache.Clear();recent.Clear();imageBytes=0;foodVisuals.Clear();recentFood.Clear();foodBytes=0;alpha=new();}
+    private static long Bytes(BitmapSource b)=>(long)b.PixelWidth*b.PixelHeight*4;
+    private static long Bytes(FoodVisual v)=>v.Frames.Values.Sum(Bytes);
+    private void TrimImages()
+    {
+        while(imageBytes>ImageBudget&&cache.Count>1&&recent.First is {} node){var entry=cache[node.Value];cache.Remove(node.Value);recent.RemoveFirst();imageBytes-=entry.Bytes;}
+    }
     public static bool IsReadable(string path)
     {
         try
         {
             using var stream=File.OpenRead(path);
-            var frame=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad).Frames[0];
-            return frame.PixelWidth>0&&frame.PixelHeight>0;
+            var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=stream;image.DecodePixelWidth=64;image.EndInit();
+            return image.PixelWidth>0&&image.PixelHeight>0;
         }
         catch(Exception e) when(e is IOException or NotSupportedException or ArgumentException or InvalidOperationException or FormatException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException){return false;}
     }
@@ -23,7 +35,7 @@ internal sealed class WpfImageCache(RolePackage pack)
     internal sealed record FoodVisual(IReadOnlyDictionary<Frame,BitmapSource> Frames,int Width,int Height,double LogicalWidth,double LogicalHeight);
     public FoodVisual GetFoodVisual(string start)
     {
-        if(foodVisuals.TryGetValue(start,out var cached))return cached;
+        if(foodVisuals.TryGetValue(start,out var cached)){recentFood.Remove(start);recentFood.AddLast(start);return cached;}
         var side=pack.AnchorRes;var canvasSide=Math.Clamp(pack.DecodeTarget>0?pack.DecodeTarget:side,1,2048);
         var source=new Dictionary<Frame,BitmapSource>();var visited=new HashSet<string>();string? next=start;
         while(next!=null&&visited.Add(next)&&pack.Modes.TryGetValue(next,out var mode))
@@ -48,11 +60,18 @@ internal sealed class WpfImageCache(RolePackage pack)
             {left=Math.Min(left,x);top=Math.Min(top,y);right=Math.Max(right,x);bottom=Math.Max(bottom,y);}
         }
         var rect=right<left?new Int32Rect(0,0,canvasSide,canvasSide):new Int32Rect(left,top,right-left+1,bottom-top+1);
-        var cropped=source.ToDictionary(x=>x.Key,x=>{var b=new CroppedBitmap(x.Value,rect);b.Freeze();return (BitmapSource)b;});
-        return foodVisuals[start]=new FoodVisual(cropped,rect.Width,rect.Height,rect.Width*(double)side/canvasSide,rect.Height*(double)side/canvasSide);
+        var cropped=source.ToDictionary(x=>x.Key,x=>{
+            // Copy only the cropped pixels; CroppedBitmap alone retains its full-size source.
+            var stride=checked(rect.Width*4);var bytes=new byte[checked(stride*rect.Height)];x.Value.CopyPixels(rect,bytes,stride,0);
+            var b=BitmapSource.Create(rect.Width,rect.Height,96,96,PixelFormats.Pbgra32,null,bytes,stride);b.Freeze();return b;
+        });
+        var result=new FoodVisual(cropped,rect.Width,rect.Height,rect.Width*(double)side/canvasSide,rect.Height*(double)side/canvasSide);
+        foodVisuals[start]=result;recentFood.AddLast(start);foodBytes+=Bytes(result);
+        while(foodBytes>FoodBudget&&foodVisuals.Count>1&&recentFood.First is {} node){foodBytes-=Bytes(foodVisuals[node.Value]);foodVisuals.Remove(node.Value);recentFood.RemoveFirst();}
+        return result;
     }
     private readonly Dictionary<Frame,FrameGeometry> geometries=new();
-    private readonly Dictionary<BitmapSource,byte[]> alpha=new();
+    private System.Runtime.CompilerServices.ConditionalWeakTable<BitmapSource,byte[]> alpha=new();
     public FrameGeometry Geometry(Frame frame)
     {
         if(geometries.TryGetValue(frame,out var g))return g;
@@ -67,14 +86,14 @@ internal sealed class WpfImageCache(RolePackage pack)
         {
             var converted=new FormatConvertedBitmap(bitmap,PixelFormats.Bgra32,null,0);
             var bytes=new byte[checked(bitmap.PixelWidth*bitmap.PixelHeight*4)];converted.CopyPixels(bytes,bitmap.PixelWidth*4,0);
-            mask=new byte[bitmap.PixelWidth*bitmap.PixelHeight];for(int i=0;i<mask.Length;i++)mask[i]=bytes[4*i+3];alpha[bitmap]=mask;
+            mask=new byte[bitmap.PixelWidth*bitmap.PixelHeight];for(int i=0;i<mask.Length;i++)mask[i]=bytes[4*i+3];alpha.Add(bitmap,mask);
         }
         return mask[(int)(v*bitmap.PixelHeight)*bitmap.PixelWidth+(int)(u*bitmap.PixelWidth)]>8;
     }
     public BitmapSource Get(Frame frame)
     {
         var key=(frame.Resource,frame.Transform);
-        if(cache.TryGetValue(key,out var cached))return cached;
+        if(cache.TryGetValue(key,out var cached)){recent.Remove(cached.Node);recent.AddLast(cached.Node);return cached.Bitmap;}
         var path=pack.ResolveAsset(frame.Resource);
         int w,h;
         using(var input=File.OpenRead(path))
@@ -93,6 +112,6 @@ internal sealed class WpfImageCache(RolePackage pack)
             "rotate90"=>new RotateTransform(90),"rotate180"=>new RotateTransform(180),"rotate270"=>new RotateTransform(270),_=>null};
         BitmapSource result=image;
         if(transform!=null){result=new TransformedBitmap(image,transform);result.Freeze();}
-        cache.Add(key,result);return result;
+        var bytes=Bytes(result)*(transform==null?1:2);cache.Add(key,(result,bytes,recent.AddLast(key)));imageBytes+=bytes;TrimImages();return result;
     }
 }

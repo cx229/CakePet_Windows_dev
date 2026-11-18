@@ -25,7 +25,7 @@ internal sealed partial class CatalogStorage
         try
         {
             Copy(source,dest);
-            RolePackage.Load(dest,WpfImageCache.IsReadable);
+            RolePackage.Load(dest);
             var entry=new PackEntry(id,pack.Name,id.ToString("N"));Catalog.Packs.Add(entry);
             try{Save();}catch{Catalog.Packs.Remove(entry);throw;}return entry;
         }

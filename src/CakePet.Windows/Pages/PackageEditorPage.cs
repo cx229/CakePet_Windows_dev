@@ -30,6 +30,8 @@ internal sealed partial class PackageEditorPage:UserControl
         var right=new DockPanel{Margin=new Thickness(20)};Grid.SetColumn(right,1);grid.Children.Add(right);
         status.Text="无未保存修改";var footer=new DockPanel{Margin=new Thickness(0,0,0,12)};var save=Ui.Button("保存素材包",Save,true);DockPanel.SetDock(save,Dock.Right);footer.Children.Add(save);footer.Children.Add(status);DockPanel.SetDock(footer,Dock.Top);right.Children.Add(footer);right.Children.Add(host);Info();
     }
+    internal bool HasUnsavedChanges=>dirty;
+    internal bool ConfirmDiscard()=>!dirty||MessageBox.Show("放弃尚未保存的配置修改？已导入的图片文件会保留。","关闭设置",MessageBoxButton.YesNo)==MessageBoxResult.Yes;
     private void Changed(){dirty=true;status.Text="有未保存的修改";}
     private void Safe(Action a){try{a();}catch(Exception e){MessageBox.Show(e.Message,"素材包编辑");}}
     private void Save()=>Safe(()=>{var pack=editor.Save(WpfImageCache.IsReadable);dirty=false;status.Text=pack.Warnings.Count==0?"已保存":$"已保存 · {pack.Warnings.Count} 项动画警告";saved();if(pack.Warnings.Count>0)MessageBox.Show(string.Join(Environment.NewLine,pack.Warnings.Take(20)),"素材包警告");});

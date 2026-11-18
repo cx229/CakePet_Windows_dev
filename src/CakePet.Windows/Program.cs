@@ -51,15 +51,15 @@ internal sealed class Launcher : Window
     private readonly string defaultRoot;
     private readonly CatalogStorage storage;
     private RoleCatalog catalog=>storage.Catalog;
-    private readonly WrapPanel roleCards=new();
-    private readonly ContentControl navigationHost=new();
+    private WrapPanel roleCards=new();
+    private ContentControl navigationHost=new();
     private FrameworkElement? homeShell;
     private readonly List<(Image Image,AnimationCursor Cursor,WpfImageCache Cache)> previews=new();
     private readonly DispatcherTimer saveTimer=new(){Interval=TimeSpan.FromMilliseconds(400)};
     private bool dirty;
     private void QueueSave(){dirty=true;saveTimer.Stop();saveTimer.Start();}
     private void FlushSave(){saveTimer.Stop();if(dirty){storage.Save();dirty=false;}}
-    private readonly StackPanel packCards=new();
+    private StackPanel packCards=new();
     private readonly List<PetWindow> pets=new();
     private readonly Dictionary<string,(RolePackage Pack,WpfImageCache Images)> packages=new(StringComparer.OrdinalIgnoreCase);
     private readonly ThinkingCoordinator thoughts=new();
@@ -80,16 +80,47 @@ internal sealed class Launcher : Window
     private readonly DispatcherTimer timer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
     private readonly Stopwatch clock=Stopwatch.StartNew();
     private long lastTick;
+    private void UpdateTickRate(){var desired=pets.Count>0||foodWindows.Count>0||IsVisible?16:100;if(timer.Interval.TotalMilliseconds!=desired)timer.Interval=TimeSpan.FromMilliseconds(desired);}
     private bool shuttingDown,exitRequested;
     private readonly Forms.NotifyIcon tray;
     private readonly System.Drawing.Icon trayIcon;
     private bool started;
     private string Version=>typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??"dev";
-    private readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
+    private TextBlock status=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
     public Launcher(string root)
     {
         defaultRoot=root;storage=new CatalogStorage(root);typingInput=new TypingInput(OnTyping);thoughts.Add(typing);Title="CakePet · "+Version;Width=1080;Height=740;MinWidth=800;MinHeight=500;Background=Ui.Brush("Canvas");FontFamily=new System.Windows.Media.FontFamily("Microsoft YaHei UI, Segoe UI");
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
+        thoughts.Policy=catalog.ThinkingPolicy;
+        saveTimer.Tick+=(_,_)=>Safe(FlushSave);
+        var trayMenu=new Forms.ContextMenuStrip();
+        void TrayItem(string title,Action action)=>trayMenu.Items.Add(title,null,(_,_)=>Dispatcher.Invoke(action));
+        TrayItem("打开 CakePet",ShowLauncher);TrayItem("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);});
+        TrayItem("全部归位",()=>{foreach(var pet in pets)pet.Engine.ReturnHome();});
+        TrayItem("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
+        TrayItem("恢复全部点击",RestoreInput);TrayItem("托盘显示设置",OpenTraySettings);
+        TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
+        trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
+        try{trayIcon=TrayIcon.Load();}catch(System.IO.IOException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}catch(ArgumentException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}
+        var iconPath=Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico");if(File.Exists(iconPath)){using var stream=File.OpenRead(iconPath);Icon=System.Windows.Media.Imaging.BitmapFrame.Create(stream,System.Windows.Media.Imaging.BitmapCreateOptions.None,System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);}
+        tray=new Forms.NotifyIcon{Icon=trayIcon,Text="CakePet",ContextMenuStrip=trayMenu,Visible=true};
+        tray.MouseClick+=(_,e)=>{if(e.Button==Forms.MouseButtons.Left)Dispatcher.Invoke(ShowLauncher);};
+        StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized){Hide();ReleaseLauncherUi(preserveDraft:true);}};
+        System.Windows.Application.Current.SessionEnding+=(_,_)=>{exitRequested=true;Close();};
+        world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
+        timer.Tick+=(_,_)=>Tick();
+        
+        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;if(navigationHost.Content is PackageEditorPage editor&&!editor.ConfirmDiscard())return;Safe(FlushSave);Hide();ReleaseLauncherUi();return;}shuttingDown=true;Safe(FlushSave);Safe(SaveTyping);typingInput.Dispose();timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();thinkingPresenter.Dispose();Dispatcher.BeginInvoke(new Action(()=>Application.Current.Shutdown()));};
+    }
+    private string BundledSource()
+    {
+        try{var path=Path.Combine(AppContext.BaseDirectory,"assets","android-source.txt");var sha=File.Exists(path)?File.ReadAllText(path).Trim():"";return sha.Length>=8?sha[..8]:"本地";}catch(IOException){return "本地";}
+    }
+    private void OpenTraySettings()=>Safe(()=>Process.Start(new ProcessStartInfo("ms-settings:taskbar"){UseShellExecute=true}));
+    private void BuildLauncherUi()
+    {
+        if(homeShell!=null)return;
+        roleCards=new WrapPanel();packCards=new StackPanel();navigationHost=new ContentControl();status=new TextBlock{TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
         var shell=new Grid();shell.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(190)});shell.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});homeShell=shell;Content=navigationHost;navigationHost.Content=shell;
         var nav=new StackPanel{Margin=new Thickness(12,20,12,12)};shell.Children.Add(new Border{Background=Ui.Brush("Sidebar"),Child=nav});var logo=Ui.Text("CakePet",26);logo.FontWeight=FontWeights.SemiBold;logo.Margin=new Thickness(6,0,0,22);nav.Children.Add(logo);
         var pages=new ContentControl{Margin=new Thickness(20,18,20,18)};Grid.SetColumn(pages,1);shell.Children.Add(pages);
@@ -104,7 +135,8 @@ internal sealed class Launcher : Window
         var materials=new DockPanel{Margin=new Thickness(12)};var importRow=new StackPanel{Orientation=Orientation.Horizontal};
         var import=Ui.Button("导入 ▾",()=>{});var importMenu=new ContextMenu();var zipItem=new MenuItem{Header="导入 ZIP"};zipItem.Click+=(_,_)=>ImportArchive();importMenu.Items.Add(zipItem);var dirItem=new MenuItem{Header="导入目录"};dirItem.Click+=(_,_)=>ImportPack();importMenu.Items.Add(dirItem);import.ContextMenu=importMenu;import.Click+=(_,_)=>importMenu.IsOpen=true;importRow.Children.Add(import);
         importRow.Children.Add(Ui.Button("＋ 新建",()=>Safe(()=>{var pack=storage.Import(defaultRoot);RefreshCards();EditPack(pack);}),true));
-        var materialsTitle=Ui.Pair(Ui.Caption("素材包管理","管理角色使用的素材包",true),importRow);((TextBlock)((StackPanel)materialsTitle.Children[0]).Children[0]).FontSize=26;materialsTitle.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        var builtIn=Ui.Light("导入内置模板",()=>Safe(()=>{storage.Import(defaultRoot);RefreshCards();}));builtIn.ToolTip="作为新素材包导入，不覆盖已有素材包。";importRow.Children.Add(builtIn);
+        var materialsTitle=Ui.Pair(Ui.Caption("素材包管理","管理角色使用的素材包 · 内置模板来源 "+BundledSource(),true),importRow);((TextBlock)((StackPanel)materialsTitle.Children[0]).Children[0]).FontSize=26;materialsTitle.Margin=new Thickness(0,0,0,16);DockPanel.SetDock(materialsTitle,Dock.Top);materials.Children.Add(materialsTitle);materials.Children.Add(new ScrollViewer{Content=packCards,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         var global=new StackPanel{Margin=new Thickness(12),MaxWidth=900};global.Children.Add(Ui.Text("全局设置",26));
         void GlobalGroup(string name){var t=Ui.Text(name,12,true);t.Margin=new Thickness(2,14,0,7);global.Children.Add(t);}
         GlobalGroup("个性化");
@@ -130,38 +162,32 @@ internal sealed class Launcher : Window
         locations.IsVisibleChanged+=(_,_)=>locations.SelectedIndex=(int)catalog.ThinkingLocation;
         locations.SelectionChanged+=(_,_)=>{if(locations.SelectedIndex<0)return;catalog.ThinkingLocation=(ThinkingLocation)locations.SelectedIndex;QueueSave();};
         thinkingCard.Add(Ui.Pair(policyNote,policies));thinkingCard.Add(Ui.Pair(Ui.Caption("显示位置","所有碎碎念共用的显示区域。"),locations));thinkingCard.Add(Ui.Pair(typingCaption,typingLink));global.Children.Add(thinkingCard);
-        thoughts.Policy=catalog.ThinkingPolicy;UpdateThinkingUi();
+        UpdateThinkingUi();
         GlobalGroup("后台运行");
         var launch=Ui.Switch(catalog.AutoSummon);launch.IsVisibleChanged+=(_,_)=>launch.IsChecked=catalog.AutoSummon;
         launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("启动时召唤角色","软件启动后自动召唤第一个角色"),launch)));
+        global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("托盘图标","在 Windows 设置中选择让 CakePet 始终显示在任务栏通知区域。"),Ui.Light("打开系统设置 ›",OpenTraySettings))));
         GlobalGroup("数据与备份");
         var backup=new SettingCard("备份与恢复","导出全部持久化数据；导入时只覆盖支持的内容。");backup.Add(Ui.Pair(Ui.Caption("导出软件备份","将软件设置与数据保存为备份文件"),Ui.Button("导出",ExportBackup)));backup.Add(Ui.Pair(Ui.Caption("导入软件备份","从备份文件恢复软件设置与数据"),Ui.Button("导入",ImportArchive)));backup.Add(Ui.Pair(Ui.Caption("重置软件","恢复首次安装状态"),Ui.Button("重置",ResetSoftware)));global.Children.Add(backup);
         GlobalGroup("系统与调试");var cleanup=new SettingCard("清理桌面","不修改角色设置。");cleanup.Add(Ui.Pair(Ui.Caption("清除全部食物"),Ui.Button("清除",()=>world.Clear())));cleanup.Add(Ui.Pair(Ui.Caption("清除全部定格"),Ui.Button("清除",()=>{foreach(var pet in pets)pet.ClearFreezes();})));global.Children.Add(cleanup);
         foreach(var item in new[]{("首页",(FrameworkElement)roles),("素材包管理",materials),("全局设置",new ScrollViewer{Content=global,VerticalScrollBarVisibility=ScrollBarVisibility.Auto})}){int i=navItems.Count;var page=item.Item2;var b=Ui.Nav(item.Item1,()=>Navigate(page,i));navItems.Add(b);nav.Children.Add(b);}
         nav.Children.Add(Ui.Text(Version,11,true));Navigate(roles,0);RefreshCards();
-        saveTimer.Tick+=(_,_)=>Safe(FlushSave);
-        var trayMenu=new Forms.ContextMenuStrip();
-        void TrayItem(string title,Action action)=>trayMenu.Items.Add(title,null,(_,_)=>Dispatcher.Invoke(action));
-        TrayItem("打开 CakePet",ShowLauncher);TrayItem("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);});
-        TrayItem("全部归位",()=>{foreach(var pet in pets)pet.Engine.ReturnHome();});
-        TrayItem("召回全部",()=>{foreach(var pet in pets.ToArray())pet.Close();});
-        TrayItem("恢复全部点击",RestoreInput);
-        TrayItem("清除全部定格",()=>{foreach(var pet in pets)pet.ClearFreezes();});
-        trayMenu.Items.Add(new Forms.ToolStripSeparator());TrayItem("退出",()=>{exitRequested=true;Close();});
-        try{trayIcon=TrayIcon.Load();}catch(System.IO.IOException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}catch(ArgumentException){trayIcon=(System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();}
-        var iconPath=Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico");if(File.Exists(iconPath)){using var stream=File.OpenRead(iconPath);Icon=System.Windows.Media.Imaging.BitmapFrame.Create(stream,System.Windows.Media.Imaging.BitmapCreateOptions.None,System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);}
-        tray=new Forms.NotifyIcon{Icon=trayIcon,Text="CakePet "+Version,ContextMenuStrip=trayMenu,Visible=true};
-        tray.MouseClick+=(_,e)=>{if(e.Button==Forms.MouseButtons.Left)Dispatcher.Invoke(ShowLauncher);};
-        StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized)Hide();};
-        System.Windows.Application.Current.SessionEnding+=(_,_)=>{exitRequested=true;Close();};
-        world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
-        timer.Tick+=(_,_)=>Tick();
-        
-        Closing+=(_,e)=>{if(!exitRequested){e.Cancel=true;Safe(FlushSave);Hide();return;}shuttingDown=true;Safe(FlushSave);Safe(SaveTyping);typingInput.Dispose();timer.Stop();world.Clear();foreach(var pet in pets.ToArray())pet.Close();tray.Visible=false;tray.Dispose();trayIcon.Dispose();trayMenu.Dispose();thinkingPresenter.Dispose();Dispatcher.BeginInvoke(new Action(()=>Application.Current.Shutdown()));};
     }
-    internal void StartResident(){if(started)return;started=true;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;timer.Start();}
-    internal void ShowLauncher(){Show();WindowState=WindowState.Normal;Activate();}
-    private void Refresh()=>status.Text=$"已召唤 {pets.Count} 个角色 · {world.Foods.Count} 条食物。右键角色可投食；拖动食物至角色松手。";
+    private void ReleaseLauncherUi(bool preserveDraft=false)
+    {
+        if(preserveDraft&&navigationHost.Content is PackageEditorPage editor&&editor.HasUnsavedChanges)return;
+        navigationHost.Content=null;Content=null;homeShell=null;previews.Clear();roleCards.Children.Clear();packCards.Children.Clear();
+        ReleaseIdleImages();UpdateTickRate();
+    }
+    private void ReleaseIdleImages()
+    {
+        if(homeShell!=null)return;
+        foreach(var pair in packages.Values)
+            if(!pets.Any(p=>ReferenceEquals(p.Images,pair.Images)))pair.Images.Clear();
+    }
+    internal void StartResident(){if(started)return;started=true;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Summon(r);else Refresh();lastTick=clock.ElapsedMilliseconds;UpdateTickRate();timer.Start();}
+    internal void ShowLauncher(){BuildLauncherUi();Show();WindowState=WindowState.Normal;Activate();UpdateTickRate();}
+    private void Refresh(){UpdateTickRate();status.Text=$"已召唤 {pets.Count} 个角色 · {world.Foods.Count} 条食物。右键角色可投食；拖动食物至角色松手。";}
     private void OnFoodSpawned(FoodInstance food)
     {
         var owner=pets.FirstOrDefault(p=>p.Engine==food.Owner);if(owner==null){world.Remove(food);return;}
@@ -270,6 +296,7 @@ internal sealed class Launcher : Window
     });
     private void RefreshCards()
     {
+        if(homeShell==null){ReleaseIdleImages();Refresh();return;}
         previews.Clear();roleCards.Children.Clear();packCards.Children.Clear();
         foreach(var r in catalog.Roles)
         {
@@ -299,6 +326,7 @@ internal sealed class Launcher : Window
             Menu("复制素材包",()=>{var copy=storage.Import(storage.Resolve(p));RefreshCards();EditPack(copy);});Menu("导出素材包",()=>ExportPack(p));Menu("删除素材包",()=>{if(catalog.Roles.Any(r=>r.PackId==p.Id))throw new InvalidOperationException("素材包仍被角色使用");if(MessageBox.Show(this,"删除这个素材包？","删除素材包",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;packages.Remove(storage.Resolve(p));storage.RemovePack(p);RefreshCards();});
             more.ContextMenu=menu;more.Click+=(_,_)=>menu.IsOpen=true;actions.Children.Add(more);packCards.Children.Add(Ui.Card(Ui.Pair(left,actions)));
         }
+        foreach(var pair in packages.Values)if(!pets.Any(p=>ReferenceEquals(p.Images,pair.Images))&&!previews.Any(p=>ReferenceEquals(p.Cache,pair.Images)))pair.Images.Clear();
         Refresh();
     }
     private void Summon(RoleEntry entry)=>Safe(()=>{
