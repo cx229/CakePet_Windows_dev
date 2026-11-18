@@ -4,6 +4,9 @@ namespace CakePet.Windows;
 internal sealed class NativeMenu
 {
     public sealed record Item(string? Label,Action? Run=null,bool Enabled=true,bool Checked=false,IReadOnlyList<Item>? Children=null);
+    private static nint activeOwner;
+    internal static bool IsOpen=>Interlocked.CompareExchange(ref activeOwner,0,0)!=0;
+    internal static void CancelForRequest(){var owner=Interlocked.CompareExchange(ref activeOwner,0,0);if(owner!=0)PostMessage(owner,0x001F,0,0);}
     public static void Show(nint owner,IReadOnlyList<Item> items,Action<Action>? dispatch=null)
     {
         var actions=new List<Action?>();
@@ -20,8 +23,8 @@ internal sealed class NativeMenu
             return menu;
         }
         var root=Build(items);uint chosen=0;
-        try{GetCursorPos(out var p);SetForegroundWindow(owner);chosen=TrackPopupMenu(root,0x100|2,p.X,p.Y,0,owner,0);PostMessage(owner,0,0,0);}
-        finally{DestroyMenu(root);}
+        try{GetCursorPos(out var p);SetForegroundWindow(owner);Interlocked.Exchange(ref activeOwner,owner);chosen=TrackPopupMenu(root,0x100|2,p.X,p.Y,0,owner,0);PostMessage(owner,0,0,0);}
+        finally{Interlocked.Exchange(ref activeOwner,0);DestroyMenu(root);}
         if(chosen>0&&chosen<=(uint)actions.Count&&actions[(int)chosen-1] is Action run){if(dispatch==null)run();else dispatch(run);}
     }
     [StructLayout(LayoutKind.Sequential)]private struct Point{public int X,Y;}

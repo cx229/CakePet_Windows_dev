@@ -51,7 +51,13 @@ internal sealed class NativeLayer:IDisposable
                 case 0x205:layer.Menu?.Invoke();return 0;
             }
         }
-        catch(Exception ex){NativeMessage.Show(ex.Message,"CakePet");}
+        catch(Exception ex){
+#if NATIVE_HOST
+            IpcLog.Write("host",null,"window-message",0,ex);
+#else
+            NativeMessage.Show(ex.Message,"CakePet");
+#endif
+        }
         return DefWindowProc(h,msg,w,l);
     }
     public void Show(){if(hwnd!=0)ShowWindow(hwnd,4);}

@@ -57,10 +57,11 @@ internal sealed class ResidentHost:IDisposable
         tray=new NativeTray(Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico"),()=>OpenSettings(),a=>loop.Post(()=>Safe(a)),BuildTrayMenu,probe?new Guid("36fbddc0-3cd6-4e04-9349-c90700fb2140"):null,probe?"CakePet framework probe":"CakePet");
         loop.Tick+=Tick;
     }
-    private void Safe(Action action){try{action();}catch(Exception e){if(probe)throw;NativeMessage.Show(e.Message,"CakePet");}}
+    private void Safe(Action action){try{action();}catch(Exception e){if(probe)throw;ReportError("CakePet",e);}}
+    private static void ReportError(string stage,Exception error)=>IpcLog.Write("host",null,stage,0,error);
     public void Start(){loop.IntervalMs=catalog.RefreshIntervalMs;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Safe(()=>Summon(r));lastTick=clock.ElapsedMilliseconds;}
     private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;SetTyping();}
-    private void SetTyping(){try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){NativeMessage.Show(e.Message,"无法启用打字统计");}}
+    private void SetTyping(){try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){ReportError("无法启用打字统计",e);}}
     private void SaveTyping(){if(!typingDirty)return;catalog.TypingDay=typing.Day;catalog.TypingToday=typing.Today;storage.Save();InvalidateCatalog();typingDirty=false;lastTypingSave=clock.ElapsedMilliseconds;}
     private void Tick()
     {
@@ -87,7 +88,7 @@ internal sealed class ResidentHost:IDisposable
     {
         var owner=pets.FirstOrDefault(p=>p.Engine==food.Owner);if(owner==null){world.Remove(food);return;}
         try{var window=new FoodWindow(world,food,owner.NativeImages,owner.NativeImages.GetFoodVisual(food.StartMode));foodWindows.Add(food,window);window.Show();}
-        catch(Exception e){world.Remove(food);if(probe)throw;NativeMessage.Show(e.Message,"无法显示食物");}
+        catch(Exception e){world.Remove(food);if(probe)throw;ReportError("无法显示食物",e);}
     }
     private void OnFoodRemoved(FoodInstance food){if(foodWindows.Remove(food,out var window))window.CloseFromWorld();}
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++){group[i].RoleName=entry.Name;group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,catalog.FeatureLimits);}}
@@ -97,7 +98,7 @@ internal sealed class ResidentHost:IDisposable
     {
         var next=feature.SetLimit(catalog.FeatureLimits,allowed);
         if(next==catalog.FeatureLimits)return;
-        catalog.FeatureLimits=next;storage.Save();InvalidateCatalog();
+        var prior=catalog.FeatureLimits;catalog.FeatureLimits=next;try{storage.Save();}catch{catalog.FeatureLimits=prior;throw;}InvalidateCatalog();
         foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())ApplyRunning(entry);
     }
     // For recalled roles read package metadata only; do not allocate native image caches.
@@ -190,7 +191,7 @@ internal sealed class ResidentHost:IDisposable
             if(changed){Recall(id);Summon(next);}
             else if(pets.Count(p=>p.RoleId==id)!=next.Settings.Count)Summon(next);
             else if(oldLimits!=catalog.FeatureLimits||oldPolicy!=catalog.ThinkingPolicy||!old.TryGetValue(id,out var prior)||!SameRole(prior,next))ApplyRunning(next);
-            }catch(Exception e){var error=e.Message;loop.Post(()=>NativeMessage.Show(error,"角色更新失败"));}
+            }catch(Exception e){ReportError("角色更新失败",e);}
         }
         ReleaseUnused();
     }
@@ -212,6 +213,9 @@ internal sealed class ResidentHost:IDisposable
             case "open":OpenSettings(req.RoleId);break;
             case "diagnostics":return new(true,null,Array.Empty<LiveInstance>(),0,DiagnosticCounters(),Environment.ProcessId);
             case "snapshot":break;
+            case "set-global-limit":
+                var feature=RoleMenus.Switches.SingleOrDefault(f=>f.Name==req.Feature)??throw new InvalidDataException("未知全局功能。");
+                SetGlobalLimit(feature,req.Allowed??throw new InvalidDataException("缺少开关状态。"));break;
             case "register-pack":RegisterPack(req.Pack??throw new InvalidDataException("缺少素材包记录。"));break;
             case "save-catalog":
                 SaveTyping();

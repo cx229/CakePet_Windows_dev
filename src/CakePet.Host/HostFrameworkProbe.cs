@@ -38,6 +38,23 @@ internal static class HostFrameworkProbe
                         if(!after.Instances.Select(p=>p.InstanceId).SequenceEqual(before.Instances.Select(p=>p.InstanceId)))throw new InvalidDataException("Import must preserve running instances");
                     }
                     if(!RoleCatalog.Load(Path.Combine(dataRoot,"catalog.json")).Packs.Contains(entry))throw new InvalidDataException("Registration not persisted");
+                    var raw=initial.Roles.Single().Settings;
+                    for(int i=0;i<6;i++)
+                    {
+                        bool allowed=i%2!=0;
+                        var reads=Enumerable.Range(0,2).Select(_=>HostConnection.CallAsync(new("snapshot"),pipe)).ToArray();
+                        var changed=HostConnection.Call(new("set-global-limit",Feature:"投食",Allowed:allowed),pipe);
+                        Task.WhenAll(reads).GetAwaiter().GetResult();
+                        var live=RoleCatalog.Parse(changed.Catalog!);
+                        if(live.FeatureLimits.Feed!=allowed||live.Roles.Single().Settings.Feed!=raw.Feed)throw new InvalidDataException("Global gate changed role settings");
+                        var baseline=changed.Catalog!;live.RefreshIntervalMs=4+i;
+                        var save=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(live,CoreJson.Default.RoleCatalog)),pipe);
+                        if(RoleCatalog.Parse(save.Catalog!).RefreshIntervalMs!=4+i)throw new InvalidDataException("Configuration save failed");
+                    }
+                    var roleId=initial.Roles.Single().Id;
+                    if(HostConnection.Call(new("recall",roleId),pipe).Instances.Length!=0)throw new InvalidDataException("Recall failed");
+                    if(HostConnection.Call(new("summon",roleId),pipe).Instances.Length!=1)throw new InvalidDataException("Summon failed");
+                    if(!HostConnection.Call(new("diagnostics"),pipe).Success)throw new InvalidDataException("Diagnostics failed");
                 }
                 finally{loop.Post(loop.Stop);}
             });
