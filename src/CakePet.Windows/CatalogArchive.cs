@@ -64,6 +64,7 @@ internal sealed partial class CatalogStorage
             if(data["ThinkingLocation"] is JsonValue location&&location.TryGetValue<int>(out var loc)&&Enum.IsDefined(typeof(ThinkingLocation),loc))merged.ThinkingLocation=(ThinkingLocation)loc;
             if(data["ThinkingPolicy"] is JsonValue policy&&policy.TryGetValue<int>(out var pol)&&Enum.IsDefined(typeof(ThinkingDisplayPolicy),pol))merged.ThinkingPolicy=(ThinkingDisplayPolicy)pol;
             else if(data["SingleThinking"] is JsonValue single&&single.TryGetValue<bool>(out var st))merged.ThinkingPolicy=st?ThinkingDisplayPolicy.Latest:ThinkingDisplayPolicy.Overlap;
+            if(data["RefreshIntervalMs"] is JsonValue refresh&&refresh.TryGetValue<int>(out var interval))merged.RefreshIntervalMs=Math.Clamp(interval,1,50);
             if(data["AutoSummon"] is JsonValue summon&&summon.TryGetValue<bool>(out var au))merged.AutoSummon=au;
             Commit(merged);
         }catch{foreach(var dir in copied)if(Directory.Exists(dir))Directory.Delete(dir,true);throw;}

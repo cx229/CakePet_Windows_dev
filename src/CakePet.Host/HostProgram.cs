@@ -40,7 +40,7 @@ internal sealed class ResidentHost:IDisposable
     private long ticks;
     internal long TickCount=>ticks;
     private readonly NativeTray tray;
-    private long lastTick,lastRandomCheck,lastTypingSave;
+    private long lastTick,lastRandomCheck,lastTypingSave,lastThoughtPaint;
     private bool typingDirty,disposed;
     private Process? settingsProcess;
     private string Today()=>DateTime.Now.ToString("yyyy-MM-dd");
@@ -59,7 +59,7 @@ internal sealed class ResidentHost:IDisposable
         loop.Tick+=Tick;
     }
     private void Safe(Action action){try{action();}catch(Exception e){if(probe)throw;NativeMessage.Show(e.Message,"CakePet");}}
-    public void Start(){ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Safe(()=>Summon(r));lastTick=clock.ElapsedMilliseconds;}
+    public void Start(){loop.IntervalMs=catalog.RefreshIntervalMs;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Safe(()=>Summon(r));lastTick=clock.ElapsedMilliseconds;}
     private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;SetTyping();}
     private void SetTyping(){try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){NativeMessage.Show(e.Message,"无法启用打字统计");}}
     private void SaveTyping(){if(!typingDirty)return;catalog.TypingDay=typing.Day;catalog.TypingToday=typing.Today;storage.Save();typingDirty=false;lastTypingSave=clock.ElapsedMilliseconds;}
@@ -71,6 +71,9 @@ internal sealed class ResidentHost:IDisposable
         if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));storage.Save();}}
         world.Advance(dt);var live=pets.ToArray();foreach(var pet in live)pet.Step(dt);world.UpdateInteractions();foreach(var pet in live)pet.Render();foreach(var food in foodWindows.Values.ToArray())food.Render();
         if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)SaveTyping();}
+        // Physics and movement follow the configured interval; text layout has its own deadline.
+        if(now-lastThoughtPaint<16)return;
+        lastThoughtPaint=now;
         var messages=pets.Where(p=>!string.IsNullOrWhiteSpace(p.VisibleThought)).Select(p=>new ThoughtMessage(p.InstanceId+":"+thoughts.Order(p.Engine.Role.Thoughts),p.RoleName,p.VisibleThought!,p.ThoughtStyle,thoughts.Order(p.Engine.Role.Thoughts))).ToList();
         if(!typing.Suppressed&&typing.CurrentText is string typed)messages.Add(new ThoughtMessage("typing","打字统计",typed,catalog.Typing.Style,thoughts.Order(typing)));
         presenter.Render(messages,catalog.ThinkingLocation,catalog.ThinkingPolicy);
@@ -118,7 +121,7 @@ internal sealed class ResidentHost:IDisposable
         var info=new ProcessStartInfo(path){UseShellExecute=false};info.ArgumentList.Add("--settings-client");if(id.HasValue)info.ArgumentList.Add(id.Value.ToString());
         settingsProcess=Process.Start(info);
     }
-    internal Dictionary<string,object?> Sample(string phase)=>MemoryDiagnostics.Sample(phase,new(){["ticks"]=ticks,["trayRegistered"]=tray.Registered,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
+    internal Dictionary<string,object?> Sample(string phase)=>MemoryDiagnostics.Sample(phase,new(){["ticks"]=ticks,["intervalMs"]=loop.IntervalMs,["trayRegistered"]=tray.Registered,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
     private void MemoryReport()
     {
         var report=Sample("native-resident");
@@ -134,7 +137,7 @@ internal sealed class ResidentHost:IDisposable
         var old=catalog.Roles.ToDictionary(r=>r.Id);var oldPacks=catalog.Packs.ToDictionary(p=>p.Id);
         var active=pets.Select(p=>p.RoleId).Distinct().ToArray();
         if(replacement!=null)storage.Commit(replacement);else storage.Reload();
-        thoughts.Policy=catalog.ThinkingPolicy;SetTyping();
+        loop.IntervalMs=catalog.RefreshIntervalMs;thoughts.Policy=catalog.ThinkingPolicy;SetTyping();
         if(catalog.ThinkingPolicy==ThinkingDisplayPolicy.None||!catalog.Typing.Enabled){typing.Stop();if(catalog.ThinkingPolicy==ThinkingDisplayPolicy.None)presenter.Clear();}
         foreach(var id in active)
         {

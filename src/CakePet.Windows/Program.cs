@@ -181,6 +181,10 @@ internal sealed class Launcher : IDisposable
         locations.SelectionChanged+=(_,_)=>{if(locations.SelectedIndex<0)return;catalog.ThinkingLocation=(ThinkingLocation)locations.SelectedIndex;QueueSave();};
         thinkingCard.Add(Ui.Pair(policyNote,policies));thinkingCard.Add(Ui.Pair(Ui.Caption("显示位置","所有碎碎念共用的显示区域。"),locations));thinkingCard.Add(Ui.Pair(typingCaption,typingLink));global.Children.Add(thinkingCard);
         UpdateThinkingUi();
+        GlobalGroup("性能");
+        var performance=new SettingCard("运行频率","所有角色共用同一个运行频率，不改变动画播放速度。");
+        performance.Add(Ui.NumberRow("刷新间隔","数值越小，移动越流畅，CPU 占用可能越高（默认 3ms）。",catalog.RefreshIntervalMs,1,50,1,"ms",v=>{catalog.RefreshIntervalMs=(int)v;QueueSave();}));
+        global.Children.Add(performance);
         GlobalGroup("后台运行");
         var launch=Ui.Switch(catalog.AutoSummon);launch.IsVisibleChanged+=(_,_)=>launch.IsChecked=catalog.AutoSummon;
         launch.Click+=(_,_)=>{catalog.AutoSummon=launch.IsChecked==true;storage.Save();};global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("启动时召唤角色","软件启动后自动召唤第一个角色"),launch)));
