@@ -1,98 +1,149 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
+using System.Runtime.InteropServices;
 using CakePet.Core;
 namespace CakePet.Windows;
 internal sealed record ThoughtMessage(string Key,string Name,string Text,ThinkingStyle Style,long Order);
+
+// One click-through layered HWND for all messages, with GDI+ text and alpha.
+// No WPF visual tree or text layout is needed while pets are running.
 internal sealed class ThinkingPresenter:IDisposable
 {
-    private sealed record Item(Border Bubble,TextBlock Text,ThoughtMessage Message);
-    private readonly Grid panel=new(){ClipToBounds=true};
-    private Window? window;
+    private sealed class Item(ThoughtMessage message,long born)
+    {
+        public ThoughtMessage Message=message;public long Born=born;public long? Removed;
+    }
     private readonly Dictionary<string,Item> items=new();
+    private NativeLayer? layer;
+    private nuint token;
     private ThoughtMessage[] previous=Array.Empty<ThoughtMessage>();
     private ThinkingLocation previousLocation=(ThinkingLocation)(-1);
     private ThinkingDisplayPolicy previousPolicy=ThinkingDisplayPolicy.None;
     private long lastLayout;
-    private Window EnsureWindow()
+    private bool visible,disposed;
+    public void Clear()
     {
-        if(window!=null)return window;
-        window=new Window{Width=400,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false,Content=panel};
-        window.SourceInitialized+=(_,_)=>{if(window!=null)NativeStyles.NonActivating(window,true);};return window;
+        items.Clear();previous=Array.Empty<ThoughtMessage>();
+        if(layer!=null){layer.Dispose();layer=null;}visible=false;
+        if(token!=0){Gdi.GdiplusShutdown(token);token=0;}
     }
-    public void Clear(){items.Clear();panel.Children.Clear();previous=Array.Empty<ThoughtMessage>();if(window?.IsVisible==true)window.Hide();}
+    private static uint Alpha(uint color,double alpha)=>((uint)Math.Round(Math.Clamp(alpha,0,1)*255)<<24)|(color&0xffffff);
     public void Render(IEnumerable<ThoughtMessage> thoughts,ThinkingLocation location,ThinkingDisplayPolicy policy)
     {
-        if(policy==ThinkingDisplayPolicy.None){if(window?.IsVisible==true||items.Count>0)Clear();previousPolicy=policy;return;}
+        if(disposed)return;
+        if(policy==ThinkingDisplayPolicy.None){if(items.Count>0||visible)Clear();previousPolicy=policy;return;}
         var entries=thoughts.OrderByDescending(x=>x.Order).ToArray();
         if(policy==ThinkingDisplayPolicy.Latest)entries=entries.Take(1).ToArray();
         var now=Environment.TickCount64;bool policyChanged=policy!=previousPolicy;
-        if(!policyChanged&&entries.SequenceEqual(previous)&&location==previousLocation&&now-lastLayout<500)return;
         if(policyChanged)Clear();
-        previous=entries;previousLocation=location;previousPolicy=policy;lastLayout=now;
-        foreach(var key in items.Keys.Except(entries.Select(x=>x.Key)).ToArray())
+        bool changed=policyChanged||!entries.SequenceEqual(previous)||location!=previousLocation;
+        foreach(var key in items.Keys.Except(entries.Select(e=>e.Key)).ToArray())
         {
-            var item=items[key];items.Remove(key);
-            if(!policyChanged&&(policy==ThinkingDisplayPolicy.Overlap||entries.Length==0)&&item.Message.Style.FlashOut&&window?.IsVisible==true)
-            {
-                var fade=new DoubleAnimation(0,TimeSpan.FromMilliseconds(160));fade.Completed+=(_,_)=>{panel.Children.Remove(item.Bubble);if(items.Count==0&&panel.Children.Count==0&&window?.IsVisible==true)window.Hide();};item.Bubble.BeginAnimation(UIElement.OpacityProperty,fade);
-            }
-            else panel.Children.Remove(item.Bubble);
+            var item=items[key];
+            if(!item.Message.Style.FlashOut||policy==ThinkingDisplayPolicy.Latest&&entries.Length>0)items.Remove(key);
+            else item.Removed??=now;
         }
-        if(policy==ThinkingDisplayPolicy.Latest&&entries.Length>0)
-            foreach(var child in panel.Children.OfType<Border>().Where(c=>!items.Values.Any(i=>i.Bubble==c)).ToArray())panel.Children.Remove(child);
-        for(int i=0;i<entries.Length;i++)
+        foreach(var entry in entries)
         {
-            var message=entries[i];var style=message.Style.Normalize();
-            if(!items.TryGetValue(message.Key,out var item))
-            {
-                var label=new TextBlock{TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis};
-                var bubble=new Border{CornerRadius=new CornerRadius(7),Padding=new Thickness(9,3,9,3),Child=label};
-                item=new Item(bubble,label,message);items.Add(message.Key,item);panel.Children.Add(bubble);
-                if(style.FlashIn)bubble.BeginAnimation(UIElement.OpacityProperty,new DoubleAnimation(0,1,TimeSpan.FromMilliseconds(160)));
-            }
-            item.Text.Text=message.Text;item.Text.FontSize=style.Size;item.Text.Foreground=new SolidColorBrush(ThinkingStyleSettings.ColorOf(style.Color,style.Alpha));
-            item.Bubble.Background=style.Background?new SolidColorBrush(ThinkingStyleSettings.ColorOf(style.BackgroundColor,style.BackgroundAlpha)):Brushes.Transparent;
-            Panel.SetZIndex(item.Bubble,entries.Length-i);items[message.Key]=item with{Message=message};
+            if(!items.TryGetValue(entry.Key,out var item))items.Add(entry.Key,new Item(entry,now));
+            else{item.Message=entry;item.Removed=null;}
         }
-        if(entries.Length==0){if(panel.Children.Count==0&&window?.IsVisible==true)window.Hide();return;}
-        var activeWindow=EnsureWindow();
-        var work=DesktopPlatform.Primary.Work;var dpi=activeWindow.IsVisible?DesktopPlatform.DpiScale(activeWindow):1;
+        foreach(var key in items.Where(p=>p.Value.Removed is long removed&&now-removed>=160).Select(p=>p.Key).ToArray()){items.Remove(key);changed=true;}
+        previous=entries;previousLocation=location;previousPolicy=policy;
+        if(items.Count==0){if(visible)Clear();return;}
+        bool animated=items.Values.Any(i=>i.Removed.HasValue||i.Message.Style.FlashIn&&now-i.Born<180);
+        if(!changed&&!animated&&now-lastLayout<500)return;
+        lastLayout=now;
+        if(token==0){var start=new Gdi.StartupInput{Version=1};Gdi.Check(Gdi.GdiplusStartup(out token,ref start,0));}
+        if(layer==null){layer=new NativeLayer();layer.Pass(true);}
+        var dpi=layer.Dpi;var work=DesktopPlatform.Primary.Work;
         var taskbar=location==ThinkingLocation.PrimaryBottom?null:DesktopPlatform.Taskbar();
+        bool onBar=false;double x=0,y=0;int w=1,h=1;
         if(taskbar is {} data&&data.Bar.Right-data.Bar.Left>data.Bar.Bottom-data.Bar.Top&&data.Bar.Bottom-data.Bar.Top>=20&&(location!=ThinkingLocation.TrayLeft||data.Tray.HasValue))
         {
             var bar=data.Bar;var right=location==ThinkingLocation.TrayLeft?data.Tray!.Value.Left-8:Math.Min(data.Tray?.Left??bar.Right,bar.Left+Math.Min(440,(bar.Right-bar.Left)*.35));
             var left=bar.Left+8;var available=right-left;
-            if(available>=120)
-            {
-                var w=Math.Min(available,740*dpi);var h=bar.Bottom-bar.Top-4;
-                foreach(var item in items.Values)
-                {
-                    var offset=Math.Clamp(item.Message.Style.Offset,0,Math.Max(0,w/dpi-80));
-                    item.Bubble.HorizontalAlignment=location==ThinkingLocation.TrayLeft?HorizontalAlignment.Right:HorizontalAlignment.Left;
-                    item.Bubble.VerticalAlignment=VerticalAlignment.Center;item.Bubble.Margin=location==ThinkingLocation.TrayLeft?new Thickness(0,0,offset,0):new Thickness(offset,0,0,0);
-                    item.Text.MaxWidth=Math.Max(1,w/dpi-offset-18);item.Text.TextWrapping=TextWrapping.NoWrap;
-                }
-                Place(location==ThinkingLocation.TrayLeft?right-w:left,bar.Top+2,w,h);return;
-            }
+            if(available>=120){onBar=true;w=Math.Max(1,(int)Math.Min(available,740*dpi));h=Math.Max(1,(int)(bar.Bottom-bar.Top-4));x=location==ThinkingLocation.TrayLeft?right-w:left;y=bar.Top+2;}
         }
-        var width=Math.Max(1,Math.Min(work.Right-work.Left-16,740*dpi));
-        var maxHeight=Math.Max(1,(work.Bottom-work.Top)*.6);
-        foreach(var item in items.Values)
+        if(!onBar)
         {
-            item.Bubble.HorizontalAlignment=HorizontalAlignment.Center;item.Bubble.VerticalAlignment=VerticalAlignment.Bottom;
-            item.Bubble.Margin=new Thickness(0,0,0,Math.Clamp(item.Message.Style.Offset,0,Math.Max(0,maxHeight/dpi-60)));
-            item.Text.MaxWidth=Math.Max(1,width/dpi-18);item.Text.TextWrapping=TextWrapping.Wrap;
+            w=Math.Max(1,(int)Math.Min(work.Right-work.Left-16,740*dpi));
+            double limit=Math.Max(1,(work.Bottom-work.Top)*.6);
+            h=Math.Max(1,(int)Math.Min(limit,Math.Max(44,items.Values.Max(i=>(Math.Max(0,i.Message.Style.Offset)+i.Message.Style.Size*3+12)*dpi))));
+            x=work.Left+(work.Right-work.Left-w)/2;y=work.Bottom-h-6;
         }
-        panel.Measure(new Size(width/dpi,double.PositiveInfinity));
-        var height=Math.Max(1,Math.Min(maxHeight,Math.Max(44,panel.DesiredSize.Height*dpi)));
-        Place(work.Left+(work.Right-work.Left-width)/2,work.Bottom-height-6,width,height);
+        var pixels=new byte[checked(w*h*4)];var pinned=GCHandle.Alloc(pixels,GCHandleType.Pinned);
+        nint bitmap=0,graphics=0,family=0;
+        try
+        {
+            Gdi.Check(Gdi.GdipCreateBitmapFromScan0(w,h,w*4,Gdi.Pargb32,pinned.AddrOfPinnedObject(),out bitmap));
+            Gdi.Check(Gdi.GdipGetImageGraphicsContext(bitmap,out graphics));
+            Gdi.Check(Gdi.GdipGraphicsClear(graphics,0));
+            Gdi.Check(GdipSetTextRenderingHint(graphics,4));
+            if(GdipCreateFontFamilyFromName("Microsoft YaHei UI",0,out family)!=0)Gdi.Check(GdipGetGenericFontFamilySansSerif(out family));
+            foreach(var item in items.Values.OrderBy(i=>i.Message.Order))
+            {
+                var style=item.Message.Style.Normalize();
+                var fade=item.Removed is long removed?Math.Clamp(1-(now-removed)/160.0,0,1):style.FlashIn?Math.Clamp((now-item.Born)/160.0,0,1):1;
+                DrawMessage(graphics,family,item.Message.Text,style,fade,dpi,w,h,onBar,location);
+            }
+            Gdi.Check(Gdi.GdipFlush(graphics,1));
+        }
+        finally
+        {
+            if(family!=0)GdipDeleteFontFamily(family);
+            if(graphics!=0)Gdi.GdipDeleteGraphics(graphics);
+            if(bitmap!=0)Gdi.GdipDisposeImage(bitmap);
+            pinned.Free();
+        }
+        layer.Paint(pixels,w,h,x,y,1);if(!visible){layer.Show();visible=true;}
     }
-    private void Place(double x,double y,double width,double height)
+    private static void DrawMessage(nint graphics,nint family,string text,ThinkingStyle style,double fade,double dpi,int w,int h,bool onBar,ThinkingLocation location)
     {
-        if(width<=0||height<=0)return;var active=EnsureWindow();if(!active.IsVisible)active.Show();
-        var scale=DesktopPlatform.DpiScale(active);active.Width=width/scale;active.Height=height/scale;DesktopPlatform.Place(active,x,y,width,height);
+        nint font=0,format=0,brush=0,background=0;
+        try
+        {
+            Gdi.Check(GdipCreateFont(family,(float)(style.Size*dpi),0,2,out font));
+            Gdi.Check(GdipCreateStringFormat(onBar?0x1000:0,0,out format));
+            Gdi.Check(GdipSetStringFormatAlign(format,1));Gdi.Check(GdipSetStringFormatLineAlign(format,1));Gdi.Check(GdipSetStringFormatTrimming(format,3));
+            float pad=(float)(9*dpi),vertical=(float)(3*dpi);
+            float offset=(float)Math.Clamp(style.Offset*dpi,0,Math.Max(0,(onBar?w-80*dpi:h-24*dpi)));
+            float available=Math.Max(1,w-2*pad-(onBar?offset:0));
+            var box=new RectF{Width=available,Height=Math.Max(1,h-vertical*2)};
+            Gdi.Check(GdipMeasureString(graphics,text,text.Length,font,ref box,format,out var measured,out _,out _));
+            float bw=Math.Min(available+2*pad,Math.Max(1,measured.Width+2*pad));
+            float bh=Math.Min(h,Math.Max((float)(style.Size*dpi+2*vertical),measured.Height+2*vertical));
+            float bx=onBar?(location==ThinkingLocation.TrayLeft?w-offset-bw:offset):(w-bw)/2;
+            float by=onBar?(h-bh)/2:Math.Max(0,h-bh-offset);
+            if(style.Background)
+            {
+                Gdi.Check(GdipCreateSolidFill(Alpha(style.BackgroundColor,style.BackgroundAlpha*fade),out background));
+                Gdi.Check(GdipFillRectangle(graphics,background,bx,by,bw,bh));
+            }
+            Gdi.Check(GdipCreateSolidFill(Alpha(style.Color,style.Alpha*fade),out brush));
+            var layout=new RectF{X=bx+pad,Y=by+vertical,Width=Math.Max(1,bw-2*pad),Height=Math.Max(1,bh-2*vertical)};
+            Gdi.Check(GdipDrawString(graphics,text,text.Length,font,ref layout,format,brush));
+        }
+        finally
+        {
+            if(background!=0)GdipDeleteBrush(background);if(brush!=0)GdipDeleteBrush(brush);
+            if(format!=0)GdipDeleteStringFormat(format);if(font!=0)GdipDeleteFont(font);
+        }
     }
-    public void Dispose(){window?.Close();window=null;}
+    public void Dispose(){if(disposed)return;disposed=true;Clear();}
+    [StructLayout(LayoutKind.Sequential)]private struct RectF{public float X,Y,Width,Height;}
+    [DllImport("gdiplus.dll",CharSet=CharSet.Unicode,ExactSpelling=true)]private static extern int GdipCreateFontFamilyFromName(string name,nint collection,out nint family);
+    [DllImport("gdiplus.dll")]private static extern int GdipGetGenericFontFamilySansSerif(out nint family);
+    [DllImport("gdiplus.dll")]private static extern int GdipDeleteFontFamily(nint family);
+    [DllImport("gdiplus.dll")]private static extern int GdipCreateFont(nint family,float size,int style,int unit,out nint font);
+    [DllImport("gdiplus.dll")]private static extern int GdipDeleteFont(nint font);
+    [DllImport("gdiplus.dll")]private static extern int GdipCreateStringFormat(int flags,int language,out nint format);
+    [DllImport("gdiplus.dll")]private static extern int GdipDeleteStringFormat(nint format);
+    [DllImport("gdiplus.dll")]private static extern int GdipSetStringFormatAlign(nint format,int align);
+    [DllImport("gdiplus.dll")]private static extern int GdipSetStringFormatLineAlign(nint format,int align);
+    [DllImport("gdiplus.dll")]private static extern int GdipSetStringFormatTrimming(nint format,int trimming);
+    [DllImport("gdiplus.dll")]private static extern int GdipSetTextRenderingHint(nint graphics,int mode);
+    [DllImport("gdiplus.dll")]private static extern int GdipCreateSolidFill(uint color,out nint brush);
+    [DllImport("gdiplus.dll")]private static extern int GdipDeleteBrush(nint brush);
+    [DllImport("gdiplus.dll")]private static extern int GdipFillRectangle(nint graphics,nint brush,float x,float y,float w,float h);
+    [DllImport("gdiplus.dll",CharSet=CharSet.Unicode,ExactSpelling=true)]private static extern int GdipMeasureString(nint graphics,string text,int length,nint font,ref RectF layout,nint format,out RectF bounds,out int fitted,out int lines);
+    [DllImport("gdiplus.dll",CharSet=CharSet.Unicode,ExactSpelling=true)]private static extern int GdipDrawString(nint graphics,string text,int length,nint font,ref RectF layout,nint format,nint brush);
 }
