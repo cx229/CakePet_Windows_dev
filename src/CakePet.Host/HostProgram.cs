@@ -9,6 +9,7 @@ internal static class HostProgram
     [STAThread]
     public static int Main(string[] args)
     {
+        if(args.Length==4&&args[0]=="--diagnostic-client")return DiagnosticClient.Run(args);
         if(args.Length>0&&args[0]=="--framework-probe")return HostFrameworkProbe.Run(args);
         var root=Path.Combine(AppContext.BaseDirectory,"assets","default");
         if(args.Length>=2&&args[0]=="--package")root=Path.GetFullPath(args[1]);
@@ -42,7 +43,7 @@ internal sealed class ResidentHost:IDisposable
     private readonly NativeTray tray;
     private long lastTick,lastRandomCheck,lastTypingSave,lastThoughtPaint;
     private bool typingDirty,disposed;
-    private Process? settingsProcess;
+    private Process? settingsProcess,diagnosticProcess;
     private string Today()=>DateTime.Now.ToString("yyyy-MM-dd");
     public ResidentHost(string root,HostLoop loop,string? dataRoot=null,bool probe=false)
     {
@@ -124,10 +125,20 @@ internal sealed class ResidentHost:IDisposable
     internal Dictionary<string,object?> Sample(string phase)=>MemoryDiagnostics.Sample(phase,new(){["ticks"]=ticks,["intervalMs"]=loop.IntervalMs,["trayRegistered"]=tray.Registered,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
     private void MemoryReport()
     {
-        var report=Sample("native-resident");
-        var directory=Path.Combine(Path.GetDirectoryName(storage.FilePath)!,"diagnostics");Directory.CreateDirectory(directory);
-        var path=Path.Combine(directory,"memory-host-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".json");File.WriteAllText(path,MemoryDiagnostics.ToJson(report));
-        NativeMessage.Show(MemoryDiagnostics.Summary(report)+"\n\n诊断文件：\n"+path,"CakePet · 内存诊断");
+        if(diagnosticProcess is {HasExited:false})return;
+        diagnosticProcess?.Dispose();
+        var info=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"CakePet.exe")){UseShellExecute=false};
+        info.ArgumentList.Add("--diagnostic-client");info.ArgumentList.Add(Environment.ProcessId.ToString());
+        info.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(storage.FilePath)!,"diagnostics"));
+        info.ArgumentList.Add(HostConnection.PipeName);
+        diagnosticProcess=Process.Start(info);
+    }
+    // Only cheap, host-owned counters are sampled here. External process enumeration
+    // and dialog lifetime belong to the short-lived diagnostic client.
+    private string DiagnosticCounters()
+    {
+        var gc=GC.GetGCMemoryInfo();
+        return MemoryDiagnostics.ToJson(new(){["runtime"]=System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported?"JIT":"NativeAOT",["managedLiveBytes"]=GC.GetTotalMemory(false),["gcHeapBytes"]=gc.HeapSizeBytes,["gcCommittedBytes"]=gc.TotalCommittedBytes,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes),["ticks"]=ticks,["intervalMs"]=loop.IntervalMs});
     }
     // Host is the runtime owner. UI writes the catalog atomically, then asks host to reconcile.
     private void ReloadCatalog(bool reloadAssets,RoleCatalog? replacement=null)
@@ -157,6 +168,7 @@ internal sealed class ResidentHost:IDisposable
         switch(req.Command)
         {
             case "open":OpenSettings(req.RoleId);break;
+            case "diagnostics":return new(true,null,Array.Empty<LiveInstance>(),0,DiagnosticCounters());
             case "snapshot":break;
             case "save-catalog":
                 SaveTyping();
@@ -189,6 +201,6 @@ internal sealed class ResidentHost:IDisposable
     }
     public void Dispose()
     {
-        if(disposed)return;disposed=true;loop.Tick-=Tick;SaveTyping();typingInput.Dispose();world.Clear();Recall(null);presenter.Dispose();tray.Dispose();settingsProcess?.Dispose();
+        if(disposed)return;disposed=true;loop.Tick-=Tick;SaveTyping();typingInput.Dispose();world.Clear();Recall(null);presenter.Dispose();tray.Dispose();settingsProcess?.Dispose();diagnosticProcess?.Dispose();
     }
 }

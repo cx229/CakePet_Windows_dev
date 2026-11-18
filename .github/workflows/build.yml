@@ -52,15 +52,15 @@ jobs:
         continue-on-error: true
         run: |
           & .github/scripts/Measure-Host.ps1 -Package "android-reference/app/src/main/assets/白酥"
-      - name: Publish production host AOT experiment
+      - name: Publish JIT comparison host
         shell: pwsh
         run: |
-          dotnet publish src/CakePet.Host -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:StripSymbols=true -o artifacts/host-aot "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION"
+          dotnet publish src/CakePet.Host -c Release -r win-x64 --self-contained true -p:PublishAot=false -o artifacts/host-jit "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Publish desktop executable
         shell: pwsh
         run: |
-          dotnet publish src/CakePet.Host -c Release -r win-x64 --self-contained true -o artifacts/CakePet "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
+          dotnet publish src/CakePet.Host -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:StripSymbols=true -o artifacts/CakePet "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet publish src/CakePet.Windows -c Release -r win-x64 --self-contained true -o artifacts/CakePet/settings "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -74,12 +74,13 @@ jobs:
             if ($dir.Name -notin @('zh-Hans','zh-Hant','en','assets','settings') -and ($dir.Name -match '^[a-z]{2}(-[A-Za-z]+)?$')) { Remove-Item $dir.FullName -Recurse -Force }
           }
           if (!(Test-Path "$folder/CakePet.exe") -or !(Test-Path "$folder/settings/CakePet.exe") -or !(Test-Path "$folder/assets/default/modes.jsonc")) { throw "Incomplete publish: $folder" }
+          if (Test-Path "$folder/coreclr.dll") { throw "Resident package still contains CoreCLR" }
           $files = Get-ChildItem $folder -Recurse -File
           Write-Host "$folder : $($files.Count) files, $([Math]::Round(($files | Measure-Object Length -Sum).Sum / 1MB, 2)) MiB"
       - name: Compare production JIT and Native AOT
         shell: pwsh
         run: |
-          & .github/scripts/Compare-Framework.ps1 -Jit artifacts/CakePet/CakePet.exe -Aot artifacts/host-aot/CakePet.exe -Package "android-reference/app/src/main/assets/白酥"
+          & .github/scripts/Compare-Framework.ps1 -Jit artifacts/host-jit/CakePet.exe -Aot artifacts/CakePet/CakePet.exe -Package "android-reference/app/src/main/assets/白酥"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
