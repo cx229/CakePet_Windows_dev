@@ -21,7 +21,7 @@ internal static class ThinkingStyleSettings
         void ColorRow(SettingCard c,string title,string note,uint value,Func<ThinkingStyle,uint,ThinkingStyle> patch)
         {
             var row=new StackPanel{Orientation=Orientation.Horizontal};var dot=new Border{Width=24,Height=24,CornerRadius=new CornerRadius(12),BorderBrush=Ui.Brush("Line"),BorderThickness=new Thickness(1),Background=new SolidColorBrush(ColorOf(value)),Margin=new Thickness(0,0,8,0)};
-            row.Children.Add(dot);row.Children.Add(Ui.Button("选择颜色",()=>{using var d=new System.Windows.Forms.ColorDialog{FullOpen=true,Color=System.Drawing.Color.FromArgb(unchecked((int)value))};if(d.ShowDialog()!=System.Windows.Forms.DialogResult.OK)return;value=unchecked((uint)d.Color.ToArgb());dot.Background=new SolidColorBrush(ColorOf(value));Set(s=>patch(s,value));}));
+            row.Children.Add(dot);row.Children.Add(Ui.Button("选择颜色",()=>{if(!NativeColorDialog.TryChoose(Window.GetWindow(page),value,out var selected))return;value=selected;dot.Background=new SolidColorBrush(ColorOf(value));Set(s=>patch(s,value));}));
             c.Add(Ui.Pair(Ui.Caption(title,note),row));
         }
         var s=current().Normalize();var display=Card("显示","调整文字样式，预览实时更新。");display.Add(backdrop);
