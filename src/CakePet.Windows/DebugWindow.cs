@@ -21,17 +21,19 @@ internal sealed class DebugWindow : Window
         panel.Children.Add(header);panel.Children.Add(text);
         Content=new Border{Background=new SolidColorBrush(Color.FromArgb(225,25,28,33)),Padding=new Thickness(12),CornerRadius=new CornerRadius(8),Child=panel};
     }
-    public void Refresh(PetEngine e,string monitor,double dpi,int foodCount,bool pass,bool pixel)
+    public void Refresh(PetEngine e,string monitor,double dpi,int foodCount,bool pass,bool pixel,Guid instanceId,int number,double baseScale,double actualScale,int count)
     {
         var r=e.Role;var a=r.Animation;var b=e.Body;var f=a.Current;var p=b.Position;var v=b.Velocity;var box=e.Bounds;var anchor=e.AnchorOffset;
-        text.Text=$"素材包：{r.Package.Name} · {r.Package.Version}\n"+
+        text.Text=$"实例：{number}/{count} · {instanceId.ToString("N")[..8]} · 基础 {baseScale:F2} / 当前 {actualScale:F2} 倍\n"+
+            $"素材包：{r.Package.Name} · {r.Package.Version}\n"+
             $"功能：{r.FunctionPath}\n持续功能：{r.StateFunction??"—"}\n"+
             $"动画链：[{string.Join(" > ",a.Chain)}]\n"+
             $"当前动画：{a.Mode.Id} · {a.FrameIndex+1}/{a.Mode.Frames.Count} 帧\n"+
             $"播放：{a.Mode.Loop} · 帧 {a.FrameElapsed}/{a.FrameDuration}ms · {(a.Ended?"已结束":"播放中")}\n"+
             $"动画计时：{a.ModeElapsed}ms / {a.TargetDuration?.ToString()??"—"} · 后续 {a.Mode.Next??"—"}\n"+
             $"图片：{f.Resource}\n帧参数：dx={f.Dx}, dy={f.Dy}, 锚点={f.AnchorX},{f.AnchorY} · {f.Align}/{f.Transform}\n"+
-            $"物理：{b.State} · 吸附 {b.SnappedEdge} · 攀爬 {b.ClimbEdge}\n"+
+            $"物理：{b.State} / {r.Physics} · 吸附 {b.SnappedEdge} · 攀爬 {b.ClimbEdge}\n"+
+            $"飞跃：起跳 {b.LeapLaunchEdges} · 目标 {b.LeapTargetEdge} {b.LeapTarget?.ToString()??"—"} · 最近碰撞 {b.LastImpactEdge}\n"+
             $"位置：({p.X:F1}, {p.Y:F1}) · 速度 ({v.X:F1}, {v.Y:F1}) px/s\n"+
             $"锚点：({p.X+anchor.X:F1}, {p.Y+anchor.Y:F1}) · 大小 {e.DisplaySize:F1}px\n"+
             $"边界：({box.Left:F0}, {box.Top:F0}) — ({box.Right:F0}, {box.Bottom:F0})\n"+

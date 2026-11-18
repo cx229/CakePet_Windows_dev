@@ -38,7 +38,7 @@ internal static class Ui
     }
     public static TextBox NumericBox(double value,double width=68)=>new(){Text=value.ToString("0.###",CultureInfo.InvariantCulture),Width=width,Padding=new Thickness(5,4,5,4),MinHeight=26,HorizontalContentAlignment=HorizontalAlignment.Right,VerticalContentAlignment=VerticalAlignment.Center};
     public static CheckBox Switch(bool value,bool enabled=true)=>new(){IsChecked=value,IsEnabled=enabled,Width=44,HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Center};
-    public static FrameworkElement NumberRow(string title,string note,double value,double min,double max,double step,string unit,Action<double> changed)
+    public static FrameworkElement NumberRow(string title,string note,double value,double min,double max,double step,string unit,Action<double> changed,Func<double>? liveValue=null,Action<Action>? registerRefresh=null)
     {
         var right=new Grid();right.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});right.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(68)});right.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         var box=NumericBox(value,68);box.HorizontalAlignment=HorizontalAlignment.Stretch;
@@ -50,6 +50,11 @@ internal static class Ui
         void Commit(){if(syncing)return;syncing=true;if(double.TryParse(box.Text,NumberStyles.Float,CultureInfo.InvariantCulture,out var v)&&double.IsFinite(v))slider.Value=Math.Clamp(v,min,max);box.Text=slider.Value.ToString("0.###",CultureInfo.InvariantCulture);syncing=false;Publish();}
         box.LostKeyboardFocus+=(_,_)=>Commit();box.KeyDown+=(_,e)=>{if(e.Key==System.Windows.Input.Key.Enter){Commit();e.Handled=true;}};
         var row=SettingsRow(title,note,right,360,470);
+        if(liveValue!=null&&registerRefresh!=null)registerRefresh(()=>{
+            if(box.IsKeyboardFocusWithin||slider.IsMouseCaptureWithin||slider.IsKeyboardFocusWithin)return;
+            double actual=liveValue();if(!double.IsFinite(actual))return;
+            syncing=true;slider.Value=Math.Clamp(actual,min,max);last=slider.Value;box.Text=actual.ToString("0.###",CultureInfo.InvariantCulture);syncing=false;
+        });
         return row;
     }
 }
@@ -62,15 +67,15 @@ internal sealed class SettingCard:Border
         var label=Ui.Caption(title,note,true);heading=(TextBlock)label.Children[0];if(label.Children.Count==1)label.Children.Add(Ui.Text("",12,true));remark=(TextBlock)label.Children[1];
         var controls=new StackPanel{Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
         if(enabled.HasValue){master=Ui.Switch(enabled.Value,available);master.Click+=(_,_)=>{toggle?.Invoke(master.IsChecked==true);requestedExpanded=master.IsChecked==true;UpdateFold();};controls.Children.Add(master);}
-        if(collapsible){arrow=Ui.Light("⌄",()=>SetExpanded(!expanded));arrow.Width=30;arrow.Padding=new Thickness(4);arrow.Margin=new Thickness(8,0,0,0);arrow.Background=System.Windows.Media.Brushes.Transparent;controls.Children.Add(arrow);}
-        var header=Ui.Pair(label,controls);label.Cursor=System.Windows.Input.Cursors.Hand;label.MouseLeftButtonUp+=(_,e)=>{if(warning!=null&&(!permitted||forcedOn)){MessageBox.Show(warning,"功能提示");}else if(collapsible&&CanExpand)SetExpanded(!expanded);e.Handled=true;};content.Children.Add(header);content.Children.Add(body);Child=content;requestedExpanded=initiallyExpanded;SetAvailable(available);
+        if(collapsible){arrow=Ui.Light("⌄",()=>SetExpanded(!expanded));arrow.Width=30;arrow.Padding=new Thickness(4);arrow.Margin=new Thickness(0,0,6,0);arrow.Background=System.Windows.Media.Brushes.Transparent;}
+        var left=new DockPanel{LastChildFill=true};if(arrow!=null){DockPanel.SetDock(arrow,Dock.Left);left.Children.Add(arrow);}left.Children.Add(label);var header=Ui.Pair(left,controls);label.Cursor=System.Windows.Input.Cursors.Hand;label.MouseLeftButtonUp+=(_,e)=>{if(warning!=null&&(!permitted||forcedOn)){MessageBox.Show(warning,"功能提示");}else if(collapsible&&CanExpand)SetExpanded(!expanded);e.Handled=true;};content.Children.Add(header);content.Children.Add(body);Child=content;requestedExpanded=initiallyExpanded;SetAvailable(available);
     }
     public void Add(FrameworkElement row){var inset=new Border{Margin=new Thickness(16,0,0,0),Child=row};body.Children.Add(new Border{Height=1,Background=Ui.Brush("Line"),Margin=new Thickness(16,4,0,4)});body.Children.Add(inset);}
     public void AddChild(SettingCard card){card.Margin=new Thickness(16,0,0,0);card.Padding=new Thickness(0,2,0,2);card.Background=Brushes.Transparent;card.BorderThickness=new Thickness(0);body.Children.Add(new Border{Height=1,Background=Ui.Brush("Line"),Margin=new Thickness(16,5,0,5)});body.Children.Add(card);}
     public void AddGroup(FrameworkElement label){label.Margin=new Thickness(16,8,0,4);body.Children.Add(label);}
     public bool CanExpand=>permitted&&(master==null||forcedOn||master.IsChecked==true);
     public void SetExpanded(bool value){if(value&&!CanExpand)return;requestedExpanded=value;UpdateFold();}
-    private void UpdateFold(){expanded=CanExpand&&requestedExpanded;body.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;body.IsEnabled=CanExpand;if(arrow!=null){arrow.Content=expanded?"⌃":"⌄";arrow.IsEnabled=CanExpand;}}
+    private void UpdateFold(){expanded=CanExpand&&requestedExpanded;body.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;body.IsEnabled=CanExpand;if(arrow!=null){arrow.Content=expanded?"⌄":"›";arrow.IsEnabled=CanExpand;}}
     public void ForceOn(string message){forcedOn=true;SetWarning(message);if(master!=null){master.IsChecked=true;master.IsEnabled=false;}UpdateFold();}
     public void SetWarning(string message){warning=message;heading.Foreground=Brushes.IndianRed;remark.Foreground=Brushes.IndianRed;remark.Text=message;}
     public void SetAvailable(bool value){permitted=value;if(master!=null)master.IsEnabled=value&&!forcedOn;Opacity=1;UpdateFold();}

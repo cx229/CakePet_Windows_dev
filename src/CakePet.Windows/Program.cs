@@ -184,7 +184,7 @@ internal sealed class Launcher : Window
         foreach(var pet in pets.ToArray())pet.Render();
         foreach(var food in foodWindows.Values.ToArray())food.Render();
         if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)Safe(SaveTyping);}
-        var messages=pets.Where(p=>!string.IsNullOrWhiteSpace(p.VisibleThought)).Select(p=>new ThoughtMessage(p.RoleId+":"+p.VisibleThought,catalog.Roles.FirstOrDefault(r=>r.Id==p.RoleId)?.Name??p.Engine.Role.Package.Name,p.VisibleThought!,p.ThoughtStyle,thoughts.Order(p.Engine.Role.Thoughts))).GroupBy(m=>m.Key).Select(g=>g.OrderByDescending(m=>m.Order).First()).ToList();
+        var messages=pets.Where(p=>!string.IsNullOrWhiteSpace(p.VisibleThought)).Select(p=>new ThoughtMessage(p.InstanceId.ToString(),catalog.Roles.FirstOrDefault(r=>r.Id==p.RoleId)?.Name??p.Engine.Role.Package.Name,p.VisibleThought!,p.ThoughtStyle,thoughts.Order(p.Engine.Role.Thoughts))).ToList();
         if(!typing.Suppressed&&typing.CurrentText is string typed)messages.Add(new ThoughtMessage("typing","打字统计",typed,catalog.Typing.Style,thoughts.Order(typing)));
         thinkingPresenter.Render(messages,catalog.ThinkingLocation,catalog.ThinkingPolicy);
         if(IsVisible&&navigationHost.Content==homeShell&&roleCards.IsVisible)foreach(var preview in previews){preview.Cursor.Advance(dt);var bitmap=preview.Cache.Get(preview.Cursor.Current);if(preview.Image.Source!=bitmap)preview.Image.Source=bitmap;}
@@ -231,7 +231,7 @@ internal sealed class Launcher : Window
         foreach(var role in catalog.Roles.ToArray()){var next=group=="全部"?catalog.Defaults:group.StartsWith("item:")?SettingLimits.ApplyItem(role.Settings,catalog.Defaults,group[5..]):SettingLimits.ApplyGroup(role.Settings,catalog.Defaults,group);catalog.Update(role with{Settings=next});var updated=catalog.Roles.Single(r=>r.Id==role.Id);randomSchedule.Forget(role.Id);if(pets.Any(p=>p.RoleId==role.Id)){if(pets.Count(p=>p.RoleId==role.Id)!=updated.Settings.Count)Summon(updated);else ApplyRunning(updated);}}
         FlushSave();storage.Save();RefreshCards();
     });
-    private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++)group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}
+    private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++){group[i].RoleName=entry.Name;group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}}
     private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change)=>Safe(()=>{var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));RefreshCards();});
     private void RecallAll(){foreach(var pet in pets.ToArray())pet.Close();}
     private void Recall(Guid id){randomSchedule.Forget(id);foreach(var pet in pets.Where(p=>p.RoleId==id).ToArray())pet.Close();}
@@ -266,7 +266,7 @@ internal sealed class Launcher : Window
             var old=catalog.Roles.Single(x=>x.Id==entry.Id);var next=patch(old);if(next==old)return;if(!old.Settings.RandomMode.Enabled&&next.Settings.RandomMode.Enabled)next=next with{Settings=next.Settings.RandomMode.Apply(next.Settings,Random.Shared)};if(old.Settings.RandomMode!=next.Settings.RandomMode)randomSchedule.Forget(entry.Id);catalog.Update(next);QueueSave();var latest=catalog.Roles.Single(x=>x.Id==entry.Id);
             var live=pets.Count(p=>p.RoleId==entry.Id);if(live>0&&live!=latest.Settings.Count)Summon(latest);else if(old.Settings!=latest.Settings)ApplyRunning(latest);
             if(!old.Settings.RandomMode.Enabled&&latest.Settings.RandomMode.Enabled&&navigationHost.Content is RoleSettingsPage page){int selected=page.SelectedSection;Dispatcher.BeginInvoke(new Action(()=>{if(ReferenceEquals(navigationHost.Content,page))EditAt(latest,selected);}));}
-        }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,initialSection:section,reopen:i=>EditAt(catalog.Roles.Single(r=>r.Id==entry.Id),i));
+        }),BackHome,false,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None,initialSection:section,reopen:i=>EditAt(catalog.Roles.Single(r=>r.Id==entry.Id),i),instances:()=>pets.Where(p=>p.RoleId==entry.Id).ToArray());
     });
     private void RefreshCards()
     {
@@ -307,8 +307,8 @@ internal sealed class Launcher : Window
         while(existing.Count>settings.Count){var last=existing[^1];existing.RemoveAt(existing.Count-1);last.Close();}
         while(existing.Count<settings.Count)
         {
-            var role=new RoleRuntime(pair.Pack);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id);
-            pet.OpenSettings+=id=>Edit(catalog.Roles.Single(x=>x.Id==id));pet.ChangeSettings+=ChangeRole;pet.RecallRole+=Recall;pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};pet.ClearRoleFreezes+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ClearFreezes();};pet.ResetRoleSize+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ResetSize();};
+            var role=new RoleRuntime(pair.Pack);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id,existing.Count+1){RoleName=entry.Name};
+            pet.OpenSettings+=id=>Edit(catalog.Roles.Single(x=>x.Id==id));pet.ChangeSettings+=ChangeRole;pet.RecallRole+=Recall;pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};pet.ClearRoleFreezes+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id))p.ClearFreezes();};
             pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);role.Thoughts.Enabled=settings.Thinking&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;thoughts.Add(role.Thoughts,entry.Id);
             pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!pets.Any(p=>p.RoleId==entry.Id))randomSchedule.Forget(entry.Id);if(!shuttingDown)RefreshCards();};
             pet.Show();

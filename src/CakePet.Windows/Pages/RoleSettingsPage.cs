@@ -10,7 +10,7 @@ internal sealed class RoleSettingsPage:UserControl
     private readonly List<Action> dependencies=new();
     internal Guid RoleId=>current().Id;
     internal int SelectedSection {get;private set;}
-    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null)
+    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null,Func<IReadOnlyList<PetWindow>>? instances=null)
     {
         this.current=current;this.change=change;
         var entry=current();var s=entry.Settings.Normalize();
@@ -66,7 +66,43 @@ internal sealed class RoleSettingsPage:UserControl
         if(!defaults){var name=new TextBox{Text=entry.Name,Width=220};void Rename(){if(string.IsNullOrWhiteSpace(name.Text)){name.Text=current().Name;return;}change(r=>r with{Name=name.Text.Trim()});}name.LostKeyboardFocus+=(_,_)=>Rename();name.KeyDown+=(_,e)=>{if(e.Key==System.Windows.Input.Key.Enter){Rename();e.Handled=true;}};identity.Add(Ui.Pair(Ui.Caption("名称","为角色取一个名字。"),name));}
         Number(identity,"召唤数量","同时出现在桌面上的实例数。",s.Count,1,30,1,"个",(r,v)=>r with{Count=(int)v},"Count",1);
         var appearance=Card(main,"显示","调整桌面上「"+petName+"」的大小和透明度。");
-        Number(appearance,"大小","「"+petName+"」可大可大可大",s.Scale,.5,3,.05,"倍",(r,v)=>r with{Scale=v},"Scale",1);
+        if(defaults||instances==null)Number(appearance,"大小","「"+petName+"」可大可大可大",s.Scale,.5,3,.05,"倍",(r,v)=>r with{Scale=v},"Scale",1);
+        else
+        {
+            var scaleLimit=SettingLimits.Get(current().Settings,SettingLimits.Specs.First(x=>x.Key=="Scale"));
+            var sizePanel=new StackPanel();
+            var sizeHeader=new DockPanel{LastChildFill=true};
+            var instancePanel=new StackPanel{Margin=new Thickness(24,4,0,0),Visibility=Visibility.Collapsed};
+            bool expanded=false;
+            var fold=Ui.Light("›",()=>{expanded=!expanded;instancePanel.Visibility=expanded?Visibility.Visible:Visibility.Collapsed;});
+            fold.Width=30;fold.Padding=new Thickness(4);fold.Margin=new Thickness(0,0,6,0);fold.Background=System.Windows.Media.Brushes.Transparent;
+            DockPanel.SetDock(fold,Dock.Left);sizeHeader.Children.Add(fold);
+            var mainSize=Ui.NumberRow("大小","统一调整角色实例的基础大小",s.Scale,scaleLimit.Min,scaleLimit.Max,.05,"倍",v=>Set(r=>r with{Scale=v}));
+            sizeHeader.Children.Add(mainSize);sizePanel.Children.Add(sizeHeader);sizePanel.Children.Add(instancePanel);appearance.Add(sizePanel);
+            var refreshRows=new List<Action>();Guid[] previous=Array.Empty<Guid>();
+            void RefreshInstances()
+            {
+                var live=instances().ToArray();bool multi=live.Length>1;
+                fold.Visibility=multi?Visibility.Visible:Visibility.Collapsed;
+                fold.Content=expanded?"⌄":"›";instancePanel.Visibility=multi&&expanded?Visibility.Visible:Visibility.Collapsed;
+                var ids=live.Select(x=>x.InstanceId).ToArray();
+                if(!previous.SequenceEqual(ids))
+                {
+                    previous=ids;instancePanel.Children.Clear();refreshRows.Clear();
+                    foreach(var pet in live)
+                    {
+                        var row=Ui.NumberRow("实例 "+pet.InstanceNumber,"",pet.CurrentScale,scaleLimit.Min,Math.Max(scaleLimit.Max,current().Settings.MaxScale),.05,"倍",pet.SetInstanceScale,()=>pet.CurrentScale,refreshRows.Add);
+                        instancePanel.Children.Add(row);
+                    }
+                }
+                if(expanded&&multi)foreach(var refresh in refreshRows)refresh();
+            }
+            fold.Click+=(_,_)=>RefreshInstances();
+            dependencies.Add(RefreshInstances);RefreshInstances();
+            var liveTimer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(250)};
+            liveTimer.Tick+=(_,_)=>{if(IsVisible)RefreshInstances();};
+            Loaded+=(_,_)=>liveTimer.Start();Unloaded+=(_,_)=>liveTimer.Stop();
+        }
         Number(appearance,"透明度","「"+petName+"」的可见程度",s.Opacity*100,5,100,1,"%",(r,v)=>r with{Opacity=v/100},"Opacity",100);
         var input=Card(main,"显示-交互","选择鼠标如何与桌宠交互。");
         var hit=new ComboBox{ItemsSource=new[]{"像素级命中","画布命中"},SelectedIndex=s.PixelHit?0:1,Width=160};hit.SelectionChanged+=(_,_)=>Set(r=>r with{PixelHit=hit.SelectedIndex==0});input.Add(Ui.Pair(Ui.Caption("命中模式","决定透明区域能否被点击"),hit));
