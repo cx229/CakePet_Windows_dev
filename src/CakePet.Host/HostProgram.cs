@@ -140,7 +140,7 @@ internal sealed class ResidentHost:IDisposable
             var eligible=roles.Where(r=>feature.Supported(packs[r.Id])).ToArray();
             bool all=eligible.Length>0&&eligible.All(r=>feature.Get(r.Settings));
             bool mixed=!all&&eligible.Any(r=>feature.Get(r.Settings));
-            items.Add(new(feature.Name+"（全局"+(mixed?"·部分开启":"")+"）",()=>ChangeAllRoles(feature,!all),eligible.Length>0,all));
+            items.Add(new(feature.Name+"（全局-"+(eligible.Length==0?"不可用":mixed?"部分开启":all?"开":"关")+"）",()=>ChangeAllRoles(feature,!all),eligible.Length>0,all));
         }
         items.Add(new(null));items.Add(new("退出",()=>loop.Stop()));return items;
     }

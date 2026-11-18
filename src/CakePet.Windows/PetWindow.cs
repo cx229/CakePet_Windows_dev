@@ -50,7 +50,7 @@ internal sealed class PetWindow
     internal event Action<Guid>? ClearRoleFood;
     internal Func<IReadOnlyList<NativeMenu.Item>>? BuildContextMenu;
     internal bool HasFreezes=>freezes.Count>0;
-    internal bool CanPat=>!closed&&role.CanTrigger(body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head");
+    internal bool CanPat {get{var path=body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head";return !closed&&role.Package.Supports(path)&&role.CanTrigger(path);}}
     internal bool CanFeed=>!closed&&engine.FeedingEnabled;
     internal bool CanMenuAnimation=>!closed&&role.CanTrigger("menu/pool");
     internal bool HasRoleFood=>foodWorld.Foods.Any(f=>f.Owner==engine);
@@ -186,12 +186,14 @@ internal sealed class PetWindow
     internal void PlayMenuAnimation(string mode){if(!closed&&engine.MenuAction(mode))Render();}
     internal void Freeze()
     {
+        if(closed)return;
         var pixels=Math.Max(1,(int)Math.Round(Side));
         var bitmap=images.Get(role.Animation.Current,pixels,engine.Facing,engine.RenderEdge,false);
         var freeze=new FreezeWindow(bitmap,body.Position,Side);freezes.Add(freeze);freeze.Closed+=(_,_)=>freezes.Remove(freeze);freeze.Show();
     }
     internal void ToggleDebug()
     {
+        if(closed)return;
         if(debug!=null){debug.Close();return;}
         var window=new NativeDebugWindow((string.IsNullOrWhiteSpace(RoleName)?role.Package.Name:RoleName)+" #"+InstanceNumber);debug=window;window.Closed+=(_,_)=>debug=null;UpdateDebug();window.Show();
     }

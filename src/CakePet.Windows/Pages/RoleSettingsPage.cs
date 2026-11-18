@@ -10,7 +10,7 @@ internal sealed class RoleSettingsPage:UserControl
     private readonly List<Action> dependencies=new();
     internal Guid RoleId=>current().Id;
     internal int SelectedSection {get;private set;}
-    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null,Func<IReadOnlyList<LivePet>>? instances=null)
+    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null,Func<IReadOnlyList<LivePet>>? instances=null,Action<Guid>? debugInstance=null)
     {
         this.current=current;this.change=change;
         var entry=current();var s=entry.Settings.Normalize();
@@ -176,6 +176,28 @@ internal sealed class RoleSettingsPage:UserControl
                 values.Children.Add(Ui.Light("应用",()=>{if(!double.TryParse(lo.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var a)||!double.TryParse(hi.Text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var b)||!double.IsFinite(a)||!double.IsFinite(b)||a/factor<spec.Min||b/factor>spec.Max||(b-a)/factor<spec.Step-1e-9){MessageBox.Show("请输入有效范围："+spec.Min+"–"+spec.Max);return;}Set(r=>{var map=new Dictionary<string,SettingLimit>(r.Limits??new());map[spec.Key]=new(a/factor,b/factor);return SettingLimits.Clamp(r with{Limits=map});});reopen?.Invoke(selectedSection);}));
                 limitsCard.Add(Ui.Pair(Ui.Caption(spec.Label,(spec.Min*factor)+"–"+(spec.Max*factor)+" "+(factor==100?"%":spec.Unit)),values));
             }
+        }
+        if(!defaults&&instances!=null&&debugInstance!=null)
+        {
+            var diagnostics=Section("调试","查看指定运行实例的实时状态。");
+            var list=new StackPanel();diagnostics.Children.Add(list);
+            Guid[] previousDebug=Array.Empty<Guid>();bool initial=true;
+            void RefreshDebug()
+            {
+                var live=instances().OrderBy(p=>p.InstanceNumber).ToArray();var ids=live.Select(p=>p.InstanceId).ToArray();
+                if(!initial&&previousDebug.SequenceEqual(ids))return;initial=false;previousDebug=ids;list.Children.Clear();
+                if(live.Length==0){list.Children.Add(Ui.Card(Ui.Caption("角色尚未召唤","召唤后可打开调试窗口。")));return;}
+                foreach(var pet in live)
+                {
+                    var id=pet.InstanceId;
+                    list.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("实例 "+pet.InstanceNumber),Ui.Light("打开调试窗口 ›",()=>debugInstance(id)))));
+                }
+            }
+            var debugTimer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(500)};
+            debugTimer.Tick+=(_,_)=>RefreshDebug();
+            diagnostics.Loaded+=(_,_)=>{RefreshDebug();if(diagnostics.IsVisible)debugTimer.Start();};
+            diagnostics.Unloaded+=(_,_)=>debugTimer.Stop();
+            diagnostics.IsVisibleChanged+=(_,_)=>{if(diagnostics.IsVisible&&diagnostics.IsLoaded){RefreshDebug();debugTimer.Start();}else debugTimer.Stop();};
         }
         Select(Math.Clamp(initialSection,0,sections.Count-1));
     }

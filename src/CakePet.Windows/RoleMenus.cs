@@ -15,7 +15,7 @@ internal static class RoleMenus
         Action? summon,Action recall,Action openSettings,Action<Func<RoleSettings,RoleSettings>> change,Action clearFood,bool hasFood)
     {
         var items=new List<NativeMenu.Item>();
-        var targets=instance==null?live:new[]{instance};
+        IReadOnlyList<PetWindow> targets=instance==null?live:new[]{instance};
         bool active=live.Count>0;
         void Each(Action<PetWindow> action){foreach(var p in targets.ToArray())action(p);}
         NativeMenu.Item TargetAction(string label,Action<PetWindow> action,Func<PetWindow,bool>? allowed=null)
