@@ -105,11 +105,11 @@ internal sealed class HostServer:IDisposable
     private readonly CancellationTokenSource cancel=new();
     private readonly Task[] workers;
     private const int Connections=4;
-    public HostServer(HostLoop loop,Func<HostRequest,HostReply> handler,string? pipeName=null)
+    public HostServer(HostLoop loop,Func<HostRequest,HostReply> handler,string? pipeName=null,Func<HostReply>? snapshot=null)
     {
-        workers=Enumerable.Range(0,Connections).Select(_=>Task.Run(()=>Serve(loop,handler,pipeName??HostConnection.PipeName,cancel.Token))).ToArray();
+        workers=Enumerable.Range(0,Connections).Select(_=>Task.Run(()=>Serve(loop,handler,pipeName??HostConnection.PipeName,cancel.Token,snapshot))).ToArray();
     }
-    private static async Task Serve(HostLoop loop,Func<HostRequest,HostReply> handler,string name,CancellationToken shutdown)
+    private static async Task Serve(HostLoop loop,Func<HostRequest,HostReply> handler,string name,CancellationToken shutdown,Func<HostReply>? snapshot)
     {
         while(!shutdown.IsCancellationRequested)
         {
@@ -124,7 +124,17 @@ internal sealed class HostServer:IDisposable
                 var line=await reader.ReadLineAsync(deadline.Token).ConfigureAwait(false);
                 if(line==null)continue;
                 request=JsonSerializer.Deserialize(line,HostJson.Default.HostRequest)??throw new InvalidDataException();
-                var req=request;var done=new TaskCompletionSource<HostReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var req=request;
+                if(req.Command=="snapshot"&&snapshot!=null)
+                {
+                    // The published response is immutable. Reads never wait for the Win32 loop.
+                    stage="snapshot-reply";
+                    var reply=snapshot() with{RequestId=req.RequestId};
+                    var bytes=System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(reply,HostJson.Default.HostReply)+"\n");
+                    await pipe.WriteAsync(bytes.AsMemory(),deadline.Token).ConfigureAwait(false);
+                    await pipe.FlushAsync(deadline.Token).ConfigureAwait(false);continue;
+                }
+                var done=new TaskCompletionSource<HostReply>(TaskCreationOptions.RunContinuationsAsynchronously);
                 stage="queue";
                 // Read-only polling should not dismiss a user's context menu.
                 if(req.Command is not ("snapshot" or "diagnostics"))NativeMenu.CancelForRequest();

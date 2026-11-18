@@ -17,11 +17,25 @@ internal static class HostFrameworkProbe
             using var loop=new HostLoop();
             using var resident=new ResidentHost(Path.GetFullPath(root),loop,dataRoot,true);
             resident.ConfigureProbe(1,3);
-            using var server=new HostServer(loop,resident.Handle,pipe);
+            using var server=new HostServer(loop,resident.Handle,pipe,resident.ReadSnapshot);
             var work=Task.Run(()=>{
                 try
                 {
                     var before=HostConnection.Call(new("snapshot"),pipe);
+                    // A snapshot must remain available even while the Win32 owner is blocked.
+                    using(var entered=new ManualResetEventSlim())
+                    using(var release=new ManualResetEventSlim())
+                    {
+                        loop.Post(()=>{entered.Set();release.Wait(TimeSpan.FromSeconds(5));});
+                        try
+                        {
+                            if(!entered.Wait(TimeSpan.FromSeconds(2)))throw new InvalidDataException("Host loop did not enter probe");
+                            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                            var read=HostConnection.CallAsync(new("snapshot"),pipe,deadline.Token).GetAwaiter().GetResult();
+                            if(!read.Success||read.Catalog!=before.Catalog)throw new InvalidDataException("Independent snapshot failed");
+                        }
+                        finally{release.Set();}
+                    }
                     var initial=RoleCatalog.Parse(before.Catalog!);
                     var id=Guid.NewGuid();var entry=new PackEntry(id,"Import probe",id.ToString("N"));
                     var dest=Path.Combine(dataRoot,"packs",entry.Directory);
@@ -92,7 +106,7 @@ internal static class HostFrameworkProbe
                 using var resident=new ResidentHost(root,loop,dataRoot,true);
                 resident.ConfigureProbe(count,interval);
                 // Real pipe server and real request/response payloads, but an isolated endpoint.
-                using var server=new HostServer(loop,resident.Handle,"CakePet.Probe."+Environment.ProcessId);
+                using var server=new HostServer(loop,resident.Handle,"CakePet.Probe."+Environment.ProcessId,resident.ReadSnapshot);
                 var ipc=Task.Run(()=>HostConnection.Call(new("snapshot"),"CakePet.Probe."+Environment.ProcessId));
                 var clock=Stopwatch.StartNew();long next=0;
                 loop.Tick+=()=>{

@@ -16,8 +16,9 @@ internal static class HostProgram
         if(!first){try{HostConnection.Call(new("open"));}catch(Exception){}return 0;}
         using var loop=new HostLoop();
         using var runtime=new ResidentHost(root,loop);
-        using var server=new HostServer(loop,runtime.Handle);
-        runtime.Start();return loop.Run();
+        runtime.Start();
+        using var server=new HostServer(loop,runtime.Handle,snapshot:runtime.ReadSnapshot);
+        return loop.Run();
     }
 }
 internal sealed class ResidentHost:IDisposable
@@ -46,6 +47,11 @@ internal sealed class ResidentHost:IDisposable
     private string? cachedCatalogJson;
     private void InvalidateCatalog()=>cachedCatalogJson=null;
     private string CatalogJson(){if(!ReferenceEquals(cachedCatalog,catalog)||cachedCatalogJson==null){cachedCatalog=catalog;cachedCatalogJson=JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog);}return cachedCatalogJson;}
+    private HostReply? publishedSnapshot;
+    private long lastSnapshotAt;
+    private HostReply MakeSnapshot()=>new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,CatalogJson(),Environment.ProcessId);
+    private HostReply PublishSnapshot(){var snapshot=MakeSnapshot();Volatile.Write(ref publishedSnapshot,snapshot);lastSnapshotAt=clock.ElapsedMilliseconds;return snapshot;}
+    internal HostReply ReadSnapshot()=>Volatile.Read(ref publishedSnapshot)??throw new InvalidOperationException("常驻进程尚未初始化。");
     private Process? settingsProcess;
     private string Today()=>DateTime.Now.ToString("yyyy-MM-dd");
     public ResidentHost(string root,HostLoop loop,string? dataRoot=null,bool probe=false)
@@ -59,7 +65,7 @@ internal sealed class ResidentHost:IDisposable
     }
     private void Safe(Action action){try{action();}catch(Exception e){if(probe)throw;ReportError("CakePet",e);}}
     private static void ReportError(string stage,Exception error)=>IpcLog.Write("host",null,stage,0,error);
-    public void Start(){loop.IntervalMs=catalog.RefreshIntervalMs;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Safe(()=>Summon(r));lastTick=clock.ElapsedMilliseconds;}
+    public void Start(){loop.IntervalMs=catalog.RefreshIntervalMs;ReloadTyping();if(catalog.AutoSummon&&catalog.Roles.FirstOrDefault() is RoleEntry r)Safe(()=>Summon(r));lastTick=clock.ElapsedMilliseconds;PublishSnapshot();}
     private void ReloadTyping(){typing.Restore(catalog.TypingDay,catalog.TypingToday,Today());typingDirty=false;SetTyping();}
     private void SetTyping(){try{typingInput.SetEnabled(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}catch(Exception e){ReportError("无法启用打字统计",e);}}
     private void SaveTyping(){if(!typingDirty)return;catalog.TypingDay=typing.Day;catalog.TypingToday=typing.Today;storage.Save();InvalidateCatalog();typingDirty=false;lastTypingSave=clock.ElapsedMilliseconds;}
@@ -71,6 +77,7 @@ internal sealed class ResidentHost:IDisposable
         if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));storage.Save();InvalidateCatalog();}}
         world.Advance(dt);var live=pets.ToArray();foreach(var pet in live)pet.Step(dt);world.UpdateInteractions();foreach(var pet in live)pet.Render();foreach(var food in foodWindows.Values.ToArray())food.Render();
         if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)SaveTyping();}
+        if((probe||settingsProcess is {HasExited:false})&&now-lastSnapshotAt>=250)PublishSnapshot();
         // Physics and movement follow the configured interval; text layout has its own deadline.
         if(now-lastThoughtPaint<16)return;
         lastThoughtPaint=now;
@@ -157,9 +164,10 @@ internal sealed class ResidentHost:IDisposable
     }
     private void OpenSettings(Guid? id=null)
     {
-        SaveTyping();
+        PublishSnapshot();
         if(settingsProcess is {HasExited:false}){HostConnection.SignalSettings(id);return;}
         settingsProcess?.Dispose();
+        try{File.Delete(HostConnection.SettingsSignalPath);}catch(IOException){}catch(UnauthorizedAccessException){}
         var path=Path.Combine(AppContext.BaseDirectory,"settings","CakePet.exe");
         var info=new ProcessStartInfo(path){UseShellExecute=false};info.ArgumentList.Add("--settings-client");if(id.HasValue)info.ArgumentList.Add(id.Value.ToString());
         settingsProcess=Process.Start(info);
@@ -217,6 +225,16 @@ internal sealed class ResidentHost:IDisposable
                 var feature=RoleMenus.Switches.SingleOrDefault(f=>f.Name==req.Feature)??throw new InvalidDataException("未知全局功能。");
                 SetGlobalLimit(feature,req.Allowed??throw new InvalidDataException("缺少开关状态。"));break;
             case "register-pack":RegisterPack(req.Pack??throw new InvalidDataException("缺少素材包记录。"));break;
+            case "reload-pack":
+                var pack=catalog.Packs.Single(p=>p.Id==req.Pack!.Id);
+                var updated=RolePackage.Load(storage.Resolve(pack));
+                var affected=catalog.Roles.Where(r=>r.PackId==pack.Id&&pets.Any(p=>p.RoleId==r.Id)).ToArray();
+                var index=catalog.Packs.IndexOf(pack);catalog.Packs[index]=pack with{Name=updated.Name};
+                try{storage.Save();}catch{catalog.Packs[index]=pack;throw;}
+                InvalidateCatalog();
+                foreach(var role in affected)Recall(role.Id);
+                foreach(var role in affected)Summon(role);
+                break;
             case "save-catalog":
                 SaveTyping();
                 var merged=CatalogMerge.Merge(req.Baseline??throw new InvalidDataException(),req.Catalog??throw new InvalidDataException(),CatalogJson());
@@ -234,7 +252,7 @@ internal sealed class ResidentHost:IDisposable
             case "shutdown":loop.Post(loop.Stop);break;
             default:throw new InvalidOperationException("Unknown command: "+req.Command);
         }
-        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,CatalogJson(),Environment.ProcessId);
+        return PublishSnapshot();
     }
     internal void ConfigureProbe(int count,int interval)
     {
@@ -246,6 +264,7 @@ internal sealed class ResidentHost:IDisposable
         catalog.Update(role with{Settings=role.Settings with{Count=Math.Max(1,count)}});
         storage.Save();InvalidateCatalog();Start();
         if(count>0)Summon(catalog.Roles[0]);
+        PublishSnapshot();
     }
     public void Dispose()
     {

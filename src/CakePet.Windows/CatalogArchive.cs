@@ -20,7 +20,7 @@ internal sealed partial class CatalogStorage
     }
     public void ExportBackup(string path,string version)
     {
-        Save();ArchiveIO.Zip(path,zip=>{
+        ArchiveIO.Zip(path,zip=>{
             ArchiveIO.Text(zip,"manifest.json",new JsonObject{["type"]="cakepet-backup",["platform"]="windows",["appVersion"]=version,["createdAt"]=DateTimeOffset.Now.ToString("O")}.ToJsonString(ArchiveIO.Options));
             ArchiveIO.Text(zip,"catalog.json",JsonSerializer.Serialize(Catalog,ArchiveIO.Options));
             foreach(var p in Catalog.Packs)ArchiveIO.Tree(zip,Resolve(p),"packs/"+p.Directory+"/");

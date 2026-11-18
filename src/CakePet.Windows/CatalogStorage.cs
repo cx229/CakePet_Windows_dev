@@ -13,11 +13,11 @@ internal sealed partial class CatalogStorage
 #if !NATIVE_HOST
     internal bool AsyncSaveInFlight {get;set;}
 #endif
-    public CatalogStorage(string bundled,bool remote=false,string? dataRoot=null)
+    public CatalogStorage(string bundled,bool remote=false,string? dataRoot=null,string? initialCatalog=null)
     {
         root=dataRoot??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet");
         this.remote=remote;
-        Catalog=remote?RoleCatalog.Parse(HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog")):RoleCatalog.Load(FilePath);
+        Catalog=remote?RoleCatalog.Parse(initialCatalog??throw new ArgumentNullException(nameof(initialCatalog))):RoleCatalog.Load(FilePath);
         baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);
         if(remote)return;
         if(!File.Exists(FilePath)&&Catalog.Packs.Count==0&&File.Exists(Path.Combine(bundled,"modes.jsonc")))
