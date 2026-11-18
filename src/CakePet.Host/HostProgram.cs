@@ -160,7 +160,7 @@ internal sealed class ResidentHost:IDisposable
         switch(req.Command)
         {
             case "open":OpenSettings(req.RoleId);break;
-            case "diagnostics":return new(true,null,Array.Empty<LiveInstance>(),0,DiagnosticCounters());
+            case "diagnostics":return new(true,null,Array.Empty<LiveInstance>(),0,DiagnosticCounters(),Environment.ProcessId);
             case "snapshot":break;
             case "save-catalog":
                 SaveTyping();
@@ -178,7 +178,7 @@ internal sealed class ResidentHost:IDisposable
             case "shutdown":loop.Post(loop.Stop);break;
             default:throw new InvalidOperationException("Unknown command: "+req.Command);
         }
-        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,CatalogJson());
+        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,CatalogJson(),Environment.ProcessId);
     }
     internal void ConfigureProbe(int count,int interval)
     {
