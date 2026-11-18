@@ -69,8 +69,26 @@ public sealed record RoleSettings
         var left=area.Left+OffsetLeft;var top=area.Top+OffsetTop;
         return new Bounds(left,top,Math.Max(left+1,area.Right-OffsetRight),Math.Max(top+1,area.Bottom-OffsetBottom));
     }
-    public RoleSettings Effective(RolePackage pack)=>Normalize() with{
-        Move=Move||!pack.Supports("standby/static_pool"),Throw=Throw&&pack.Supports("touch/roll"),Snap=Snap&&pack.Supports("snap/pool"),Leap=Leap&&Climb&&pack.Supports("climb/leap/leap"),Forage=Forage&&Climb&&pack.Supports(PetEngine.ForagePath),Feed=Feed&&pack.Supports("feed/food"),AutoFeed=AutoFeed&&Feed&&pack.Supports("feed/food")};
+    public RoleSettings Effective(RolePackage pack,GlobalFeatureLimits? limits=null)
+    {
+        var g=limits??new GlobalFeatureLimits();var s=Normalize();
+        bool move=g.Move&&(s.Move||!pack.Supports("standby/static_pool"));
+        bool climb=move&&g.Climb&&s.Climb;
+        bool feed=g.Feed&&s.Feed&&pack.Supports("feed/food");
+        return s with{Move=move,ClickThrough=g.ClickThrough&&s.ClickThrough,
+            Climb=climb,Throw=move&&s.Throw&&pack.Supports("touch/roll"),Snap=s.Snap&&pack.Supports("snap/pool"),
+            Leap=climb&&g.Leap&&s.Leap&&pack.Supports("climb/leap/leap"),Forage=climb&&s.Forage&&pack.Supports(PetEngine.ForagePath),
+            Feed=feed,AutoFeed=feed&&s.AutoFeed};
+    }
+}
+// True means permitted, never forced on. Persist independently of every role.
+public sealed record GlobalFeatureLimits
+{
+    public bool ClickThrough {get;init;}=true;
+    public bool Feed {get;init;}=true;
+    public bool Move {get;init;}=true;
+    public bool Climb {get;init;}=true;
+    public bool Leap {get;init;}=true;
 }
 public sealed record RoleEntry(Guid Id,Guid PackId,string Name,RoleSettings Settings);
 public enum ThinkingLocation { PrimaryBottom, TrayLeft, TaskbarLeft }
@@ -88,6 +106,7 @@ public sealed class RoleCatalog
     public const int DefaultRefreshIntervalMs=3;
     public int RefreshIntervalMs {get;set;}=DefaultRefreshIntervalMs;
     public RoleSettings Defaults {get;set;}=new();
+    public GlobalFeatureLimits FeatureLimits {get;set;}=new();
     public static RoleCatalog Load(string file)
     {
         if(!File.Exists(file))return new();
@@ -97,6 +116,7 @@ public sealed class RoleCatalog
     {
         var data=JsonSerializer.Deserialize(json,CoreJson.Default.RoleCatalog)??throw new InvalidDataException("Invalid catalog.");
         if(data.Packs==null||data.Roles==null||data.Packs.Select(x=>x.Id).Distinct().Count()!=data.Packs.Count||data.Roles.Select(x=>x.Id).Distinct().Count()!=data.Roles.Count||data.Roles.Any(x=>x.Settings==null||!data.Packs.Any(p=>p.Id==x.PackId)))throw new InvalidDataException("Invalid role references.");
+        data.FeatureLimits??=new();
         data.RefreshIntervalMs=Math.Clamp(data.RefreshIntervalMs,1,50);
         data.Defaults=SettingLimits.Clamp((data.Defaults??new()).Normalize());for(int i=0;i<data.Roles.Count;i++)data.Roles[i]=data.Roles[i] with{Settings=SettingLimits.Clamp(data.Roles[i].Settings.Normalize())};
         return data;

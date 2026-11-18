@@ -50,9 +50,9 @@ public sealed class RoleRuntime
         if(StaticStandby&&Select("standby/static_pool",exclude))return;
         if(!Select("standby/pool",exclude))throw new InvalidOperationException("No valid standby.");
     }
-    public void SetStaticStandby(bool enabled)
+    public void SetStaticStandby(bool enabled,bool allowFallback=false)
     {
-        enabled=enabled&&Package.Candidates("standby/static_pool").Count>0;
+        enabled=enabled&&(allowFallback||Package.Candidates("standby/static_pool").Count>0);
         if(StaticStandby==enabled)return;
         StaticStandby=enabled;
         if(Physics==PhysicalState.Free&&!Snapped&&StateFunction==null)Resume();

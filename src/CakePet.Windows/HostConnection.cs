@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace CakePet.Windows;
 internal sealed record HostRequest(string Command,Guid? RoleId=null,Guid? InstanceId=null,double? Scale=null,string? Baseline=null,string? Catalog=null);
 internal sealed record LiveInstance(Guid RoleId,Guid InstanceId,int InstanceNumber,double CurrentScale);
-internal sealed record HostReply(bool Success,string? Error,LiveInstance[] Instances,int FoodCount,string? Catalog=null);
+internal sealed record HostReply(bool Success,string? Error,LiveInstance[] Instances,int FoodCount,string? Catalog=null,int HostPid=0);
 internal sealed class LivePet
 {
     public Guid RoleId {get;private set;}
@@ -19,6 +19,8 @@ internal static class HostConnection
 {
     internal static string PipeName=>"CakePet.Host."+Environment.UserName+"."+System.Diagnostics.Process.GetCurrentProcess().SessionId;
     private static readonly object requestGate=new();
+    private static int lastHostPid;
+    internal static int LastHostPid=>Volatile.Read(ref lastHostPid);
     internal static HostReply Call(HostRequest request,string? pipeName=null)
     {
         lock(requestGate)return Exchange(request,pipeName);
@@ -32,11 +34,20 @@ internal static class HostConnection
         writer.WriteLine(JsonSerializer.Serialize(request,HostJson.Default.HostRequest));
         var line=reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
         var reply=JsonSerializer.Deserialize(line??throw new IOException("常驻进程未响应。"),HostJson.Default.HostReply)??throw new IOException("常驻进程返回无效数据。");
+        if(reply.HostPid>0)Volatile.Write(ref lastHostPid,reply.HostPid);
         if(!reply.Success)throw new InvalidOperationException(reply.Error);
         return reply;
     }
+    internal static bool? IsKnownHostRunning()
+    {
+        int pid=LastHostPid;if(pid<=0)return null;
+        try{using var p=System.Diagnostics.Process.GetProcessById(pid);return !p.HasExited;}
+        catch(ArgumentException){return false;}
+        catch(InvalidOperationException){return false;}
+        catch(Exception){return null;}
+    }
     internal static string SettingsSignalPath=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet","settings-activation.txt");
-    internal static void SignalSettings(Guid? role){File.WriteAllText(SettingsSignalPath,role?.ToString()??"home");}
+    internal static void SignalSettings(Guid? role){CakePet.Core.ArchiveIO.Write(SettingsSignalPath,role?.ToString()??"home");}
 }
 #if NATIVE_HOST
 internal sealed class HostServer:IDisposable
@@ -57,7 +68,7 @@ internal sealed class HostServer:IDisposable
                     if(line==null)continue;
                     var request=JsonSerializer.Deserialize(line,HostJson.Default.HostRequest)??throw new InvalidDataException();
                     var done=new TaskCompletionSource<HostReply>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    loop.Post(()=>{try{done.TrySetResult(handler(request));}catch(Exception e){done.TrySetResult(new(false,e.Message,Array.Empty<LiveInstance>(),0));}});
+                    loop.Post(()=>{try{done.TrySetResult(handler(request));}catch(Exception e){done.TrySetResult(new(false,e.Message,Array.Empty<LiveInstance>(),0,HostPid:Environment.ProcessId));}});
                     var result=await done.Task.WaitAsync(cancel.Token);
                     await writer.WriteLineAsync(JsonSerializer.Serialize(result,HostJson.Default.HostReply));
                 }

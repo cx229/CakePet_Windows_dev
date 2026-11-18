@@ -7,6 +7,7 @@ namespace CakePet.Core;
 [JsonSourceGenerationOptions(PropertyNameCaseInsensitive=true,GenerationMode=JsonSourceGenerationMode.Metadata)]
 [JsonSerializable(typeof(RoleCatalog))]
 [JsonSerializable(typeof(RoleSettings))]
+[JsonSerializable(typeof(GlobalFeatureLimits))]
 [JsonSerializable(typeof(PackEntry))]
 [JsonSerializable(typeof(RoleEntry))]
 [JsonSerializable(typeof(TypingSettings))]

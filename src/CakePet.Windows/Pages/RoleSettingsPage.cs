@@ -8,17 +8,21 @@ internal sealed class RoleSettingsPage:UserControl
     private readonly Func<RoleEntry> current;
     private readonly Action<Func<RoleEntry,RoleEntry>> change;
     private readonly List<Action> dependencies=new();
+    private Action? refreshLimits;
+    internal void RefreshGlobalLimits()=>refreshLimits?.Invoke();
     internal Guid RoleId=>current().Id;
     internal int SelectedSection {get;private set;}
-    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null,Func<IReadOnlyList<LivePet>>? instances=null)
+    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null,Func<IReadOnlyList<LivePet>>? instances=null,Action<Guid>? debugInstance=null,Func<GlobalFeatureLimits>? globalLimits=null)
     {
         this.current=current;this.change=change;
         var entry=current();var s=entry.Settings.Normalize();
         bool Supports(string path)=>pack?.Supports(path)??true;
         var petName=defaults?"角色":string.IsNullOrWhiteSpace(pack?.ShortName)?entry.Name:pack.ShortName;
         var foodName=string.IsNullOrWhiteSpace(pack?.FoodName)?"食物":pack.FoodName;
-        bool MoveOn()=>current().Settings.Move||!Supports("standby/static_pool");
-        bool FoodOn()=>current().Settings.Feed&&Supports("feed/food");
+        GlobalFeatureLimits Limits()=>defaults?new():globalLimits?.Invoke()??new();
+        bool MoveOn()=>Limits().Move&&(current().Settings.Move||!Supports("standby/static_pool"));
+        bool FoodOn()=>Limits().Feed&&current().Settings.Feed&&Supports("feed/food");
+        bool ClimbOn()=>MoveOn()&&Limits().Climb&&current().Settings.Climb;
         var root=new Grid();root.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(205)});root.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});Content=root;
         var nav=new StackPanel{Margin=new Thickness(10,16,10,12)};var sidebar=new Border{Background=Ui.Brush("Sidebar"),Child=new ScrollViewer{Content=nav,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};root.Children.Add(sidebar);
         nav.Children.Add(Ui.Light("‹ 返回",back));var title=Ui.Caption(defaults?"用户习惯":entry.Name,defaults?"新角色默认设置":"角色设置",true);title.Margin=new Thickness(4,20,0,20);nav.Children.Add(title);
@@ -39,7 +43,7 @@ internal sealed class RoleSettingsPage:UserControl
             var layout=new DockPanel();var header=defaults&&applyHabits!=null&&name!="设置阈值"?Ui.Pair(heading,Ui.Light("应用本项到已有角色",()=>applyHabits(name))):(FrameworkElement)heading;DockPanel.SetDock(header,Dock.Top);layout.Children.Add(header);layout.Children.Add(new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
             int index=sections.Count;sections.Add(layout);var b=Ui.Nav(name,()=>Select(index));buttons.Add(b);nav.Children.Add(b);return panel;
         }
-        void Set(Func<RoleSettings,RoleSettings> patch){change(r=>r with{Settings=patch(r.Settings)});foreach(var refresh in dependencies)refresh();foreach(var refresh in summaries)refresh();}
+        void Set(Func<RoleSettings,RoleSettings> patch){change(r=>r with{Settings=patch(r.Settings)});if(refreshLimits!=null)refreshLimits();else{foreach(var refresh in dependencies)refresh();foreach(var refresh in summaries)refresh();}}
         void Summary(Func<string> state){var b=buttons[^1];var label=b.Content.ToString()??"";var text=Ui.Text(label,13);var value=Ui.Text("",11,true);var row=Ui.Pair(text,value);row.MinHeight=0;b.Content=row;b.HorizontalContentAlignment=HorizontalAlignment.Stretch;void Refresh(){value.Text=state();value.Foreground=value.Text.Contains("强制")?System.Windows.Media.Brushes.IndianRed:Ui.Brush("Muted");}summaries.Add(Refresh);Refresh();}
         void Group(StackPanel page,string title,Func<bool>? visible=null){var t=Ui.Text(title,12,true);t.Margin=new Thickness(2,8,0,6);page.Children.Add(t);if(visible!=null){void Refresh(){t.Visibility=visible()?Visibility.Visible:Visibility.Collapsed;}dependencies.Add(Refresh);Refresh();}}
         SettingCard Card(StackPanel page,string name,string note,bool? enabled=null,Func<RoleSettings,bool,RoleSettings>? setter=null,bool available=true,bool details=true,bool expanded=true,Func<bool>? dependency=null)
@@ -107,9 +111,11 @@ internal sealed class RoleSettingsPage:UserControl
         Number(appearance,"透明度","「"+petName+"」的可见程度",s.Opacity*100,5,100,1,"%",(r,v)=>r with{Opacity=v/100},"Opacity",100);
         var input=Card(main,"显示-交互","选择鼠标如何与桌宠交互。");
         var hit=new ComboBox{ItemsSource=new[]{"像素级命中","画布命中"},SelectedIndex=s.PixelHit?0:1,Width=160};hit.SelectionChanged+=(_,_)=>Set(r=>r with{PixelHit=hit.SelectedIndex==0});input.Add(Ui.Pair(Ui.Caption("命中模式","决定透明区域能否被点击"),hit));
-        Flag(input,"点击穿透","开启后无法点击「"+petName+"」，按住 Ctrl 临时恢复",s.ClickThrough,(r,v)=>r with{ClickThrough=v});
-        var motion=Section("移动","调整「"+petName+"」在桌面上的移动行为");Summary(()=>!Supports("standby/static_pool")?"强制开启":MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
-        var move=Card(motion,"移动","关闭后，「"+petName+"」将会静悄悄地",MoveOn(),(r,v)=>r with{Move=v});if(!Supports("standby/static_pool"))move.ForceOn("素材包缺少静止待机池，移动强制开启");
+        var clickNote=Ui.Caption("点击穿透","开启后无法点击「"+petName+"」，按住 Ctrl 临时恢复");
+        var clickSwitch=Ui.Switch(s.ClickThrough);clickSwitch.Click+=(_,_)=>{if(Limits().ClickThrough)Set(r=>r with{ClickThrough=clickSwitch.IsChecked==true});};
+        input.Add(Ui.Pair(clickNote,clickSwitch));
+        var motion=Section("移动","调整「"+petName+"」在桌面上的移动行为");Summary(()=>!Limits().Move?"全局关闭":!Supports("standby/static_pool")?"强制开启":MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
+        var move=Card(motion,"移动","关闭后，「"+petName+"」将会静悄悄地",s.Move||!Supports("standby/static_pool"),(r,v)=>r with{Move=v});
         Number(move,"最大速度","「"+petName+"」能跑多快",s.MaxSpeed,100,10000,50,"px/s",(r,v)=>r with{MaxSpeed=v},"MaxSpeed",1);
         move.AddGroup(Ui.Text("重重重",12,true));
         var gravity=Card(motion,"重力","万有引力，来自地心的吸引",s.GravityEnabled,(r,v)=>r with{GravityEnabled=v},dependency:MoveOn);
@@ -124,15 +130,15 @@ internal sealed class RoleSettingsPage:UserControl
         move.AddGroup(Ui.Text("攀攀攀",12,true));
         var climb=Card(motion,"攀岩走壁","无视重力，踏壁而行，如履平地！",s.Climb,(r,v)=>r with{Climb=v},dependency:MoveOn);
         motion.Children.Remove(climb);move.AddChild(climb);
-        var forage=Card(motion,"自动觅食",Supports(PetEngine.ForagePath)?"「"+petName+"」会沿着边缘自己找吃的":"素材包缺少觅食动画",s.Forage&&Supports(PetEngine.ForagePath),(r,v)=>r with{Forage=v},Supports(PetEngine.ForagePath),dependency:()=>MoveOn()&&current().Settings.Climb);
+        var forage=Card(motion,"自动觅食",Supports(PetEngine.ForagePath)?"「"+petName+"」会沿着边缘自己找吃的":"素材包缺少觅食动画",s.Forage&&Supports(PetEngine.ForagePath),(r,v)=>r with{Forage=v},Supports(PetEngine.ForagePath),dependency:ClimbOn);
         Number(forage,"觅食速度加成","加成后「"+petName+"」将飞速奔向食物",s.ForageMultiplier,.1,5,.05,"倍",(r,v)=>r with{ForageMultiplier=v},"ForageMultiplier",1);
-        var leap=Card(motion,"飞跃",Supports("climb/leap/leap")?"起跳，起飞！":"素材包缺少飞跃动画",s.Leap&&Supports("climb/leap/leap"),(r,v)=>r with{Leap=v},Supports("climb/leap/leap"),dependency:()=>MoveOn()&&current().Settings.Climb);
+        var leap=Card(motion,"飞跃",Supports("climb/leap/leap")?"起跳，起飞！":"素材包缺少飞跃动画",s.Leap&&Supports("climb/leap/leap"),(r,v)=>r with{Leap=v},Supports("climb/leap/leap"),dependency:ClimbOn);
         motion.Children.Remove(forage);motion.Children.Remove(leap);climb.AddChild(forage);climb.AddChild(leap);
         Number(leap,"飞跃概率","概率越高，越容易起飞",s.LeapProbability*100,0,100,1,"%",(r,v)=>r with{LeapProbability=v/100},"LeapProbability",100);Number(leap,"飞跃速度","飞向目标边缘的速度。",s.LeapSpeed,100,5000,25,"px/s",(r,v)=>r with{LeapSpeed=v},"LeapSpeed",1);
         var climbing=Section("吸附边缘","贴在边缘休息一会儿");Summary(()=>!Supports("snap/pool")?"强制关闭":current().Settings.Snap?"已开启":"已关闭");
         var snap=Card(climbing,"吸附边缘",Supports("snap/pool")?"拖到屏幕边缘松手，会吸附边缘。按住鼠标拖出。":"素材包缺少吸附动画",s.Snap&&Supports("snap/pool"),(r,v)=>r with{Snap=v},Supports("snap/pool"));
         Number(snap,"吸附距离","数值越大，越容易被吸附在边缘",s.SnapDistance,0,500,5,"px",(r,v)=>r with{SnapDistance=v},"SnapDistance",1);Number(snap,"吸附速度","允许吸附的松手速度上限。",s.SnapSpeed,0,5000,25,"px/s",(r,v)=>r with{SnapSpeed=v},"SnapSpeed",1);Directions(snap,"四边吸附","选择可以贴在哪些边缘",s.SnapEdges,(r,v)=>r with{SnapEdges=v});
-        var feeding=Section("投食","给「"+petName+"」喂点吃的");bool foodSupported=Supports("feed/food");Func<bool> foodOn=FoodOn;Summary(()=>!foodSupported?"强制关闭":FoodOn()?"已开启":"已关闭");Group(feeding,"吃吃吃");
+        var feeding=Section("投食","给「"+petName+"」喂点吃的");bool foodSupported=Supports("feed/food");Func<bool> foodOn=FoodOn;Summary(()=>!Limits().Feed?"全局关闭":!foodSupported?"强制关闭":FoodOn()?"已开启":"已关闭");Group(feeding,"吃吃吃");
         var feedMaster=Card(feeding,"投食",foodSupported?"桌面上刷新食物，可以拖动喂给「"+petName+"」":"素材包缺少食物动画",s.Feed&&foodSupported,(r,v)=>r with{Feed=v},foodSupported);
         Group(feeding,"显示",FoodOn);
         var food=Card(feeding,"食物显示","手动投食和随机掉落的食物共用这些设置",available:foodSupported,dependency:foodOn);
@@ -177,6 +183,45 @@ internal sealed class RoleSettingsPage:UserControl
                 limitsCard.Add(Ui.Pair(Ui.Caption(spec.Label,(spec.Min*factor)+"–"+(spec.Max*factor)+" "+(factor==100?"%":spec.Unit)),values));
             }
         }
+        if(!defaults&&instances!=null&&debugInstance!=null)
+        {
+            var diagnostics=Section("调试","查看指定运行实例的实时状态。");
+            var list=new StackPanel();diagnostics.Children.Add(list);
+            Guid[] previousDebug=Array.Empty<Guid>();bool initial=true;
+            void RefreshDebug()
+            {
+                var live=instances().OrderBy(p=>p.InstanceNumber).ToArray();var ids=live.Select(p=>p.InstanceId).ToArray();
+                if(!initial&&previousDebug.SequenceEqual(ids))return;initial=false;previousDebug=ids;list.Children.Clear();
+                if(live.Length==0){list.Children.Add(Ui.Card(Ui.Caption("角色尚未召唤","召唤后可打开调试窗口。")));return;}
+                foreach(var pet in live)
+                {
+                    var id=pet.InstanceId;
+                    list.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("实例 "+pet.InstanceNumber),Ui.Light("打开调试窗口 ›",()=>debugInstance(id)))));
+                }
+            }
+            var debugTimer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(500)};
+            debugTimer.Tick+=(_,_)=>RefreshDebug();
+            diagnostics.Loaded+=(_,_)=>{RefreshDebug();if(diagnostics.IsVisible)debugTimer.Start();};
+            diagnostics.Unloaded+=(_,_)=>debugTimer.Stop();
+            diagnostics.IsVisibleChanged+=(_,_)=>{if(diagnostics.IsVisible&&diagnostics.IsLoaded){RefreshDebug();debugTimer.Start();}else debugTimer.Stop();};
+        }
+        // Refresh only these controls on a host snapshot; never rebuild the settings page.
+        void RefreshRestrictions()
+        {
+            var g=Limits();var raw=current().Settings;
+            foreach(var refresh in dependencies)refresh();foreach(var refresh in summaries)refresh();
+            clickSwitch.IsChecked=raw.ClickThrough;clickSwitch.IsEnabled=g.ClickThrough;
+            var clickRemark=(TextBlock)clickNote.Children[1];clickRemark.Text=g.ClickThrough?"开启后无法点击「"+petName+"」，按住 Ctrl 临时恢复":"全局点击穿透已关闭，原设置保留";
+            clickRemark.Foreground=g.ClickThrough?Ui.Brush("Muted"):System.Windows.Media.Brushes.IndianRed;
+            bool staticSupported=Supports("standby/static_pool");
+            move.SetMasterState(raw.Move||!staticSupported,g.Move&&staticSupported,"关闭后，「"+petName+"」将会静悄悄地",!g.Move?"全局移动已关闭，原设置保留":!staticSupported?"素材包缺少静止待机池，移动强制开启":null);
+            if(g.Move&&!staticSupported){move.ForceOn("素材包缺少静止待机池，移动强制开启");move.SetAvailable(true);}
+            climb.SetMasterState(raw.Climb,g.Move&&g.Climb,"无视重力，踏壁而行，如履平地！",!g.Climb?"全局自动攀爬已关闭，原设置保留":null);
+            bool leapSupported=Supports("climb/leap/leap");
+            leap.SetMasterState(raw.Leap&&leapSupported,g.Move&&g.Climb&&g.Leap&&leapSupported,"起跳，起飞！",!g.Leap?"全局飞跃已关闭，原设置保留":!leapSupported?"素材包缺少飞跃动画":null);
+            feedMaster.SetMasterState(raw.Feed&&foodSupported,g.Feed&&foodSupported,"桌面上刷新食物，可以拖动喂给「"+petName+"」",!g.Feed?"全局投食已关闭，原设置保留":!foodSupported?"素材包缺少食物动画":null);
+        }
+        refreshLimits=RefreshRestrictions;RefreshRestrictions();
         Select(Math.Clamp(initialSection,0,sections.Count-1));
     }
 }

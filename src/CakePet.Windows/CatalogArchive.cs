@@ -59,6 +59,12 @@ internal sealed partial class CatalogStorage
                 }catch(Exception){skipped++;}
             }
             if(data["Defaults"] is JsonObject defaults)merged.Defaults=ArchiveIO.Overlay(merged.Defaults,defaults);
+            if(data["FeatureLimits"] is JsonObject gates)
+            {
+                var g=merged.FeatureLimits;
+                bool Read(string key,bool fallback)=>gates[key] is JsonValue v&&v.TryGetValue<bool>(out var enabled)?enabled:fallback;
+                merged.FeatureLimits=g with{ClickThrough=Read("ClickThrough",g.ClickThrough),Feed=Read("Feed",g.Feed),Move=Read("Move",g.Move),Climb=Read("Climb",g.Climb),Leap=Read("Leap",g.Leap)};
+            }
             if(data["Typing"] is JsonObject typing){try{merged.Typing=(typing.Deserialize<TypingSettings>(ArchiveIO.Options)??merged.Typing).Normalize();}catch(JsonException){}}
             if(data["TypingDay"] is JsonValue day&&day.TryGetValue<string>(out var date)&&data["TypingToday"] is JsonValue count&&count.TryGetValue<long>(out var total)&&date==DateTime.Now.ToString("yyyy-MM-dd")){merged.TypingDay=date;merged.TypingToday=Math.Max(merged.TypingDay==original.TypingDay?original.TypingToday:0,total);}
             if(data["ThinkingLocation"] is JsonValue location&&location.TryGetValue<int>(out var loc)&&Enum.IsDefined(typeof(ThinkingLocation),loc))merged.ThinkingLocation=(ThinkingLocation)loc;

@@ -9,6 +9,7 @@ internal sealed partial class CatalogStorage
     public RoleCatalog Catalog {get;private set;}
     private readonly bool remote;
     private string baseline="";
+    internal long Revision {get;private set;}
     public CatalogStorage(string bundled,bool remote=false,string? dataRoot=null)
     {
         root=dataRoot??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet");
@@ -24,11 +25,12 @@ internal sealed partial class CatalogStorage
     public void Save()=>Commit(Catalog);
     public void Commit(RoleCatalog value)
     {
+        Revision++;
         if(!remote){value.Save(FilePath);Catalog=value;return;}
         var result=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(value,CoreJson.Default.RoleCatalog)));
         Adopt(result.Catalog??throw new IOException("Missing catalog"));
     }
-    public void Adopt(string json){Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);}
+    public void Adopt(string json){if(json==baseline)return;Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);Revision++;}
     public void Reload()=>Adopt(remote?HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog"):File.ReadAllText(FilePath));
     public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}
     public PackEntry Import(string source)
