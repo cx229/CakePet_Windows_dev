@@ -79,19 +79,20 @@ internal sealed class RoleSettingsPage:UserControl
             DockPanel.SetDock(fold,Dock.Left);sizeHeader.Children.Add(fold);
             var mainSize=Ui.NumberRow("大小","统一调整角色实例的基础大小",s.Scale,scaleLimit.Min,scaleLimit.Max,.05,"倍",v=>Set(r=>r with{Scale=v}));
             sizeHeader.Children.Add(mainSize);sizePanel.Children.Add(sizeHeader);sizePanel.Children.Add(instancePanel);appearance.Add(sizePanel);
-            var refreshRows=new List<Action>();Guid[] previous=Array.Empty<Guid>();
+            var refreshRows=new List<Action>();Guid[] previous=Array.Empty<Guid>();double previousMax=-1;
             void RefreshInstances()
             {
                 var live=instances().ToArray();bool multi=live.Length>1;
                 fold.Visibility=multi?Visibility.Visible:Visibility.Collapsed;
                 fold.Content=expanded?"⌄":"›";instancePanel.Visibility=multi&&expanded?Visibility.Visible:Visibility.Collapsed;
                 var ids=live.Select(x=>x.InstanceId).ToArray();
-                if(!previous.SequenceEqual(ids))
+                double maximum=Math.Max(scaleLimit.Min,current().Settings.MaxScale);
+                if(!previous.SequenceEqual(ids)||previousMax!=maximum)
                 {
-                    previous=ids;instancePanel.Children.Clear();refreshRows.Clear();
+                    previous=ids;previousMax=maximum;instancePanel.Children.Clear();refreshRows.Clear();
                     foreach(var pet in live)
                     {
-                        var row=Ui.NumberRow("实例 "+pet.InstanceNumber,"",pet.CurrentScale,scaleLimit.Min,Math.Max(scaleLimit.Max,current().Settings.MaxScale),.05,"倍",pet.SetInstanceScale,()=>pet.CurrentScale,refreshRows.Add);
+                        var row=Ui.NumberRow("实例 "+pet.InstanceNumber,"",pet.CurrentScale,scaleLimit.Min,maximum,.05,"倍",pet.SetInstanceScale,()=>pet.CurrentScale,refreshRows.Add);
                         instancePanel.Children.Add(row);
                     }
                 }

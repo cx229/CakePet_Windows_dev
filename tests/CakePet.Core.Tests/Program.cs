@@ -260,6 +260,19 @@ try
  var rng=new Random(123);
  for(int i=0;i<3000;i++){var choice=flatSpace.LeapTarget(new Point(100,100),Edge.Bottom,null,false,rng);Assert(choice.HasValue,"reachable flight target");var side=choice!.Value.Side;directionCounts[side]=directionCounts.GetValueOrDefault(side)+1;}
  Assert(directionCounts.Count==3&&directionCounts.Values.All(n=>n>850&&n<1150),"uniform direction independent of segment subdivision");
+ var blockedFlight=desktopSpace.Move(new Point(80,20),new Point(60,30),stopAtHit:true);
+ Assert(blockedFlight.Hit==Edge.Right&&(blockedFlight.Position-new Point(100,30)).Length<.001,"flight stops at first physical collision");
+ using var flyingInstance=new PetEngine(new RoleRuntime(pack,new Random(81)),new Bounds(0,0,500,500),128,new Point(180,372),new Random(82));
+ using var idleInstance=new PetEngine(new RoleRuntime(pack,new Random(83)),new Bounds(0,0,500,500),128,new Point(240,372),new Random(84));
+ var sharedDesktop=new DesktopSpace(new[]{new Bounds(0,0,500,500)});
+ flyingInstance.SetDesktopSpace(sharedDesktop,false);idleInstance.SetDesktopSpace(sharedDesktop,false);
+ flyingInstance.SetClimbing(true);flyingInstance.SetLeapEnabled(true);idleInstance.SetClimbing(true);
+ var idleSize=idleInstance.DisplaySize;var idlePosition=idleInstance.Body.Position;var idleAnimation=idleInstance.Role.Animation;
+ Assert(flyingInstance.TryStartLeap(Edge.Left)&&flyingInstance.Facing==-1,"desktop leap sets facing toward target");
+ flyingInstance.Resize(96);flyingInstance.Step(20);
+ Assert(idleInstance.DisplaySize==idleSize&&idleInstance.Body.Position==idlePosition&&idleInstance.Role.Animation==idleAnimation&&idleInstance.Body.State==PhysicalState.Climbing,"shared package and desktop do not share runtime state");
+ for(int i=0;i<500&&flyingInstance.Body.State==PhysicalState.Flying;i++)flyingInstance.Step(5);
+ Assert(flyingInstance.Body.ClimbEdge==Edge.Left&&flyingInstance.Role.FunctionPath=="climb/leap/landing"&&flyingInstance.LastFlightImpact==Edge.Left,"desktop landing preserves world contact and animation");
  Assert(!new RoleSettings().HorizontalWrap&&new RoleSettings().ScreenConnect,"screen defaults");
  Assert(new RoleSettings().Scale==.5&&new RoleSettings().FoodScale==.5,"Windows initial pet and food size");
  var invalidSize=new RoleSettings{Scale=double.NaN,FoodScale=double.NaN}.Normalize();Assert(invalidSize.Scale==.5&&invalidSize.FoodScale==.5,"Windows invalid size fallback");

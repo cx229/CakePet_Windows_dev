@@ -19,20 +19,22 @@ public sealed class PetEngine : IDisposable
     private int? surfaceSegment;
     private bool startingLeap;
     private Point? flightAnchorOffset;
-    private Point? flightImpactAnchor;
-    public Point? FlightTargetWorld=>Body.LeapTarget;
-    public Edge FlightLaunchEdges=>Body.LeapLaunchEdges;
+    private Point? flightLaunchAnchor;
+    public Point? FlightLaunchAnchor=>flightLaunchAnchor;
+    public Edge LastFlightImpact {get;private set;}
     private Point? surfacePosition;
     private Point AnchorWorld=>Body.Position+AnchorOffset;
     public void SetDesktopSpace(DesktopSpace? space,bool wrap)
     {
         if(ReferenceEquals(Space,space)&&HorizontalWrap==wrap)return;
-        Space=space;HorizontalWrap=wrap;surfaceSegment=null;surfacePosition=null;Body.UseDesktopSpace=space!=null;Body.SpaceMotionProject=space==null?null:ProjectSpace;Body.FlightContacts=space==null?null:q=>space.Touching(q+AnchorOffset,HorizontalWrap);
+        Space=space;HorizontalWrap=wrap;surfaceSegment=null;surfacePosition=null;Body.UseDesktopSpace=space!=null;Body.SpaceMotionProject=space==null?null:ProjectSpace;Body.FlightContacts=space==null?null:q=>LaunchContactAt(q+AnchorOffset);
         if(space!=null&&Body.State!=PhysicalState.Dragging)ReconcileSpace();
     }
+    private Edge LaunchContactAt(Point point)=>Space!=null&&flightLaunchAnchor is Point start?Space.LaunchContacts(start,point,HorizontalWrap):Edge.None;
     private SpaceMotion ProjectSpace(Point from,Point next)
     {
-        var anchor=AnchorOffset;var result=Space!.Move(from+anchor,next-from,HorizontalWrap);
+        var anchor=AnchorOffset;var flying=Body.State==PhysicalState.Flying;
+        var result=Space!.Move(from+anchor,next-from,HorizontalWrap,stopAtHit:flying,ignoreStopAt:flying?q=>LaunchContactAt(q)&Body.LeapLaunchEdges:null);
         return result with{Position=result.Position-anchor};
     }
     private void ReconcileSpace()
@@ -247,7 +249,7 @@ public sealed class PetEngine : IDisposable
             if(choice is not {} selected)return false;
             var delta=selected.Target-start;
             if(!Body.BeginLeapDirection(selected.Side,selected.Target,delta,launch,LeapSpeed))return false;
-            surfaceSegment=null;surfacePosition=null;
+            surfaceSegment=null;surfacePosition=null;flightLaunchAnchor=start;LastFlightImpact=Edge.None;
             if(Math.Abs(delta.X)>1e-7)Facing=delta.X<0?-1:1;
             startingLeap=true;
             try{Role.SetEnvironment(false,PhysicalState.Flying);Body.SetPosition(start-AnchorOffset);flightAnchorOffset=AnchorOffset;}
@@ -262,6 +264,7 @@ public sealed class PetEngine : IDisposable
         var p=new Point(Bounds.Left+random.NextDouble()*(Bounds.Right-Bounds.Left),
             Bounds.Top+random.NextDouble()*(Bounds.Bottom-Bounds.Top));
         if(!Body.BeginLeap(side,p,Bounds,LeapSpeed))return false;
+        flightLaunchAnchor=Body.Position;LastFlightImpact=Edge.None;
         if(Body.Velocity.X!=0)Facing=Body.Velocity.X<0?-1:1;
         startingLeap=true;try{Role.SetEnvironment(false,PhysicalState.Flying);}finally{startingLeap=false;}
         RefreshGeometry();ApplyFrameMotion(Role.Animation.Current);return true;
@@ -325,19 +328,32 @@ public sealed class PetEngine : IDisposable
     public void Step(long milliseconds)
     {
         if(milliseconds<0)throw new ArgumentOutOfRangeException(nameof(milliseconds));
-        RefreshGeometry();var previous=Body.State;
-        var beforeAnchor=AnchorOffset;
-        if(Body.Advance(milliseconds/1000.0,Bounds))
-        {
-            var impact=Body.LastImpactEdge;
-            if(previous==PhysicalState.Flying&&Space!=null){flightImpactAnchor=Body.Position+beforeAnchor;Body.SetPosition(flightImpactAnchor.Value-AnchorOffset);}
-            if(ClimbEnabled&&!Role.StaticStandby){if(Space!=null){var contact=Space.Nearest(flightImpactAnchor??AnchorWorld,impact==Edge.None?Edge.All:impact,wrap:HorizontalWrap);if(contact is BoundaryContact c&&c.Distance<2)AttachSpace(c);}else Body.TryAttach(impact,Bounds);}
-            flightAnchorOffset=null;flightImpactAnchor=null;
-            Role.CompletePhysicalMotion(previous==PhysicalState.Flying?"climb/leap/landing":"touch/jump_down",Body.State);
-        }
+        RefreshGeometry();AdvancePhysical(milliseconds/1000.0);
         if(Foraging)UpdateForageFacing();
         Role.Advance(milliseconds);
+        // Frame displacement can hit a wall during animation advancement. Finish that
+        // flight now, after the cursor callback has unwound, without advancing time twice.
+        if(Body.State==PhysicalState.Flying)AdvancePhysical(0);
         TryAttachCurrent();
+    }
+    private void AdvancePhysical(double seconds)
+    {
+        var previous=Body.State;var beforeAnchor=AnchorOffset;
+        if(!Body.Advance(seconds,Bounds))return;
+        var impact=Body.LastImpactEdge;
+        Point? impactAnchor=null;
+        if(previous==PhysicalState.Flying)
+        {
+            LastFlightImpact=impact;
+            if(Space!=null){impactAnchor=Body.Position+beforeAnchor;Body.SetPosition(impactAnchor.Value-AnchorOffset);}
+        }
+        if(ClimbEnabled&&!Role.StaticStandby)
+        {
+            if(Space!=null){var contact=Space.Nearest(impactAnchor??AnchorWorld,impact==Edge.None?Edge.All:impact,wrap:HorizontalWrap);if(contact is BoundaryContact c&&c.Distance<2)AttachSpace(c);}
+            else Body.TryAttach(impact,Bounds);
+        }
+        flightAnchorOffset=null;flightLaunchAnchor=null;
+        Role.CompletePhysicalMotion(previous==PhysicalState.Flying?"climb/leap/landing":"touch/jump_down",Body.State);
     }
     public void Dispose()
     {

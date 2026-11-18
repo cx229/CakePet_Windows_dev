@@ -102,6 +102,19 @@ public sealed class DesktopSpace
         for(int i=0;i<edges.Length;i++)if(IsWalkable(i,wrap)&&(edges[i].Closest(p)-p).Length<=tolerance)result|=edges[i].Side;
         return result;
     }
+    // A direction alone is not a wall identity on a stepped desktop.
+    public Edge LaunchContacts(Point launch,Point now,bool wrap=false,double tolerance=.5)
+    {
+        var initial=edges.Where((e,i)=>IsWalkable(i,wrap)&&(e.Closest(launch)-launch).Length<=tolerance).ToArray();
+        Edge result=Edge.None;
+        foreach(var (e,i) in edges.Select((e,i)=>(e,i)))
+        {
+            if(!IsWalkable(i,wrap)||(e.Closest(now)-now).Length>tolerance)continue;
+            bool vertical=e.Side is Edge.Left or Edge.Right;
+            if(initial.Any(a=>a.Side==e.Side&&Math.Abs((vertical?a.Start.X:a.Start.Y)-(vertical?e.Start.X:e.Start.Y))<Eps))result|=e.Side;
+        }
+        return result;
+    }
     // Split candidate intervals at rays through boundary vertices. Visibility is
     // constant inside each interval, so weighting by length is independent of grid subdivision.
     public (Edge Side,Point Target)? LeapTarget(Point start,Edge launch,Edge? requested,bool wrap,Random random)
@@ -125,7 +138,7 @@ public sealed class DesktopSpace
             {
                 double lo=ordered[k-1],hi=ordered[k];if(hi-lo<Eps)continue;
                 var target=e.At((lo+hi)/2);var delta=target-start;
-                if(delta.Length<2||(Move(start,delta).Position-target).Length>1e-5)continue;
+                if(delta.Length<2||(Move(start,delta,stopAtHit:true).Position-target).Length>1e-5)continue;
                 // A visible destination must be approached from the occupied side.
                 var normal=e.Side switch{Edge.Left=>new Point(-1,0),Edge.Right=>new Point(1,0),Edge.Top=>new Point(0,-1),_=>new Point(0,1)};
                 if(delta.X*normal.X+delta.Y*normal.Y<=Eps)continue;
@@ -201,7 +214,7 @@ public sealed class DesktopSpace
         if(!found||total<=Eps||i!=segment)return null;forward=(forward%total+total)%total;var backward=total-forward;return forward<=backward?(1,forward):(-1,backward);
     }
     // Swept point movement: find the first outward crossing, never tunnel across a missing screen.
-    public SpaceMotion Move(Point from,Point delta,bool wrap=false)
+    public SpaceMotion Move(Point from,Point delta,bool wrap=false,bool stopAtHit=false,Func<Point,Edge>? ignoreStopAt=null)
     {
         var p=Clamp(from);var remaining=delta;Edge hits=Edge.None;bool wrapped=false;
         double left=areas.Min(a=>a.Left),right=areas.Max(a=>a.Right);
@@ -229,7 +242,9 @@ public sealed class DesktopSpace
                 double target=hit==Edge.Left?right:left;
                 if(Math.Abs(p.X-(hit==Edge.Left?left:right))<Eps&&Contains(new Point(target,p.Y))){p=new Point(target,p.Y);wrapped=true;continue;}
             }
-            hits|=hit;if((hit&(Edge.Left|Edge.Right))!=0)remaining=remaining with{X=0};if((hit&(Edge.Top|Edge.Bottom))!=0)remaining=remaining with{Y=0};
+            if(stopAtHit){var actual=hit&~(ignoreStopAt?.Invoke(p)??Edge.None);if(actual!=Edge.None)return new(p,actual,wrapped);}
+            else hits|=hit;
+            if((hit&(Edge.Left|Edge.Right))!=0)remaining=remaining with{X=0};if((hit&(Edge.Top|Edge.Bottom))!=0)remaining=remaining with{Y=0};
         }
         return new(p,hits,wrapped);
     }

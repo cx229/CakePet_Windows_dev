@@ -33,7 +33,8 @@ internal sealed class DebugWindow : Window
             $"动画计时：{a.ModeElapsed}ms / {a.TargetDuration?.ToString()??"—"} · 后续 {a.Mode.Next??"—"}\n"+
             $"图片：{f.Resource}\n帧参数：dx={f.Dx}, dy={f.Dy}, 锚点={f.AnchorX},{f.AnchorY} · {f.Align}/{f.Transform}\n"+
             $"物理：{b.State} / {r.Physics} · 吸附 {b.SnappedEdge} · 攀爬 {b.ClimbEdge}\n"+
-            $"飞跃：起跳 {b.LeapLaunchEdges} · 目标 {b.LeapTargetEdge} {b.LeapTarget?.ToString()??"—"} · 最近碰撞 {b.LastImpactEdge}\n"+
+             $"飞跃：起跳 {b.LeapLaunchEdges} {e.FlightLaunchAnchor?.ToString()??"—"}\n"+
+            $"飞跃目标：{b.LeapTargetEdge} {b.LeapTarget?.ToString()??"—"} · 碰撞 {e.LastFlightImpact}\n"+
             $"位置：({p.X:F1}, {p.Y:F1}) · 速度 ({v.X:F1}, {v.Y:F1}) px/s\n"+
             $"锚点：({p.X+anchor.X:F1}, {p.Y+anchor.Y:F1}) · 大小 {e.DisplaySize:F1}px\n"+
             $"边界：({box.Left:F0}, {box.Top:F0}) — ({box.Right:F0}, {box.Bottom:F0})\n"+

@@ -43,7 +43,6 @@ internal sealed class PetWindow : Window
     internal event Action<Guid>? RecallRole;
     internal event Action<Guid>? OpenSettings;
     internal event Action<Guid>? ClearRoleFood;
-    internal event Action<Guid>? ClearRoleFreezes;
     private void Change(Func<RoleSettings,RoleSettings> change)=>ChangeSettings?.Invoke(RoleId,change);
     internal Guid RoleId {get;}
     internal Guid InstanceId {get;}=Guid.NewGuid();
@@ -201,7 +200,7 @@ internal sealed class PetWindow : Window
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
         RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,images.Geometry);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
     }
-    internal void SetInstanceScale(double scale){if(closed||!double.IsFinite(scale))return;engine.Resize(role.Package.AnchorRes*Math.Clamp(scale,.5,settings.MaxScale));Render();}
+    internal void SetInstanceScale(double scale){if(closed||!double.IsFinite(scale))return;var min=SettingLimits.Get(settings,SettingLimits.Specs.First(x=>x.Key=="Scale")).Min;engine.Resize(role.Package.AnchorRes*Math.Clamp(scale,min,Math.Max(min,settings.MaxScale)));Render();}
     internal void ResetSize(){SetInstanceScale(settings.Scale);}
     internal void ClearFreezes(){foreach(var freeze in freezes.ToArray())freeze.Close();}
     private void Freeze()

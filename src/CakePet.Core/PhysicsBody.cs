@@ -152,16 +152,27 @@ public sealed class PhysicsBody
         if(SpaceMotionProject!=null){var motion=SpaceMotionProject(Position,next);Position=motion.Position;hit=motion.Hit;}
         else if(bounds is Bounds box)
         {
-            Position=Clamp(next,box);
-            if(delta.X<0&&next.X<=box.Left)hit|=Edge.Left;
-            if(delta.X>0&&next.X>=box.Right)hit|=Edge.Right;
-            if(delta.Y<0&&next.Y<=box.Top)hit|=Edge.Top;
-            if(delta.Y>0&&next.Y>=box.Bottom)hit|=Edge.Bottom;
+            Position=Clamp(Position,box);
+            var remaining=delta;
+            for(int i=0;i<3&&remaining.Length>1e-9;i++)
+            {
+                double first=1;Edge touched=Edge.None;
+                void Consider(double time,Edge side)
+                {if(time<0||time>first+1e-9)return;if(time<first-1e-9){first=time;touched=side;}else touched|=side;}
+                if(remaining.X<0)Consider((box.Left-Position.X)/remaining.X,Edge.Left);
+                if(remaining.X>0)Consider((box.Right-Position.X)/remaining.X,Edge.Right);
+                if(remaining.Y<0)Consider((box.Top-Position.Y)/remaining.Y,Edge.Top);
+                if(remaining.Y>0)Consider((box.Bottom-Position.Y)/remaining.Y,Edge.Bottom);
+                Position=Clamp(Position+remaining*first,box);
+                if(touched==Edge.None)break;
+                hit=touched&~LeapLaunchEdges;if(hit!=Edge.None)break;
+                remaining*=1-first;
+                if((touched&(Edge.Left|Edge.Right))!=0)remaining=remaining with{X=0};
+                if((touched&(Edge.Top|Edge.Bottom))!=0)remaining=remaining with{Y=0};
+            }
         }
         else Position=next;
-        hit&=~LeapLaunchEdges;
-        if(FlightContacts!=null)LeapLaunchEdges&=FlightContacts(Position);
-        else if(bounds is Bounds current)LeapLaunchEdges&=SurfaceMotion.Touching(Position,current);
+        hit&=~(LeapLaunchEdges&(FlightContacts?.Invoke(Position)??Edge.All));
         if(hit==Edge.None)return false;
         leapFrameHit=hit.HasFlag(LeapTargetEdge)?LeapTargetEdge:SurfaceMotion.Sides.First(e=>hit.HasFlag(e));
         leapLanded=true;return true;
