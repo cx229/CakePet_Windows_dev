@@ -110,6 +110,74 @@ internal sealed partial class CatalogStorage
             throw;
         }
     }
+#if !NATIVE_HOST
+    internal async Task<PackEntry> ImportAsync(string source)
+    {
+        var entry=await Task.Run(()=>PrepareImport(source));
+        bool uncertain=false;
+        try
+        {
+            var request=new HostRequest("register-pack",Pack:entry);
+            for(int attempt=0;attempt<2;attempt++)
+            {
+                try
+                {
+                    var result=await HostConnection.CallAsync(request);
+                    uncertain=true;
+                    var live=result.Catalog??throw new IOException("缺少素材包注册结果。");
+                    if(!RoleCatalog.Parse(live).Packs.Contains(entry))throw new IOException("素材包注册结果未确认。");
+                    Rebase(live);return entry;
+                }
+                catch(HostRejectedException) when(!uncertain){throw;}
+                catch(Exception e)
+                {
+                    uncertain=true;if(attempt==0)continue;
+                    try
+                    {
+                        var snapshot=await HostConnection.CallAsync(new("snapshot"));
+                        var live=snapshot.Catalog??throw new IOException();
+                        if(RoleCatalog.Parse(live).Packs.Contains(entry)){Rebase(live);return entry;}
+                    }catch(Exception){}
+                    throw new IOException("素材包已复制，但导入尚未确认，资源已保留。",e);
+                }
+            }
+            throw new InvalidOperationException("素材包注册未完成。");
+        }
+        catch{if(!uncertain&&Directory.Exists(Resolve(entry)))Directory.Delete(Resolve(entry),true);throw;}
+    }
+    internal bool IsSoftwareBackup(string archive)
+    {
+        using var zip=System.IO.Compression.ZipFile.OpenRead(archive);
+        var manifest=zip.Entries.FirstOrDefault(e=>e.FullName.Replace('\\','/')=="manifest.json");
+        if(manifest==null)return false;
+        if(manifest.Length>1024*1024)throw new InvalidDataException("备份清单过大。");
+        using var stream=manifest.Open();using var reader=new StreamReader(stream);
+        return System.Text.Json.Nodes.JsonNode.Parse(reader.ReadToEnd())?["type"]?.GetValue<string>()=="cakepet-backup";
+    }
+    internal async Task<PackEntry> ImportPackZipAsync(string archive)
+    {
+        var stage=Stage();
+        try
+        {
+            var source=await Task.Run(()=>{
+                ArchiveIO.Extract(archive,stage);
+                var candidates=Directory.EnumerateFiles(stage,"modes.jsonc",SearchOption.AllDirectories).ToArray();
+                if(candidates.Length!=1)throw new InvalidDataException("ZIP 必须包含一个素材包。");
+                return Path.GetDirectoryName(candidates[0])!;
+            });
+            return await ImportAsync(source);
+        }
+        finally{if(Directory.Exists(stage))Directory.Delete(stage,true);}
+    }
+    private PackEntry PrepareImport(string source)
+    {
+        var pack=RolePackage.Load(source,GdiImageCache.IsReadable);
+        var id=Guid.NewGuid();var entry=new PackEntry(id,pack.Name,id.ToString("N"));var dest=Resolve(entry);
+        Directory.CreateDirectory(dest);
+        try{Copy(source,dest);RolePackage.Load(dest);return entry;}
+        catch{if(Directory.Exists(dest))Directory.Delete(dest,true);throw;}
+    }
+#endif
     private static void Copy(string source,string dest)
     {
         if((File.GetAttributes(source)&FileAttributes.ReparsePoint)!=0)throw new IOException("不支持链接目录");

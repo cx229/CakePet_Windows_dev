@@ -51,6 +51,9 @@ internal static class HostFrameworkProbe
                         var save=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(live,CoreJson.Default.RoleCatalog)),pipe);
                         if(RoleCatalog.Parse(save.Catalog!).RefreshIntervalMs!=4+i)throw new InvalidDataException("Configuration save failed");
                     }
+                    try{HostConnection.Call(new("set-global-limit",Feature:"不存在的功能",Allowed:false),pipe);throw new InvalidDataException("Invalid command accepted");}
+                    catch(HostRejectedException){}
+                    if(!HostConnection.Call(new("snapshot"),pipe).Success)throw new InvalidDataException("Rejected request blocked subsequent command");
                     var roleId=initial.Roles.Single().Id;
                     if(HostConnection.Call(new("recall",roleId),pipe).Instances.Length!=0)throw new InvalidDataException("Recall failed");
                     if(HostConnection.Call(new("summon",roleId),pipe).Instances.Length!=1)throw new InvalidDataException("Summon failed");

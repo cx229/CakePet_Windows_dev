@@ -66,7 +66,7 @@ internal static class HostConnection
         }
         catch(Exception e)
         {
-            IpcLog.Write("client",request,stage,watch.ElapsedMilliseconds,e);
+            if(e is not HostRejectedException||e.Message!="原生菜单正在交互，请稍后重试。")IpcLog.Write("client",request,stage,watch.ElapsedMilliseconds,e);
             if(e is OperationCanceledException&&!cancellation.IsCancellationRequested)throw new TimeoutException($"常驻进程未及时响应（{request.Command} / {stage}）。",e);
             throw;
         }
@@ -128,7 +128,11 @@ internal sealed class HostServer:IDisposable
                 stage="queue";
                 // Read-only polling should not dismiss a user's context menu.
                 if(req.Command is not ("snapshot" or "diagnostics"))NativeMenu.CancelForRequest();
-                else if(NativeMenu.IsOpen)throw new IOException("原生菜单正在交互，请稍后重试。");
+                else if(NativeMenu.IsOpen)
+                {
+                    var busy=new HostReply(false,"原生菜单正在交互，请稍后重试。",Array.Empty<LiveInstance>(),0,HostPid:Environment.ProcessId,RequestId:req.RequestId);
+                    await pipe.WriteAsync(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(busy,HostJson.Default.HostReply)+"\n").AsMemory(),deadline.Token).ConfigureAwait(false);continue;
+                }
                 var queuedAt=watch.ElapsedMilliseconds;
                 // A timed-out request that has not begun must not mutate state later.
                 // Already executing requests complete; clients reconcile uncertain outcomes.
