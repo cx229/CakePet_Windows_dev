@@ -14,6 +14,7 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if(args.Length>0&&args[0]=="--memory-probe")return WpfMemoryProbe.Run(args);
         var root=Path.Combine(AppContext.BaseDirectory,"assets","default");
         if(args.Length>=2&&args[0] is "--package" or "--validate-assets")root=Path.GetFullPath(args[1]);
         if(args.Length>0&&args[0]=="--validate-assets")

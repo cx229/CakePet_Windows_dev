@@ -14,6 +14,7 @@ internal static class MemoryDiagnostics
         result["workingSetBytes"]=process.WorkingSet64;result["privateBytes"]=process.PrivateMemorySize64;
         result["managedLiveBytes"]=GC.GetTotalMemory(false);result["gcHeapBytes"]=gc.HeapSizeBytes;result["gcCommittedBytes"]=gc.TotalCommittedBytes;
         result["handles"]=process.HandleCount;result["threads"]=process.Threads.Count;
+        result["managedFrameworkAssemblies"]=AppDomain.CurrentDomain.GetAssemblies().Select(a=>a.GetName().Name).Where(n=>n!=null&&(n.Contains("Presentation",StringComparison.OrdinalIgnoreCase)||n.Contains("WindowsForms",StringComparison.OrdinalIgnoreCase)||n.Contains("System.Drawing",StringComparison.OrdinalIgnoreCase)||n=="WindowsBase"||n=="System.Xaml")).OrderBy(n=>n).ToArray();
         result["cpuMilliseconds"]=process.TotalProcessorTime.TotalMilliseconds;
         result["frameworkModules"]=process.Modules.Cast<ProcessModule>().Select(x=>x.ModuleName)
             .Where(x=>x!=null&&(x.Contains("wpf",StringComparison.OrdinalIgnoreCase)||x.Contains("Presentation",StringComparison.OrdinalIgnoreCase)||x.Contains("WindowsForms",StringComparison.OrdinalIgnoreCase)||x.Contains("System.Drawing",StringComparison.OrdinalIgnoreCase)||x.Contains("coreclr",StringComparison.OrdinalIgnoreCase)||x.Contains("milcore",StringComparison.OrdinalIgnoreCase)||x.Contains("wpfgfx",StringComparison.OrdinalIgnoreCase))).ToArray();

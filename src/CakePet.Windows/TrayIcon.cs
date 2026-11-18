@@ -8,7 +8,9 @@ namespace CakePet.Windows;
 internal sealed class NativeTray : IDisposable
 {
     private const uint Callback=0x8001, NifGuid=0x20, NifMessage=1, NifIcon=2, NifTip=4, NifShowTip=0x80;
-    private static readonly Guid Identity=new("9e0ecb47-15ad-4bdb-a290-0c3ff6edcd10");
+    private readonly Guid identity;
+    private readonly string tooltip;
+    internal bool Registered=>registered;
     private readonly Action activate;
     private readonly Action<Action> dispatch;
     private readonly (string? Label,Action? Run)[] items;
@@ -18,9 +20,9 @@ internal sealed class NativeTray : IDisposable
     private readonly uint taskbarCreated=RegisterWindowMessage("TaskbarCreated");
     private nint hwnd,icon;
     private bool ownsIcon,registered,version4,useGuid=true,disposed;
-    public NativeTray(string iconPath,Action activate,Action<Action> dispatch,(string? Label,Action? Run)[] items)
+    public NativeTray(string iconPath,Action activate,Action<Action> dispatch,(string? Label,Action? Run)[] items,Guid? identity=null,string tooltip="CakePet")
     {
-        this.activate=activate;this.dispatch=dispatch;this.items=items;procedure=OnMessage;
+        this.activate=activate;this.dispatch=dispatch;this.items=items;this.identity=identity??new Guid("9e0ecb47-15ad-4bdb-a290-0c3ff6edcd10");this.tooltip=tooltip;procedure=OnMessage;
         var cls=new WindowClass{Size=(uint)Marshal.SizeOf<WindowClass>(),Instance=instance,Procedure=Marshal.GetFunctionPointerForDelegate(procedure),ClassName=className};
         if(RegisterClassEx(ref cls)==0)throw new Win32Exception(Marshal.GetLastWin32Error());
         try
@@ -34,7 +36,7 @@ internal sealed class NativeTray : IDisposable
         }
         catch{Dispose();throw;}
     }
-    private NotifyData Data(uint flags)=>new(){Size=(uint)Marshal.SizeOf<NotifyData>(),Hwnd=hwnd,Id=1,Flags=flags|(useGuid?NifGuid:0),CallbackMessage=Callback,Icon=icon,Tip="CakePet",Info="",InfoTitle="",GuidItem=Identity};
+    private NotifyData Data(uint flags)=>new(){Size=(uint)Marshal.SizeOf<NotifyData>(),Hwnd=hwnd,Id=1,Flags=flags|(useGuid?NifGuid:0),CallbackMessage=Callback,Icon=icon,Tip=tooltip,Info="",InfoTitle="",GuidItem=identity};
     private void Add()
     {
         var data=Data(NifMessage|NifIcon|NifTip|NifShowTip);
