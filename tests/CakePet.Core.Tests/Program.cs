@@ -166,8 +166,8 @@ try
  Assert(effective.Move,"missing static pool forces motion");
   var raw=new RoleSettings{Move=true,ClickThrough=true,Feed=true,AutoFeed=true,Climb=true,Leap=true};
   var gates=new GlobalFeatureLimits{Move=false,ClickThrough=false,Feed=false,Climb=false,Leap=false};
-  var limited=raw.Effective(pack,gates);
-  Assert(!limited.Move&&!limited.ClickThrough&&!limited.Feed&&!limited.AutoFeed&&!limited.Climb&&!limited.Leap&&!limited.Forage&&!limited.Throw,"global limits restrict effective settings");
+  var globallyLimited=raw.Effective(pack,gates);
+  Assert(!globallyLimited.Move&&!globallyLimited.ClickThrough&&!globallyLimited.Feed&&!globallyLimited.AutoFeed&&!globallyLimited.Climb&&!globallyLimited.Leap&&!globallyLimited.Forage&&!globallyLimited.Throw,"global limits restrict effective settings");
   Assert(raw.Move&&raw.ClickThrough&&raw.Feed&&raw.Climb&&raw.Leap,"global limits preserve raw role");
   Assert(raw.Effective(pack).Move&&raw.Effective(pack).ClickThrough&&raw.Effective(pack).Feed&&raw.Effective(pack).Leap,"releasing limits restores raw settings");
   Assert(!new RoleSettings{Feed=false,ClickThrough=false,Leap=false}.Effective(pack).Feed&&!new RoleSettings().Effective(pack).ClickThrough&&!new RoleSettings().Effective(pack).Leap,"allow never forces on");
