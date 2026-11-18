@@ -41,6 +41,14 @@ jobs:
         run: |
           dotnet run --project src/CakePet.Windows -c Release -- --validate-assets "android-reference/app/src/main/assets/白酥"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile native host experiment
+        shell: pwsh
+        run: dotnet build tests/CakePet.NativeProbe -c Release
+      - name: Compare host memory
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          & .github/scripts/Measure-Host.ps1 -Package "android-reference/app/src/main/assets/白酥"
       - name: Publish desktop executable
         shell: pwsh
         run: |
