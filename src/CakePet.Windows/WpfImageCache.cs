@@ -28,7 +28,13 @@ internal sealed class WpfImageCache(RolePackage pack)
         try
         {
             using var stream=File.OpenRead(path);
-            var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=stream;image.DecodePixelWidth=64;image.EndInit();
+            var metadata=BitmapDecoder.Create(stream,BitmapCreateOptions.DelayCreation,BitmapCacheOption.OnDemand).Frames[0];
+            int width=metadata.PixelWidth,height=metadata.PixelHeight;
+            if(width<=0||height<=0)return false;
+            using var pixels=File.OpenRead(path);
+            var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=pixels;
+            if(Math.Max(width,height)>64){if(width>=height)image.DecodePixelWidth=64;else image.DecodePixelHeight=64;}
+            image.EndInit();
             return image.PixelWidth>0&&image.PixelHeight>0;
         }
         catch(Exception e) when(e is IOException or NotSupportedException or ArgumentException or InvalidOperationException or FormatException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException){return false;}
@@ -104,7 +110,7 @@ internal sealed class WpfImageCache(RolePackage pack)
         var image=new BitmapImage();
         image.BeginInit();
         image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=stream;
-        if(pack.DecodeTarget>0){if(w>=h)image.DecodePixelWidth=pack.DecodeTarget;else image.DecodePixelHeight=pack.DecodeTarget;}
+        if(pack.DecodeTarget>0&&Math.Max(w,h)>pack.DecodeTarget){if(w>=h)image.DecodePixelWidth=pack.DecodeTarget;else image.DecodePixelHeight=pack.DecodeTarget;}
         image.EndInit();image.Freeze();
         Transform? transform=frame.Transform switch {
             "flipX"=>new ScaleTransform(-1,1),"flipY"=>new ScaleTransform(1,-1),
