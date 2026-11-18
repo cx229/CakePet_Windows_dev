@@ -30,7 +30,7 @@ internal sealed class FoodWindow : Window
         var menu=new ContextMenu();
         var remove=new MenuItem{Header="清除这条食物"};remove.Click+=(_,_)=>world.Remove(food);
         var clear=new MenuItem{Header="清除本角色食物"};clear.Click+=(_,_)=>world.Clear(food.Owner);
-        menu.Items.Add(remove);menu.Items.Add(clear);ContextMenu=menu;
+        menu.Items.Add(remove);menu.Items.Add(clear);ContextMenu=menu;ContextMenuOpening+=(_,_)=>Ui.EnsureTheme();
         MouseLeftButtonDown+=OnDown;MouseMove+=OnMove;MouseLeftButtonUp+=OnUp;
         LostMouseCapture+=(_,_)=>{if(held&&!closingFromWorld){held=false;world.Release(food,food.Center,true);}};
         Closed+=(_,_)=>{if(!closingFromWorld){closingFromWorld=true;world.Remove(food);}};

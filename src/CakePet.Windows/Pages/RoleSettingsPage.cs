@@ -102,7 +102,7 @@ internal sealed class RoleSettingsPage:UserControl
             dependencies.Add(RefreshInstances);RefreshInstances();
             var liveTimer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(250)};
             liveTimer.Tick+=(_,_)=>{if(IsVisible)RefreshInstances();};
-            Loaded+=(_,_)=>liveTimer.Start();Unloaded+=(_,_)=>liveTimer.Stop();
+            Loaded+=(_,_)=>{if(IsVisible)liveTimer.Start();};Unloaded+=(_,_)=>liveTimer.Stop();IsVisibleChanged+=(_,_)=>{if(IsVisible&&IsLoaded)liveTimer.Start();else liveTimer.Stop();};
         }
         Number(appearance,"透明度","「"+petName+"」的可见程度",s.Opacity*100,5,100,1,"%",(r,v)=>r with{Opacity=v/100},"Opacity",100);
         var input=Card(main,"显示-交互","选择鼠标如何与桌宠交互。");

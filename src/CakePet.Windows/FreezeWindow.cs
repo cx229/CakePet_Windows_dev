@@ -24,7 +24,7 @@ internal sealed class FreezeWindow : Window
         DpiChanged+=(_,_)=>{revision=-1;};
         var menu=new ContextMenu();
         var move=new MenuItem{Header="允许拖动",IsCheckable=true,IsChecked=true};move.Click+=(_,_)=>draggable=move.IsChecked;
-        var remove=new MenuItem{Header="移除定格"};remove.Click+=(_,_)=>Close();menu.Items.Add(move);menu.Items.Add(remove);ContextMenu=menu;
+        var remove=new MenuItem{Header="移除定格"};remove.Click+=(_,_)=>Close();menu.Items.Add(move);menu.Items.Add(remove);ContextMenu=menu;ContextMenuOpening+=(_,_)=>Ui.EnsureTheme();
         MouseLeftButtonDown+=(_,e)=>{if(!draggable)return;offset=position-DesktopPlatform.Cursor();dragging=CaptureMouse();e.Handled=true;};
         MouseMove+=(_,_)=>{if(!dragging)return;position=DesktopPlatform.Cursor()+offset;Refresh();};
         MouseLeftButtonUp+=(_,_)=>{dragging=false;revision=-1;ReleaseMouseCapture();Refresh();};

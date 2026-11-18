@@ -10,7 +10,7 @@ internal sealed class DebugWindow : Window
     private readonly TextBlock text=new(){FontFamily=new FontFamily("Consolas"),FontSize=12,Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap};
     public DebugWindow(string name)
     {
-        Title=name+" · 实时调试";Width=480;SizeToContent=SizeToContent.Height;MaxHeight=800;
+        Ui.EnsureTheme();Title=name+" · 实时调试";Width=480;SizeToContent=SizeToContent.Height;MaxHeight=800;
         WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;AllowsTransparency=true;Background=Brushes.Transparent;
         ShowInTaskbar=false;Topmost=true;
         var panel=new StackPanel();

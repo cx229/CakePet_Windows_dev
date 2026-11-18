@@ -6,7 +6,14 @@ using System.Globalization;
 namespace CakePet.Windows;
 internal static class Ui
 {
-    public static Brush Brush(string key)=>(Brush)Application.Current.FindResource(key);
+    private static bool themeLoaded;
+    public static void EnsureTheme()
+    {
+        if(themeLoaded)return;
+        Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary{Source=new Uri("/CakePet;component/Themes/Modern.xaml",UriKind.Relative)});
+        themeLoaded=true;
+    }
+    public static Brush Brush(string key){EnsureTheme();return (Brush)Application.Current.FindResource(key);}
     public static TextBlock Text(string text,double size=14,bool muted=false)=>new(){Text=text,FontSize=size,Foreground=Brush(muted?"Muted":"Ink"),TextWrapping=TextWrapping.Wrap};
     public static StackPanel Caption(string title,string note="",bool main=false)
     {

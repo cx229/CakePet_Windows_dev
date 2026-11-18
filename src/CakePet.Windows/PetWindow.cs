@@ -162,7 +162,7 @@ internal sealed class PetWindow : Window
             forage.IsEnabled=engine.ClimbEnabled&&role.Package.Supports(PetEngine.ForagePath);forage.IsChecked=engine.AutoForageEnabled;
             grow.IsChecked=engine.GrowOnFeed;screen.IsChecked=fullScreen;through.IsChecked=ClickThrough;pixel.IsChecked=pixelHit;
         };
-        ContextMenu=menu;
+        ContextMenu=menu;ContextMenuOpening+=(_,_)=>Ui.EnsureTheme();
         MenuItem Add(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>action();menu.Items.Add(item);return item;}
         MouseLeftButtonDown+=OnDown;MouseMove+=OnMove;MouseLeftButtonUp+=OnUp;
         LostMouseCapture+=(_,_)=>{if(pressed){pressed=false;if(dragging){velocity=default;FinishDrag();}}};

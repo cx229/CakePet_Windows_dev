@@ -36,7 +36,6 @@ internal static class Program
         if(!first){try{using var signal=System.Threading.EventWaitHandle.OpenExisting("Local\\CakePet.ShowLauncher");signal.Set();}catch(System.Threading.WaitHandleCannotBeOpenedException){}return 0;}
         using var activate=new System.Threading.EventWaitHandle(false,System.Threading.EventResetMode.AutoReset,"Local\\CakePet.ShowLauncher");
         var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
-        app.Resources.MergedDictionaries.Add(new ResourceDictionary{Source=new Uri("/CakePet;component/Themes/Modern.xaml",UriKind.Relative)});
         using var launcher=new Launcher(root);
         using var registration=new ActivationRegistration(activate,launcher);
         launcher.StartResident();return app.Run();
