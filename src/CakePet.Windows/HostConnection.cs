@@ -13,7 +13,27 @@ internal sealed class LivePet
     public double CurrentScale {get;private set;}
     public LivePet(LiveInstance data)=>Update(data);
     public void Update(LiveInstance data){RoleId=data.RoleId;InstanceId=data.InstanceId;InstanceNumber=data.InstanceNumber;CurrentScale=data.CurrentScale;}
-    public void SetInstanceScale(double scale){var reply=HostConnection.Call(new("scale",InstanceId:InstanceId,Scale:scale));var next=reply.Instances.FirstOrDefault(i=>i.InstanceId==InstanceId);if(next!=null)Update(next);}
+    private bool scaling;
+    private double? pendingScale;
+    public async void SetInstanceScale(double scale)
+    {
+        pendingScale=scale;if(scaling)return;scaling=true;
+        try
+        {
+            while(pendingScale is double nextScale)
+            {
+                pendingScale=null;
+                var reply=await HostConnection.CallAsync(new("scale",InstanceId:InstanceId,Scale:nextScale));
+                var next=reply.Instances.FirstOrDefault(i=>i.InstanceId==InstanceId);if(next!=null)Update(next);
+            }
+        }
+        catch(Exception e){pendingScale=null;
+#if !NATIVE_HOST
+            System.Windows.MessageBox.Show(e.Message,"CakePet");
+#endif
+        }
+        finally{scaling=false;}
+    }
 }
 internal sealed class HostRejectedException(string message):InvalidOperationException(message) {}
 internal static class HostConnection

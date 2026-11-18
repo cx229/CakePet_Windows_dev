@@ -13,5 +13,5 @@
     <Version>1.26.11.17</Version>
     <InformationalVersion>v1.26.11.17.13.33</InformationalVersion>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../CakePet.Core/CakePet.Core.csproj"/></ItemGroup>
+  <ItemGroup><ProjectReference Include="../CakePet.Core/CakePet.Core.csproj"/><Compile Include="../CakePet.Host/CatalogMerge.cs" Link="Shared/CatalogMerge.cs"/></ItemGroup>
 </Project>

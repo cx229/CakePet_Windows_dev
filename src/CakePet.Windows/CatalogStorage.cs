@@ -10,6 +10,9 @@ internal sealed partial class CatalogStorage
     private readonly bool remote;
     private string baseline="";
     internal long Revision {get;private set;}
+#if !NATIVE_HOST
+    internal bool AsyncSaveInFlight {get;set;}
+#endif
     public CatalogStorage(string bundled,bool remote=false,string? dataRoot=null)
     {
         root=dataRoot??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet");
@@ -23,8 +26,31 @@ internal sealed partial class CatalogStorage
         }
     }
     public void Save()=>Commit(Catalog);
+#if !NATIVE_HOST
+    internal HostRequest CaptureSave()=>new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog));
+    internal bool CompleteSave(HostRequest request,HostReply reply)
+    {
+        string desired=request.Catalog??throw new InvalidDataException();
+        string live=reply.Catalog??throw new IOException("缺少配置保存结果。");
+        string current=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);
+        if(current==desired){Adopt(live);return false;}
+        // Rebase only the edits made after the request was captured, onto the confirmed host state.
+        var merged=CatalogMerge.Merge(desired,current,live);
+        Catalog=merged;baseline=System.Text.Json.JsonSerializer.Serialize(RoleCatalog.Parse(live),CoreJson.Default.RoleCatalog);Revision++;
+        return System.Text.Json.JsonSerializer.Serialize(merged,CoreJson.Default.RoleCatalog)!=baseline;
+    }
+    internal void Rebase(string live)
+    {
+        string desired=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);
+        Catalog=CatalogMerge.Merge(baseline,desired,live);
+        baseline=System.Text.Json.JsonSerializer.Serialize(RoleCatalog.Parse(live),CoreJson.Default.RoleCatalog);Revision++;
+    }
+#endif
     public void Commit(RoleCatalog value)
     {
+#if !NATIVE_HOST
+        if(AsyncSaveInFlight)throw new InvalidOperationException("设置正在保存，请稍后重试。");
+#endif
         Revision++;
         if(!remote){value.Save(FilePath);Catalog=value;return;}
         var result=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(value,CoreJson.Default.RoleCatalog)));
@@ -35,6 +61,9 @@ internal sealed partial class CatalogStorage
     public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}
     public PackEntry Import(string source)
     {
+#if !NATIVE_HOST
+        if(AsyncSaveInFlight)throw new InvalidOperationException("设置正在保存，请稍后重试。");
+#endif
         var pack=RolePackage.Load(source,GdiImageCache.IsReadable);
         var id=Guid.NewGuid();var dest=Path.Combine(root,"packs",id.ToString("N"));
         Directory.CreateDirectory(dest);
