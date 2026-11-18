@@ -28,9 +28,9 @@ internal static class Program
             {var visual=cache.GetFoodVisual(id);if(visual.Frames.Count==0||visual.Width<=0||visual.Height<=0)throw new InvalidDataException(id);}
             cache.Clear();
             if(cache.CachedImageBytes!=0||cache.CachedFoodBytes!=0)throw new InvalidDataException("Image cache did not release entries.");
-            var first=pack.Modes.Values.First().Frames[0];
-            var bitmap=cache.Get(first);
-            if(bitmap.PixelWidth<=0||!ReferenceEquals(bitmap,cache.Get(first)))throw new InvalidDataException("Image cache reload failed.");
+            var firstFrame=pack.Modes.Values.First().Frames[0];
+            var bitmap=cache.Get(firstFrame);
+            if(bitmap.PixelWidth<=0||!ReferenceEquals(bitmap,cache.Get(firstFrame)))throw new InvalidDataException("Image cache reload failed.");
             return 0;
         }
         using var mutex=new System.Threading.Mutex(true,"Local\\CakePet.Windows",out bool first);
