@@ -121,22 +121,24 @@ internal sealed class ResidentHost:IDisposable
         NativeMessage.Show(MemoryDiagnostics.Summary(report)+"\n\n诊断文件：\n"+path,"CakePet · 内存诊断");
     }
     // Host is the runtime owner. UI writes the catalog atomically, then asks host to reconcile.
-    private void ReloadCatalog(bool reloadAssets)
+    private void ReloadCatalog(bool reloadAssets,RoleCatalog? replacement=null)
     {
         SaveTyping();
         var old=catalog.Roles.ToDictionary(r=>r.Id);var oldPacks=catalog.Packs.ToDictionary(p=>p.Id);
         var active=pets.Select(p=>p.RoleId).Distinct().ToArray();
-        storage.Reload();
+        if(replacement!=null)storage.Commit(replacement);else storage.Reload();
         thoughts.Policy=catalog.ThinkingPolicy;SetTyping();
-        if(catalog.ThinkingPolicy==ThinkingDisplayPolicy.None){typing.Stop();presenter.Clear();}
+        if(catalog.ThinkingPolicy==ThinkingDisplayPolicy.None||!catalog.Typing.Enabled){typing.Stop();if(catalog.ThinkingPolicy==ThinkingDisplayPolicy.None)presenter.Clear();}
         foreach(var id in active)
         {
+            try{
             var next=catalog.Roles.FirstOrDefault(r=>r.Id==id);
             if(next==null){Recall(id);continue;}
             bool changed=reloadAssets||!old.TryGetValue(id,out var before)||before.PackId!=next.PackId||!oldPacks.TryGetValue(next.PackId,out var oldPack)||oldPack!=catalog.Packs.Single(p=>p.Id==next.PackId);
             if(changed){Recall(id);Summon(next);}
             else if(pets.Count(p=>p.RoleId==id)!=next.Settings.Count)Summon(next);
-            else ApplyRunning(next);
+            else if(!old.TryGetValue(id,out var prior)||prior!=next)ApplyRunning(next);
+            }catch(Exception e){var error=e.Message;loop.Post(()=>NativeMessage.Show(error,"角色更新失败"));}
         }
         ReleaseUnused();
     }
@@ -146,6 +148,10 @@ internal sealed class ResidentHost:IDisposable
         {
             case "open":OpenSettings(req.RoleId);break;
             case "snapshot":break;
+            case "save-catalog":
+                SaveTyping();
+                var merged=CatalogMerge.Merge(req.Baseline??throw new InvalidDataException(),req.Catalog??throw new InvalidDataException(),JsonSerializer.Serialize(catalog));
+                ReloadCatalog(false,merged);break;
             case "reload":ReloadCatalog(false);break;
             case "reload-assets":ReloadCatalog(true);break;
             case "summon":if(req.RoleId is Guid id)Summon(catalog.Roles.Single(r=>r.Id==id));else foreach(var r in catalog.Roles.ToArray())Summon(r);break;
@@ -158,7 +164,7 @@ internal sealed class ResidentHost:IDisposable
             case "shutdown":loop.Post(loop.Stop);break;
             default:throw new InvalidOperationException("Unknown command: "+req.Command);
         }
-        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count);
+        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,JsonSerializer.Serialize(catalog));
     }
     public void Dispose()
     {

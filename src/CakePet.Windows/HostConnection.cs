@@ -2,9 +2,19 @@ using System.IO;
 using System.IO.Pipes;
 using System.Text.Json;
 namespace CakePet.Windows;
-internal sealed record HostRequest(string Command,Guid? RoleId=null,Guid? InstanceId=null,double? Scale=null);
+internal sealed record HostRequest(string Command,Guid? RoleId=null,Guid? InstanceId=null,double? Scale=null,string? Baseline=null,string? Catalog=null);
 internal sealed record LiveInstance(Guid RoleId,Guid InstanceId,int InstanceNumber,double CurrentScale);
-internal sealed record HostReply(bool Success,string? Error,LiveInstance[] Instances,int FoodCount);
+internal sealed record HostReply(bool Success,string? Error,LiveInstance[] Instances,int FoodCount,string? Catalog=null);
+internal sealed class LivePet
+{
+    public Guid RoleId {get;private set;}
+    public Guid InstanceId {get;private set;}
+    public int InstanceNumber {get;private set;}
+    public double CurrentScale {get;private set;}
+    public LivePet(LiveInstance data)=>Update(data);
+    public void Update(LiveInstance data){RoleId=data.RoleId;InstanceId=data.InstanceId;InstanceNumber=data.InstanceNumber;CurrentScale=data.CurrentScale;}
+    public void SetInstanceScale(double scale){var reply=HostConnection.Call(new("scale",InstanceId:InstanceId,Scale:scale));var next=reply.Instances.FirstOrDefault(i=>i.InstanceId==InstanceId);if(next!=null)Update(next);}
+}
 internal static class HostConnection
 {
     internal static string PipeName=>"CakePet.Host."+Environment.UserName+"."+System.Diagnostics.Process.GetCurrentProcess().SessionId;

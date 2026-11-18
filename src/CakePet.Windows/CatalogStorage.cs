@@ -7,16 +7,28 @@ internal sealed partial class CatalogStorage
     private readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet");
     public string FilePath=>Path.Combine(root,"catalog.json");
     public RoleCatalog Catalog {get;private set;}
-    public CatalogStorage(string bundled)
+    private readonly bool remote;
+    private string baseline="";
+    public CatalogStorage(string bundled,bool remote=false)
     {
-        Catalog=RoleCatalog.Load(FilePath);
+        this.remote=remote;
+        Catalog=remote?RoleCatalog.Parse(HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog")):RoleCatalog.Load(FilePath);
+        baseline=System.Text.Json.JsonSerializer.Serialize(Catalog);
+        if(remote)return;
         if(!File.Exists(FilePath)&&Catalog.Packs.Count==0&&File.Exists(Path.Combine(bundled,"modes.jsonc")))
         {
             var p=Import(bundled);Catalog.AddRole(p.Id,p.Name);Save();
         }
     }
-    public void Save()=>Catalog.Save(FilePath);
-    public void Reload()=>Catalog=RoleCatalog.Load(FilePath);
+    public void Save()=>Commit(Catalog);
+    public void Commit(RoleCatalog value)
+    {
+        if(!remote){value.Save(FilePath);Catalog=value;return;}
+        var result=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(value)));
+        Adopt(result.Catalog??throw new IOException("Missing catalog"));
+    }
+    public void Adopt(string json){Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog);}
+    public void Reload()=>Adopt(remote?HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog"):File.ReadAllText(FilePath));
     public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}
     public PackEntry Import(string source)
     {

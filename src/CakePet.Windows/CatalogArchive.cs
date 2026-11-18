@@ -65,7 +65,7 @@ internal sealed partial class CatalogStorage
             if(data["ThinkingPolicy"] is JsonValue policy&&policy.TryGetValue<int>(out var pol)&&Enum.IsDefined(typeof(ThinkingDisplayPolicy),pol))merged.ThinkingPolicy=(ThinkingDisplayPolicy)pol;
             else if(data["SingleThinking"] is JsonValue single&&single.TryGetValue<bool>(out var st))merged.ThinkingPolicy=st?ThinkingDisplayPolicy.Latest:ThinkingDisplayPolicy.Overlap;
             if(data["AutoSummon"] is JsonValue summon&&summon.TryGetValue<bool>(out var au))merged.AutoSummon=au;
-            merged.Save(FilePath);Catalog=merged;
+            Commit(merged);
         }catch{foreach(var dir in copied)if(Directory.Exists(dir))Directory.Delete(dir,true);throw;}
         foreach(var old in original.Packs.Where(p=>!merged.Packs.Any(x=>x.Directory==p.Directory)))try{Directory.Delete(Resolve(old),true);}catch(IOException){}catch(UnauthorizedAccessException){}
         return $"已恢复 {packs} 个素材包、{roles} 个角色，跳过 {skipped} 项；未包含的数据保留。";
@@ -73,7 +73,7 @@ internal sealed partial class CatalogStorage
     public void Reset(string bundled)
     {
         var old=Catalog;var fresh=new RoleCatalog();var folder=Guid.NewGuid().ToString("N");var dest=Path.Combine(root,"packs",folder);
-        try{var pack=RolePackage.Load(bundled,GdiImageCache.IsReadable);Directory.CreateDirectory(dest);Copy(bundled,dest);var p=new PackEntry(Guid.NewGuid(),pack.Name,folder);fresh.Packs.Add(p);fresh.AddRole(p.Id,p.Name);fresh.Save(FilePath);Catalog=fresh;}
+        try{var pack=RolePackage.Load(bundled,GdiImageCache.IsReadable);Directory.CreateDirectory(dest);Copy(bundled,dest);var p=new PackEntry(Guid.NewGuid(),pack.Name,folder);fresh.Packs.Add(p);fresh.AddRole(p.Id,p.Name);Commit(fresh);}
         catch{if(Directory.Exists(dest))Directory.Delete(dest,true);throw;}
         foreach(var p in old.Packs)try{Directory.Delete(Resolve(p),true);}catch(IOException){}catch(UnauthorizedAccessException){}
     }
