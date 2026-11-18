@@ -13,7 +13,7 @@ internal sealed partial class CatalogStorage
     {
         this.remote=remote;
         Catalog=remote?RoleCatalog.Parse(HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog")):RoleCatalog.Load(FilePath);
-        baseline=System.Text.Json.JsonSerializer.Serialize(Catalog);
+        baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);
         if(remote)return;
         if(!File.Exists(FilePath)&&Catalog.Packs.Count==0&&File.Exists(Path.Combine(bundled,"modes.jsonc")))
         {
@@ -24,10 +24,10 @@ internal sealed partial class CatalogStorage
     public void Commit(RoleCatalog value)
     {
         if(!remote){value.Save(FilePath);Catalog=value;return;}
-        var result=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(value)));
+        var result=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(value,CoreJson.Default.RoleCatalog)));
         Adopt(result.Catalog??throw new IOException("Missing catalog"));
     }
-    public void Adopt(string json){Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog);}
+    public void Adopt(string json){Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);}
     public void Reload()=>Adopt(remote?HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog"):File.ReadAllText(FilePath));
     public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}
     public PackEntry Import(string source)

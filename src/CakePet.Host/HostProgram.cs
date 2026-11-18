@@ -117,7 +117,7 @@ internal sealed class ResidentHost:IDisposable
     {
         var report=MemoryDiagnostics.Sample("native-resident",new(){["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
         var directory=Path.Combine(Path.GetDirectoryName(storage.FilePath)!,"diagnostics");Directory.CreateDirectory(directory);
-        var path=Path.Combine(directory,"memory-host-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".json");File.WriteAllText(path,JsonSerializer.Serialize(report,new JsonSerializerOptions{WriteIndented=true}));
+        var path=Path.Combine(directory,"memory-host-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".json");File.WriteAllText(path,MemoryDiagnostics.ToJson(report));
         NativeMessage.Show(MemoryDiagnostics.Summary(report)+"\n\n诊断文件：\n"+path,"CakePet · 内存诊断");
     }
     // Host is the runtime owner. UI writes the catalog atomically, then asks host to reconcile.
@@ -151,7 +151,7 @@ internal sealed class ResidentHost:IDisposable
             case "snapshot":break;
             case "save-catalog":
                 SaveTyping();
-                var merged=CatalogMerge.Merge(req.Baseline??throw new InvalidDataException(),req.Catalog??throw new InvalidDataException(),JsonSerializer.Serialize(catalog));
+                var merged=CatalogMerge.Merge(req.Baseline??throw new InvalidDataException(),req.Catalog??throw new InvalidDataException(),JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog));
                 ReloadCatalog(false,merged);break;
             case "reload":ReloadCatalog(false);break;
             case "reload-assets":ReloadCatalog(true);break;
@@ -165,7 +165,7 @@ internal sealed class ResidentHost:IDisposable
             case "shutdown":loop.Post(loop.Stop);break;
             default:throw new InvalidOperationException("Unknown command: "+req.Command);
         }
-        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,JsonSerializer.Serialize(catalog));
+        return new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog));
     }
     public void Dispose()
     {

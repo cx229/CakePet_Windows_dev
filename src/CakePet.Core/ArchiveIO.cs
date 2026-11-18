@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 namespace CakePet.Core;
 public static class ArchiveIO
 {
-    public static readonly JsonSerializerOptions Options=new(){WriteIndented=true,PropertyNameCaseInsensitive=true};
+    public static readonly JsonSerializerOptions Options=new(){WriteIndented=true,PropertyNameCaseInsensitive=true,TypeInfoResolver=CoreJson.Default};
     public static JsonObject Read(string path)=>JsonNode.Parse(File.ReadAllText(path),documentOptions:new JsonDocumentOptions{CommentHandling=JsonCommentHandling.Skip,AllowTrailingCommas=true}) as JsonObject??throw new InvalidDataException("Invalid JSON object.");
     public static void Write(string path,string content)
     {
@@ -42,14 +42,14 @@ public static class ArchiveIO
     }
     public static RoleSettings Overlay(RoleSettings original,JsonObject fields)
     {
-        var node=JsonSerializer.SerializeToNode(original,Options)!.AsObject();
+        var node=JsonSerializer.SerializeToNode(original,CoreJson.Indented.RoleSettings)!.AsObject();
         foreach(var field in fields)
         {
             var key=node.Select(x=>x.Key).FirstOrDefault(k=>string.Equals(k,field.Key,StringComparison.OrdinalIgnoreCase));if(key==null||field.Value==null)continue;
             var old=node[key]?.DeepClone();node[key]=field.Value.DeepClone();
-            try{_ = node.Deserialize<RoleSettings>(Options)??throw new JsonException();}
+            try{_ = node.Deserialize(CoreJson.Indented.RoleSettings)??throw new JsonException();}
             catch(JsonException){node[key]=old;}catch(NotSupportedException){node[key]=old;}
         }
-        return SettingLimits.Clamp((node.Deserialize<RoleSettings>(Options)??original).Normalize());
+        return SettingLimits.Clamp((node.Deserialize(CoreJson.Indented.RoleSettings)??original).Normalize());
     }
 }

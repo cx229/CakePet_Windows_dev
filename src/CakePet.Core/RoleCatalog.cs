@@ -93,7 +93,7 @@ public sealed class RoleCatalog
     }
     public static RoleCatalog Parse(string json)
     {
-        var data=JsonSerializer.Deserialize<RoleCatalog>(json)??throw new InvalidDataException("Invalid catalog.");
+        var data=JsonSerializer.Deserialize(json,CoreJson.Default.RoleCatalog)??throw new InvalidDataException("Invalid catalog.");
         if(data.Packs==null||data.Roles==null||data.Packs.Select(x=>x.Id).Distinct().Count()!=data.Packs.Count||data.Roles.Select(x=>x.Id).Distinct().Count()!=data.Roles.Count||data.Roles.Any(x=>x.Settings==null||!data.Packs.Any(p=>p.Id==x.PackId)))throw new InvalidDataException("Invalid role references.");
         data.Defaults=SettingLimits.Clamp((data.Defaults??new()).Normalize());for(int i=0;i<data.Roles.Count;i++)data.Roles[i]=data.Roles[i] with{Settings=SettingLimits.Clamp(data.Roles[i].Settings.Normalize())};
         return data;
@@ -102,7 +102,7 @@ public sealed class RoleCatalog
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
         var temp=file+"."+Guid.NewGuid().ToString("N")+".tmp";
-        try{File.WriteAllText(temp,JsonSerializer.Serialize(this,new JsonSerializerOptions{WriteIndented=true}));File.Move(temp,file,true);}
+        try{File.WriteAllText(temp,JsonSerializer.Serialize(this,CoreJson.Indented.RoleCatalog));File.Move(temp,file,true);}
         finally{if(File.Exists(temp))File.Delete(temp);}
     }
     public RoleEntry AddRole(Guid packId,string name)

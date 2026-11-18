@@ -24,9 +24,9 @@ internal static class HostConnection
         pipe.Connect(3000);
         using var writer=new StreamWriter(pipe,leaveOpen:true){AutoFlush=true};
         using var reader=new StreamReader(pipe,leaveOpen:true);
-        writer.WriteLine(JsonSerializer.Serialize(request));
+        writer.WriteLine(JsonSerializer.Serialize(request,HostJson.Default.HostRequest));
         var line=reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
-        var reply=JsonSerializer.Deserialize<HostReply>(line??throw new IOException("常驻进程未响应。"))??throw new IOException("常驻进程返回无效数据。");
+        var reply=JsonSerializer.Deserialize(line??throw new IOException("常驻进程未响应。"),HostJson.Default.HostReply)??throw new IOException("常驻进程返回无效数据。");
         if(!reply.Success)throw new InvalidOperationException(reply.Error);
         return reply;
     }
@@ -50,11 +50,11 @@ internal sealed class HostServer:IDisposable
                     using var reader=new StreamReader(pipe,leaveOpen:true);using var writer=new StreamWriter(pipe,leaveOpen:true){AutoFlush=true};
                     var line=await reader.ReadLineAsync(cancel.Token);
                     if(line==null)continue;
-                    var request=JsonSerializer.Deserialize<HostRequest>(line)??throw new InvalidDataException();
+                    var request=JsonSerializer.Deserialize(line,HostJson.Default.HostRequest)??throw new InvalidDataException();
                     var done=new TaskCompletionSource<HostReply>(TaskCreationOptions.RunContinuationsAsynchronously);
                     loop.Post(()=>{try{done.TrySetResult(handler(request));}catch(Exception e){done.TrySetResult(new(false,e.Message,Array.Empty<LiveInstance>(),0));}});
                     var result=await done.Task.WaitAsync(cancel.Token);
-                    await writer.WriteLineAsync(JsonSerializer.Serialize(result));
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(result,HostJson.Default.HostReply));
                 }
                 catch(OperationCanceledException){break;}
                 catch(Exception){if(!cancel.IsCancellationRequested)await Task.Delay(50,cancel.Token);}

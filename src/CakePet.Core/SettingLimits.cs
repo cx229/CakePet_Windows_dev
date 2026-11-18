@@ -22,17 +22,17 @@ public static class SettingLimits
     public static RoleSettings Clamp(RoleSettings settings)
     {
         if(settings.Limits==null||settings.Limits.Count==0)return settings;
-        var node=System.Text.Json.JsonSerializer.SerializeToNode(settings,ArchiveIO.Options)!.AsObject();
+        var node=System.Text.Json.JsonSerializer.SerializeToNode(settings,CoreJson.Indented.RoleSettings)!.AsObject();
         foreach(var spec in Specs){if(!settings.Limits.ContainsKey(spec.Key))continue;var limit=Get(settings,spec);var parent=Parent(node,spec.Key);var leaf=Leaf(spec.Key);if(parent[leaf] is not JsonValue v||!double.TryParse(v.ToString(),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var n))continue;var value=Math.Clamp(n,limit.Min,limit.Max);parent[leaf]=spec.Key is "Count" or "FoodLimit" or "FoodLifetimeSeconds"?JsonValue.Create((int)Math.Round(value)):JsonValue.Create(value);}
         return node.DeserializeRole();
     }
-    private static RoleSettings DeserializeRole(this JsonObject node)=>System.Text.Json.JsonSerializer.Deserialize<RoleSettings>(node.ToJsonString(),ArchiveIO.Options)??throw new InvalidDataException("无效设置");
+    private static RoleSettings DeserializeRole(this JsonObject node)=>System.Text.Json.JsonSerializer.Deserialize(node.ToJsonString(),CoreJson.Indented.RoleSettings)??throw new InvalidDataException("无效设置");
     public static RoleSettings ApplyItem(RoleSettings target,RoleSettings source,string key)
     {
         if(!Specs.Any(s=>s.Key==key))return target;
-        var dest=System.Text.Json.JsonSerializer.SerializeToNode(target,ArchiveIO.Options)!.AsObject();var src=System.Text.Json.JsonSerializer.SerializeToNode(source,ArchiveIO.Options)!.AsObject();
+        var dest=System.Text.Json.JsonSerializer.SerializeToNode(target,CoreJson.Indented.RoleSettings)!.AsObject();var src=System.Text.Json.JsonSerializer.SerializeToNode(source,CoreJson.Indented.RoleSettings)!.AsObject();
         Parent(dest,key)[Leaf(key)]=Parent(src,key)[Leaf(key)]?.DeepClone();var limits=new Dictionary<string,SettingLimit>(target.Limits??new());limits.Remove(key);if(source.Limits?.TryGetValue(key,out var limit)==true)limits[key]=limit;
-        dest["Limits"]=System.Text.Json.JsonSerializer.SerializeToNode(limits,ArchiveIO.Options);return Clamp(dest.DeserializeRole().Normalize());
+        dest["Limits"]=System.Text.Json.JsonSerializer.SerializeToNode(limits,CoreJson.Indented.DictionaryStringSettingLimit);return Clamp(dest.DeserializeRole().Normalize());
     }
     public static RoleSettings ApplyGroup(RoleSettings target,RoleSettings source,string group)
     {
@@ -44,10 +44,10 @@ public static class SettingLimits
             "碎碎念"=>new[]{"Thinking","ThoughtStyle","ThoughtRestMin","ThoughtRestMax"},
             "屏幕适应"=>new[]{"MonitorId","ScreenConnect","HorizontalWrap","FullScreen","OffsetLeft","OffsetRight","OffsetTop","OffsetBottom"},
             "随机模式"=>new[]{"RandomMode"},_=>Array.Empty<string>()};
-        var dest=System.Text.Json.JsonSerializer.SerializeToNode(target,ArchiveIO.Options)!.AsObject();var src=System.Text.Json.JsonSerializer.SerializeToNode(source,ArchiveIO.Options)!.AsObject();
+        var dest=System.Text.Json.JsonSerializer.SerializeToNode(target,CoreJson.Indented.RoleSettings)!.AsObject();var src=System.Text.Json.JsonSerializer.SerializeToNode(source,CoreJson.Indented.RoleSettings)!.AsObject();
         foreach(var key in keys)dest[key]=src[key]?.DeepClone();
         var limits=new Dictionary<string,SettingLimit>(target.Limits??new());foreach(var spec in Specs.Where(x=>x.Group==group)){limits.Remove(spec.Key);if(source.Limits?.TryGetValue(spec.Key,out var value)==true)limits[spec.Key]=value;}
-        dest["Limits"]=System.Text.Json.JsonSerializer.SerializeToNode(limits,ArchiveIO.Options);
+        dest["Limits"]=System.Text.Json.JsonSerializer.SerializeToNode(limits,CoreJson.Indented.DictionaryStringSettingLimit);
         return Clamp(dest.DeserializeRole().Normalize());
     }
 }
