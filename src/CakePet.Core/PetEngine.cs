@@ -36,8 +36,8 @@ public sealed class PetEngine : IDisposable
         if(Body.ClimbEdge!=Edge.None||Body.SnappedEdge!=Edge.None)
         {
             var side=Body.SnappedEdge!=Edge.None?Body.SnappedEdge:Body.ClimbEdge;
-            if(surfaceSegment is int i&&surfacePosition is Point p&&i<Space.Edges.Count&&Space.Edges[i].Side==side){Body.SetPosition(p-AnchorOffset);return;}
-            var contact=Space.Nearest(AnchorWorld,side);
+            if(surfaceSegment is int i&&surfacePosition is Point p&&i<Space.Edges.Count&&Space.Edges[i].Side==side&&Space.IsWalkable(i,HorizontalWrap)){Body.SetPosition(p-AnchorOffset);return;}
+            var contact=Space.Nearest(AnchorWorld,side,wrap:HorizontalWrap);
             if(contact!=null&&contact.Value.Distance<=Math.Max(2,DisplaySize)){surfaceSegment=contact.Value.Segment;surfacePosition=contact.Value.Position;Body.SetPosition(contact.Value.Position-AnchorOffset);return;}
             if(Body.SnappedEdge!=Edge.None){Body.Reset(Space.Clamp(AnchorWorld)-AnchorOffset);Role.ResetToStandby();}else{Body.DetachClimb();Role.SetClimbing(false);}
         }
@@ -46,19 +46,19 @@ public sealed class PetEngine : IDisposable
     private BoundaryContact? CurrentContact()
     {
         if(Space==null)return null;var side=Body.ClimbEdge!=Edge.None?Body.ClimbEdge:Body.SnappedEdge!=Edge.None?Body.SnappedEdge:RenderEdge;
-        if(surfaceSegment is int i&&surfacePosition is Point p&&i<Space.Edges.Count&&Space.Edges[i].Side==side&&(Body.ClimbEdge!=Edge.None||Body.SnappedEdge!=Edge.None))return new(i,p,0);
-        return Space.Nearest(AnchorWorld,side);
+        if(surfaceSegment is int i&&surfacePosition is Point p&&i<Space.Edges.Count&&Space.Edges[i].Side==side&&Space.IsWalkable(i,HorizontalWrap)&&(Body.ClimbEdge!=Edge.None||Body.SnappedEdge!=Edge.None))return new(i,p,0);
+        return Space.Nearest(AnchorWorld,side,wrap:HorizontalWrap)??Space.Nearest(AnchorWorld,wrap:HorizontalWrap);
     }
     private bool AttachSpace(BoundaryContact contact,bool snap=false)
     {
-        if(Space==null)return false;var edge=Space.Edges[contact.Segment].Side;
+        if(Space==null||!Space.IsWalkable(contact.Segment,HorizontalWrap))return false;var edge=Space.Edges[contact.Segment].Side;
         Body.AttachSurface(edge,Body.Position,snap);surfaceSegment=contact.Segment;surfacePosition=contact.Position;Body.SetPosition(contact.Position-AnchorOffset);if(!snap)Role.SetClimbing(true);return true;
     }
     public bool InActivitySpace(Point p)=>Space?.Contains(p)??(ActivityArea is Bounds b&&p.X>=b.Left&&p.X<=b.Right&&p.Y>=b.Top&&p.Y<=b.Bottom);
-    public Point? FindEdgeFoodPosition(double width,double height,Random random)=>Space!=null&&(CurrentContact()??Space.Nearest(AnchorWorld)) is BoundaryContact c?Space.SpawnEdge(c.Segment,width,height,HorizontalWrap,random):null;
+    public Point? FindEdgeFoodPosition(double width,double height,Random random)=>Space!=null&&(CurrentContact()??Space.Nearest(AnchorWorld,wrap:HorizontalWrap)) is BoundaryContact c?Space.SpawnEdge(c.Segment,width,height,HorizontalWrap,random):null;
     public double ForageDistance(Point target)
     {
-        if(Space!=null&&CurrentContact() is BoundaryContact c)return Space.Route(c.Segment,c.Position,target)?.Distance??double.PositiveInfinity;
+        if(Space!=null&&CurrentContact() is BoundaryContact c)return Space.Route(c.Segment,c.Position,target,HorizontalWrap)?.Distance??double.PositiveInfinity;
         return PerimeterRoute.Calculate(Bounds,Body.Position,Body.ClimbEdge==Edge.None?RenderEdge:Body.ClimbEdge,target-new Point(DisplaySize/2,DisplaySize/2)).Distance;
     }
     public Point AnchorOffset=>AnchorAt(DisplaySize);
@@ -145,7 +145,7 @@ public sealed class PetEngine : IDisposable
         if(Body.State!=PhysicalState.Dragging)return;
         if(Space!=null)
         {
-            var snap=Body.SnapEnabled&&(!Body.MotionEnabled||velocity.Length<=Body.SnapSpeed)?Space.Nearest(pointer??AnchorWorld,Body.SnapEdges):null;
+            var snap=Body.SnapEnabled&&(!Body.MotionEnabled||velocity.Length<=Body.SnapSpeed)?Space.Nearest(pointer??AnchorWorld,Body.SnapEdges,wrap:HorizontalWrap):null;
             if(snap is BoundaryContact contact&&contact.Distance<=Body.SnapDistance){AttachSpace(contact,true);Role.SetEnvironment(true,PhysicalState.Free);}
             else{Body.Release(velocity);Body.SetPosition(Space.Clamp(AnchorWorld)-AnchorOffset);Role.SetEnvironment(false,Body.State);}
         }
@@ -224,7 +224,7 @@ public sealed class PetEngine : IDisposable
     private void UpdateForageFacing()
     {
         if(forageTarget is not Point target||Body.ClimbEdge==Edge.None)return;
-        if(Space!=null&&CurrentContact() is BoundaryContact contact){if(Space.Route(contact.Segment,contact.Position,target) is {} desktopRoute){Facing=-desktopRoute.Direction;Body.SetPosition(contact.Position-AnchorOffset);}return;}
+        if(Space!=null&&CurrentContact() is BoundaryContact contact){if(Space.Route(contact.Segment,contact.Position,target,HorizontalWrap) is {} desktopRoute){Facing=-desktopRoute.Direction;Body.SetPosition(contact.Position-AnchorOffset);}return;}
         var route=PerimeterRoute.Calculate(Bounds,Body.Position,Body.ClimbEdge,target-new Point(DisplaySize/2,DisplaySize/2));
         Facing=route.Direction;
     }
@@ -235,7 +235,7 @@ public sealed class PetEngine : IDisposable
         if(!CanStartLeap())return false;
         if(Space!=null)
         {
-            var start=AnchorWorld;var candidates=Space.Edges.Where(e=>(requested==null||e.Side==requested)&&e.Side!=Body.ClimbEdge).OrderBy(_=>random.Next()).ToArray();
+            var start=AnchorWorld;var candidates=Space.Edges.Where((e,i)=>Space.IsWalkable(i,HorizontalWrap)&&(requested==null||e.Side==requested)&&e.Side!=Body.ClimbEdge).OrderBy(_=>random.Next()).ToArray();
             foreach(var edge in candidates){var target=edge.At(edge.Length*random.NextDouble());var delta=target-start;if(delta.Length<2||Space.Move(start,delta).Position!=target)continue;var origin=target-AnchorOffset;if(!Body.BeginLeap(edge.Side,origin,new Bounds(Math.Min(Body.Position.X,origin.X),Math.Min(Body.Position.Y,origin.Y),Math.Max(Body.Position.X,origin.X),Math.Max(Body.Position.Y,origin.Y)),LeapSpeed))continue;Role.SetEnvironment(false,PhysicalState.Flying);return true;}return false;
         }
         var touched=SurfaceMotion.Touching(Body.Position,Bounds);
@@ -252,7 +252,7 @@ public sealed class PetEngine : IDisposable
     private void TryAttachCurrent()
     {
         if(!ClimbEnabled||Role.StaticStandby||Body.State!=PhysicalState.Free||Body.SnappedEdge!=Edge.None)return;
-        if(Space!=null){var contact=Space.Nearest(AnchorWorld);if(contact is BoundaryContact c&&c.Distance<=.5)AttachSpace(c);return;}
+        if(Space!=null){var contact=Space.Nearest(AnchorWorld,wrap:HorizontalWrap);if(contact is BoundaryContact c&&c.Distance<=.5)AttachSpace(c);return;}
         var touched=SurfaceMotion.Touching(Body.Position,Bounds);
         var open=ConnectedEdges?.Invoke()??Edge.None;
         var side=SurfaceMotion.Sides.FirstOrDefault(x=>touched.HasFlag(x)&&!open.HasFlag(x));
@@ -265,10 +265,12 @@ public sealed class PetEngine : IDisposable
            Body.State is not (PhysicalState.Free or PhysicalState.Climbing)||frame.Dx==0&&frame.Dy==0)return;
         var scale=DisplaySize/Role.Package.AnchorRes;
         var local=new Point(frame.Dx*scale*Facing,frame.Dy*scale);
+        // Attach before applying the frame, so the first small step at a corner uses the contour.
+        if(Space!=null&&local.Y>=0)TryAttachCurrent();
         if(Space!=null&&Body.State==PhysicalState.Climbing&&CurrentContact() is BoundaryContact contact&&local.Y>=0)
         {
-            double travel=local.X;if(Foraging&&forageTarget is Point food&&Space.Route(contact.Segment,contact.Position,food) is {} route){Facing=-route.Direction;travel=-route.Direction*Math.Min(Math.Abs(frame.Dx*scale*ForageMultiplier),Math.Max(0,route.Distance-3));}
-            var result=Space.Walk(contact.Segment,contact.Position,-travel);AttachSpace(new BoundaryContact(result.Segment,result.Position,0));return;
+            double travel=local.X;if(Foraging&&forageTarget is Point food&&Space.Route(contact.Segment,contact.Position,food,HorizontalWrap) is {} route){Facing=-route.Direction;travel=-route.Direction*Math.Min(Math.Abs(frame.Dx*scale*ForageMultiplier),Math.Max(0,route.Distance));}
+            var result=Space.Walk(contact.Segment,contact.Position,-travel,HorizontalWrap);AttachSpace(new BoundaryContact(result.Segment,result.Position,0));return;
         }
         if(Foraging&&forageTarget is Point target&&Body.ClimbEdge!=Edge.None)
         {
@@ -299,7 +301,7 @@ public sealed class PetEngine : IDisposable
         RefreshGeometry();var previous=Body.State;
         if(Body.Advance(milliseconds/1000.0,Bounds))
         {
-            if(ClimbEnabled&&!Role.StaticStandby){if(Space!=null){var contact=Space.Nearest(AnchorWorld,Body.LastImpactEdge==Edge.None?Edge.All:Body.LastImpactEdge);if(contact is BoundaryContact c&&c.Distance<2)AttachSpace(c);}else Body.TryAttach(Body.LastImpactEdge,Bounds);}
+            if(ClimbEnabled&&!Role.StaticStandby){if(Space!=null){var contact=Space.Nearest(AnchorWorld,Body.LastImpactEdge==Edge.None?Edge.All:Body.LastImpactEdge,wrap:HorizontalWrap);if(contact is BoundaryContact c&&c.Distance<2)AttachSpace(c);}else Body.TryAttach(Body.LastImpactEdge,Bounds);}
             Role.CompletePhysicalMotion(previous==PhysicalState.Flying?"climb/leap/landing":"touch/jump_down",Body.State);
         }
         if(Foraging)UpdateForageFacing();

@@ -19,6 +19,8 @@ public sealed class DesktopSpace
     private readonly Bounds[] areas;
     private readonly DesktopBoundary[] edges;
     private readonly int[] next,previous,component;
+    private readonly int[] wrapNext,wrapPrevious,wrapComponent;
+    private readonly bool[] wrapOpen;
     public IReadOnlyList<Bounds> Areas=>areas;
     public IReadOnlyList<DesktopBoundary> Edges=>edges;
     public DesktopSpace(IEnumerable<Bounds> rectangles)
@@ -49,8 +51,40 @@ public sealed class DesktopSpace
             next[i]=candidates.OrderByDescending(j=>TurnRank(tangent,edges[j].Tangent)).First();
             previous[next[i]]=i;
         }
-        int c=0;for(int i=0;i<edges.Length;i++)if(component[i]<0){int j=i;while(j>=0&&component[j]<0){component[j]=c;j=next[j];}c++;}
+        LabelComponents(next,component);
+        // Each vertical grid segment has identical y subdivision on both outer sides.
+        // Glue opposite open segments together, removing them from the walkable contour.
+        wrapOpen=new bool[edges.Length];var pair=new int[edges.Length];Array.Fill(pair,-1);
+        double left=areas.Min(a=>a.Left),right=areas.Max(a=>a.Right);
+        var rightEdges=Enumerable.Range(0,edges.Length).Where(i=>edges[i].Side==Edge.Right&&edges[i].Start.X==right)
+            .ToDictionary(i=>(edges[i].Start.Y,edges[i].End.Y));
+        for(int i=0;i<edges.Length;i++)
+        {
+            var e=edges[i];
+            if(e.Side==Edge.Left&&e.Start.X==left&&rightEdges.TryGetValue((e.End.Y,e.Start.Y),out int other))
+            {wrapOpen[i]=wrapOpen[other]=true;pair[i]=other;pair[other]=i;}
+        }
+        wrapNext=new int[edges.Length];wrapPrevious=new int[edges.Length];wrapComponent=new int[edges.Length];
+        Array.Fill(wrapNext,-1);Array.Fill(wrapPrevious,-1);Array.Fill(wrapComponent,-1);
+        for(int i=0;i<edges.Length;i++)
+        {
+            if(wrapOpen[i])continue;
+            int j=next[i];
+            for(int guard=0;j>=0&&wrapOpen[j]&&guard<edges.Length;guard++)j=next[pair[j]];
+            if(j>=0&&!wrapOpen[j]){wrapNext[i]=j;wrapPrevious[j]=i;}
+        }
+        LabelComponents(wrapNext,wrapComponent,wrapOpen);
     }
+    private static void LabelComponents(int[] links,int[] labels,bool[]? excluded=null)
+    {
+        int c=0;
+        for(int i=0;i<links.Length;i++)
+        {
+            if(labels[i]>=0||excluded?[i]==true)continue;
+            int j=i;while(j>=0&&labels[j]<0){labels[j]=c;j=links[j];}c++;
+        }
+    }
+    public bool IsWalkable(int segment,bool wrap=false)=>!wrap||!wrapOpen[segment];
     private static int TurnRank(Point a,Point b){double cross=a.X*b.Y-a.Y*b.X,dot=a.X*b.X+a.Y*b.Y;return cross>0?3:dot>0?2:cross<0?1:0;}
     public bool Contains(Point p)=>areas.Any(a=>p.X>=a.Left-Eps&&p.X<=a.Right+Eps&&p.Y>=a.Top-Eps&&p.Y<=a.Bottom+Eps);
     public Point Clamp(Point p)
@@ -58,11 +92,11 @@ public sealed class DesktopSpace
         if(Contains(p))return p;
         return areas.Select(a=>new Point(Math.Clamp(p.X,a.Left,a.Right),Math.Clamp(p.Y,a.Top,a.Bottom))).MinBy(q=>(q-p).Length);
     }
-    public BoundaryContact? Nearest(Point p,Edge allowed=Edge.All,int? sameLoop=null)
+    public BoundaryContact? Nearest(Point p,Edge allowed=Edge.All,int? sameLoop=null,bool wrap=false)
     {
-        BoundaryContact? best=null;for(int i=0;i<edges.Length;i++){if(!allowed.HasFlag(edges[i].Side)||sameLoop is int loop&&component[i]!=component[loop])continue;var q=edges[i].Closest(p);var d=(p-q).Length;if(best==null||d<best.Value.Distance)best=new(i,q,d);}return best;
+        BoundaryContact? best=null;for(int i=0;i<edges.Length;i++){if(!IsWalkable(i,wrap)||!allowed.HasFlag(edges[i].Side)||sameLoop is int loop&&!SameLoop(i,loop,wrap))continue;var q=edges[i].Closest(p);var d=(p-q).Length;if(best==null||d<best.Value.Distance)best=new(i,q,d);}return best;
     }
-    public bool SameLoop(int a,int b)=>component[a]==component[b];
+    public bool SameLoop(int a,int b,bool wrap=false){var labels=wrap?wrapComponent:component;return labels[a]>=0&&labels[a]==labels[b];}
     // At horizontal wrap openings there is no solid wall to spawn food on.
     public bool IsWrapOpening(DesktopBoundary edge,Point p,bool wrap)
     {
@@ -80,7 +114,7 @@ public sealed class DesktopSpace
     }
     public Point? SpawnEdge(int segment,double width,double height,bool wrap,Random random)
     {
-        var candidates=Enumerable.Range(0,edges.Length).Where(i=>SameLoop(segment,i)).OrderBy(_=>random.Next()).ToArray();
+        var candidates=Enumerable.Range(0,edges.Length).Where(i=>SameLoop(segment,i,wrap)).OrderBy(_=>random.Next()).ToArray();
         foreach(int i in candidates)
         {
             var e=edges[i];double margin=e.Side is Edge.Left or Edge.Right?height/2:width/2;
@@ -94,32 +128,35 @@ public sealed class DesktopSpace
                 var p=boundary+inward;
                 if(!ContainsRectangle(new Bounds(p.X-width/2,p.Y-height/2,p.X+width/2,p.Y+height/2)))continue;
                 // Use the same nearest real boundary as forage; never choose a different loop.
-                var nearest=Nearest(p);if(nearest is BoundaryContact c&&SameLoop(segment,c.Segment))return p;
+                var nearest=Nearest(p,wrap:wrap);if(nearest is BoundaryContact c&&SameLoop(segment,c.Segment,wrap))return p;
             }
         }
         return null;
     }
-    public BoundaryTravel Walk(int segment,Point position,double distance)
+    public BoundaryTravel Walk(int segment,Point position,double distance,bool wrap=false)
     {
+        var forward=wrap?wrapNext:next;var backward=wrap?wrapPrevious:previous;
+        if(!IsWalkable(segment,wrap))throw new ArgumentException("Cannot walk an open boundary.",nameof(segment));
         int i=segment;double along=edges[i].Along(position);int direction=distance>=0?1:-1;double left=Math.Abs(distance);
         // Modulo closed-loop length prevents excessive iteration on large frame displacements.
-        double length=0;int j=i;do{length+=edges[j].Length;j=next[j];}while(j>=0&&j!=i);
-        if(length>0)left%=length;
+        double length=0;int j=i;do{length+=edges[j].Length;j=forward[j];}while(j>=0&&j!=i);
+        if(j==i&&length>0)left%=length;
         for(int guard=0;guard<=edges.Length&&left>Eps;guard++)
         {
             var edge=edges[i];double available=direction>0?edge.Length-along:along;
             if(left<available-Eps){along+=direction*left;left=0;break;}
-            left=Math.Max(0,left-available);int n=direction>0?next[i]:previous[i];if(n<0){along=direction>0?edge.Length:0;break;}i=n;along=direction>0?0:edges[i].Length;
+            left=Math.Max(0,left-available);int n=direction>0?forward[i]:backward[i];if(n<0){along=direction>0?edge.Length:0;break;}i=n;along=direction>0?0:edges[i].Length;
         }
         return new(edges[i].At(along),edges[i].Side,i);
     }
-    public (int Direction,double Distance)? Route(int segment,Point position,Point target)
+    public (int Direction,double Distance)? Route(int segment,Point position,Point target,bool wrap=false)
     {
-        var destination=Nearest(target);if(destination==null||!SameLoop(segment,destination.Value.Segment))return null;
+        var links=wrap?wrapNext:next;
+        var destination=Nearest(target,wrap:wrap);if(destination==null||!SameLoop(segment,destination.Value.Segment,wrap))return null;
         double start=edges[segment].Along(position),end=edges[destination.Value.Segment].Along(destination.Value.Position);
         double forward=0,total=0;int i=segment;bool found=false;
-        do{if(i==destination.Value.Segment&&!found){forward=total+end-start;found=true;}total+=edges[i].Length;i=next[i];}while(i>=0&&i!=segment);
-        if(!found||total<=Eps)return null;forward=(forward%total+total)%total;var backward=total-forward;return forward<=backward?(1,forward):(-1,backward);
+        do{if(i==destination.Value.Segment&&!found){forward=total+end-start;found=true;}total+=edges[i].Length;i=links[i];}while(i>=0&&i!=segment);
+        if(!found||total<=Eps||i!=segment)return null;forward=(forward%total+total)%total;var backward=total-forward;return forward<=backward?(1,forward):(-1,backward);
     }
     // Swept point movement: find the first outward crossing, never tunnel across a missing screen.
     public SpaceMotion Move(Point from,Point delta,bool wrap=false)

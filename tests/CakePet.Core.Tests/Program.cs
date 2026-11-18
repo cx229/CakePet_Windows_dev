@@ -230,8 +230,23 @@ try
  Assert(detachedSpace.Route(startContact.Segment,startContact.Position,new Point(200,95))==null,"unreachable separate contour excluded");
  for(int i=0;i<100;i++){var food=detachedSpace.SpawnEdge(startContact.Segment,10,10,false,new Random(i));Assert(food!=null&&food.Value.X<100,"food stays on reachable contour");}
  var wrapContact=wrapSpace.Nearest(new Point(0,100),Edge.Bottom)!.Value;
- for(int i=0;i<100;i++){var food=wrapSpace.SpawnEdge(wrapContact.Segment,10,10,true,new Random(i));Assert(food!=null&&(food.Value.Y==5||food.Value.Y==95),"food excludes horizontal wrap openings");}
+ for(int i=0;i<100;i++){var food=wrapSpace.SpawnEdge(wrapContact.Segment,10,10,true,new Random(i));Assert(food!=null&&food.Value.Y==95,"food excludes horizontal wrap openings and unreachable top");}
  var tiny=lowerEdge;for(int i=0;i<260;i++){var step=desktopSpace.Walk(tiny.Segment,tiny.Position,-.25);tiny=new BoundaryContact(step.Segment,step.Position,0);}Assert((tiny.Position-aroundOuter.Position).Length<.001,"fractional corner steps accumulate");
+ var wrappedBottom=wrapSpace.Nearest(new Point(95,100),Edge.Bottom,wrap:true)!.Value;
+ var wrappedStep=wrapSpace.Walk(wrappedBottom.Segment,wrappedBottom.Position,-10,true);
+ Assert(wrappedStep.Position==new Point(-95,100)&&wrappedStep.Side==Edge.Bottom,"bottom contour crosses wrap instead of climbing open wall");
+ var shortRoute=wrapSpace.Route(wrappedBottom.Segment,wrappedBottom.Position,new Point(-95,95),true);
+ Assert(shortRoute.HasValue&&shortRoute.Value.Direction==-1&&shortRoute.Value.Distance==10,"forage uses wrapped shortest route");
+ Assert(wrapSpace.Route(wrappedBottom.Segment,wrappedBottom.Position,new Point(0,5),true)==null,"top contour inaccessible from bottom with wrap");
+ for(int i=0;i<100;i++){var food=wrapSpace.SpawnEdge(wrappedBottom.Segment,10,10,true,new Random(i));Assert(food!=null&&food.Value.Y==95,"wrapped food remains on reachable bottom contour");}
+ var fractional=wrappedBottom;for(int i=0;i<40;i++){var step=wrapSpace.Walk(fractional.Segment,fractional.Position,-.25,true);fractional=new(step.Segment,step.Position,0);}
+ Assert((fractional.Position-wrappedStep.Position).Length<.001,"fractional steps cross wrap seam");
+ var steppedWrap=new DesktopSpace(new[]{new Bounds(0,0,100,100),new Bounds(100,40,200,140)});
+ var steppedStart=steppedWrap.Nearest(new Point(5,100),Edge.Bottom,wrap:true)!.Value;
+ var steppedAcross=steppedWrap.Walk(steppedStart.Segment,steppedStart.Position,10,true);
+ Assert(steppedAcross.Position==new Point(200,105)&&steppedAcross.Side==Edge.Right,"partial wrap connects to real opposite step");
+ var steppedRoute=steppedWrap.Route(steppedStart.Segment,steppedStart.Position,new Point(195,110),true);
+ Assert(steppedRoute.HasValue&&steppedRoute.Value.Direction==1&&steppedRoute.Value.Distance==15,"partial wrap route follows opposite solid wall");
  Assert(!new RoleSettings().HorizontalWrap&&new RoleSettings().ScreenConnect,"screen defaults");
  Assert(new RoleSettings().Scale==.5&&new RoleSettings().FoodScale==.5,"Windows initial pet and food size");
  var invalidSize=new RoleSettings{Scale=double.NaN,FoodScale=double.NaN}.Normalize();Assert(invalidSize.Scale==.5&&invalidSize.FoodScale==.5,"Windows invalid size fallback");
