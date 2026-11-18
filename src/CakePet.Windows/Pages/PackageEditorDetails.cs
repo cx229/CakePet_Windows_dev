@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using CakePet.Core;
+using Frame = CakePet.Core.Frame;
 namespace CakePet.Windows;
 internal sealed partial class PackageEditorPage
 {
