@@ -31,7 +31,7 @@ internal static class HostConnection
         return reply;
     }
     internal static string SettingsSignalPath=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet","settings-activation.txt");
-    internal static void SignalSettings(Guid? role){File.WriteAllText(SettingsSignalPath,role?.ToString()??"home");}
+    internal static void SignalSettings(Guid? role,bool diagnostics=false){File.WriteAllText(SettingsSignalPath,diagnostics?"diagnostics":role?.ToString()??"home");}
 }
 #if NATIVE_HOST
 internal sealed class HostServer:IDisposable

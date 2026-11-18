@@ -9,7 +9,6 @@ internal static class HostProgram
     [STAThread]
     public static int Main(string[] args)
     {
-        if(args.Length==4&&args[0]=="--diagnostic-client")return DiagnosticClient.Run(args);
         if(args.Length>0&&args[0]=="--framework-probe")return HostFrameworkProbe.Run(args);
         var root=Path.Combine(AppContext.BaseDirectory,"assets","default");
         if(args.Length>=2&&args[0]=="--package")root=Path.GetFullPath(args[1]);
@@ -47,7 +46,7 @@ internal sealed class ResidentHost:IDisposable
     private string? cachedCatalogJson;
     private void InvalidateCatalog()=>cachedCatalogJson=null;
     private string CatalogJson(){if(!ReferenceEquals(cachedCatalog,catalog)||cachedCatalogJson==null){cachedCatalog=catalog;cachedCatalogJson=JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog);}return cachedCatalogJson;}
-    private Process? settingsProcess,diagnosticProcess;
+    private Process? settingsProcess;
     private string Today()=>DateTime.Now.ToString("yyyy-MM-dd");
     public ResidentHost(string root,HostLoop loop,string? dataRoot=null,bool probe=false)
     {
@@ -117,32 +116,22 @@ internal sealed class ResidentHost:IDisposable
         for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
         foreach(var pet in created)pet.Show();
     }
-    private void OpenSettings(Guid? id=null)
+    private void OpenSettings(Guid? id=null,bool diagnostics=false)
     {
         SaveTyping();
-        if(settingsProcess is {HasExited:false}){HostConnection.SignalSettings(id);return;}
+        if(settingsProcess is {HasExited:false}){HostConnection.SignalSettings(id,diagnostics);return;}
         settingsProcess?.Dispose();
         var path=Path.Combine(AppContext.BaseDirectory,"settings","CakePet.exe");
-        var info=new ProcessStartInfo(path){UseShellExecute=false};info.ArgumentList.Add("--settings-client");if(id.HasValue)info.ArgumentList.Add(id.Value.ToString());
+        var info=new ProcessStartInfo(path){UseShellExecute=false};info.ArgumentList.Add("--settings-client");if(diagnostics)info.ArgumentList.Add("diagnostics");else if(id.HasValue)info.ArgumentList.Add(id.Value.ToString());
         settingsProcess=Process.Start(info);
     }
     internal Dictionary<string,object?> Sample(string phase)=>MemoryDiagnostics.Sample(phase,new(){["ticks"]=ticks,["intervalMs"]=loop.IntervalMs,["trayRegistered"]=tray.Registered,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
-    private void MemoryReport()
-    {
-        if(diagnosticProcess is {HasExited:false})return;
-        diagnosticProcess?.Dispose();
-        var info=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"CakePet.exe")){UseShellExecute=false};
-        info.ArgumentList.Add("--diagnostic-client");info.ArgumentList.Add(Environment.ProcessId.ToString());
-        info.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(storage.FilePath)!,"diagnostics"));
-        info.ArgumentList.Add(HostConnection.PipeName);
-        diagnosticProcess=Process.Start(info);
-    }
-    // Only cheap, host-owned counters are sampled here. External process enumeration
-    // and dialog lifetime belong to the short-lived diagnostic client.
+    private void MemoryReport()=>OpenSettings(diagnostics:true);
+    // Only host-owned counters are sampled here; OS process statistics are read in settings.
     private string DiagnosticCounters()
     {
         var gc=GC.GetGCMemoryInfo();
-        return MemoryDiagnostics.ToJson(new(){["runtime"]=System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported?"JIT":"NativeAOT",["managedLiveBytes"]=GC.GetTotalMemory(false),["gcHeapBytes"]=gc.HeapSizeBytes,["gcCommittedBytes"]=gc.TotalCommittedBytes,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes),["ticks"]=ticks,["intervalMs"]=loop.IntervalMs});
+        return MemoryDiagnostics.ToJson(new(){["pid"]=Environment.ProcessId,["runtime"]=System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported?"JIT":"NativeAOT",["managedLiveBytes"]=GC.GetTotalMemory(false),["gcHeapBytes"]=gc.HeapSizeBytes,["gcCommittedBytes"]=gc.TotalCommittedBytes,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes),["ticks"]=ticks,["intervalMs"]=loop.IntervalMs});
     }
     // Host is the runtime owner. UI writes the catalog atomically, then asks host to reconcile.
     private void ReloadCatalog(bool reloadAssets,RoleCatalog? replacement=null)
@@ -205,6 +194,6 @@ internal sealed class ResidentHost:IDisposable
     }
     public void Dispose()
     {
-        if(disposed)return;disposed=true;loop.Tick-=Tick;SaveTyping();typingInput.Dispose();world.Clear();Recall(null);presenter.Dispose();tray.Dispose();settingsProcess?.Dispose();diagnosticProcess?.Dispose();
+        if(disposed)return;disposed=true;loop.Tick-=Tick;SaveTyping();typingInput.Dispose();world.Clear();Recall(null);presenter.Dispose();tray.Dispose();settingsProcess?.Dispose();
     }
 }

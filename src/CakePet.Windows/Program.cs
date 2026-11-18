@@ -46,7 +46,8 @@ internal static class Program
         var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         using var launcher=new Launcher(root);
         launcher.StartResident();
-        if(args.Length>1&&Guid.TryParse(args[1],out var role))launcher.OpenRole(role);
+        if(args.Length>1&&args[1]=="diagnostics")launcher.OpenDiagnostics();
+        else if(args.Length>1&&Guid.TryParse(args[1],out var role))launcher.OpenRole(role);
         else launcher.ShowLauncher();
         return app.Run();
     }
@@ -191,7 +192,9 @@ internal sealed class Launcher : IDisposable
         global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("托盘图标","在 Windows 设置中选择让 CakePet 始终显示在任务栏通知区域。"),Ui.Light("打开系统设置 ›",OpenTraySettings))));
         GlobalGroup("数据与备份");
         var backup=new SettingCard("备份与恢复","导出全部持久化数据；导入时只覆盖支持的内容。");backup.Add(Ui.Pair(Ui.Caption("导出软件备份","将软件设置与数据保存为备份文件"),Ui.Button("导出",ExportBackup)));backup.Add(Ui.Pair(Ui.Caption("导入软件备份","从备份文件恢复软件设置与数据"),Ui.Button("导入",ImportArchive)));backup.Add(Ui.Pair(Ui.Caption("重置软件","恢复首次安装状态"),Ui.Button("重置",ResetSoftware)));global.Children.Add(backup);
-        GlobalGroup("系统与调试");var cleanup=new SettingCard("清理桌面","不修改角色设置。");cleanup.Add(Ui.Pair(Ui.Caption("清除全部食物"),Ui.Button("清除",()=>Command(new("clear-food")))));cleanup.Add(Ui.Pair(Ui.Caption("清除全部定格"),Ui.Button("清除",()=>Command(new("clear-freezes")))));global.Children.Add(cleanup);
+        GlobalGroup("系统与调试");
+        global.Children.Add(Ui.Card(Ui.Pair(Ui.Caption("调试信息","查看内存占用、运行频率与运行状态。"),Ui.Light("进入 ›",OpenDiagnostics))));
+        var cleanup=new SettingCard("清理桌面","不修改角色设置。");cleanup.Add(Ui.Pair(Ui.Caption("清除全部食物"),Ui.Button("清除",()=>Command(new("clear-food")))));cleanup.Add(Ui.Pair(Ui.Caption("清除全部定格"),Ui.Button("清除",()=>Command(new("clear-freezes")))));global.Children.Add(cleanup);
         foreach(var item in new[]{("首页",(FrameworkElement)roles),("素材包管理",materials),("全局设置",new ScrollViewer{Content=global,VerticalScrollBarVisibility=ScrollBarVisibility.Auto})}){int i=navItems.Count;var page=item.Item2;var b=Ui.Nav(item.Item1,()=>Navigate(page,i));navItems.Add(b);nav.Children.Add(b);}
         nav.Children.Add(Ui.Text(Version,11,true));Navigate(roles,0);RefreshCards();
     }
@@ -218,7 +221,7 @@ internal sealed class Launcher : IDisposable
                 if(!dirty&&reply.Catalog!=null)storage.Adopt(reply.Catalog);
                 if(!before.SequenceEqual(pets.Select(x=>x.InstanceId))&&navigationHost?.Content==homeShell)RefreshCards();else Refresh();
                 var signal=HostConnection.SettingsSignalPath;
-                if(File.Exists(signal)){var value=File.ReadAllText(signal);File.Delete(signal);if(Guid.TryParse(value,out var id))OpenRole(id);else ShowLauncher();}
+                if(File.Exists(signal)){var value=File.ReadAllText(signal);File.Delete(signal);if(value=="diagnostics")OpenDiagnostics();else if(Guid.TryParse(value,out var id))OpenRole(id);else ShowLauncher();}
                 hostAvailable=true;
             }
             catch(Exception){if(hostAvailable){hostAvailable=false;ShowMessage("常驻进程已断开，关闭设置后重新启动 CakePet。","CakePet");}}
@@ -236,6 +239,11 @@ internal sealed class Launcher : IDisposable
     private void RestoreInput()=>Safe(()=>{Command(new("restore-input"));RefreshCards();});
     private void BackHome(){Safe(FlushSave);navigationHost.Content=homeShell;RefreshCards();}
     private void ChangeThinkingPolicy(ThinkingDisplayPolicy value){if(value==catalog.ThinkingPolicy)return;catalog.ThinkingPolicy=value;QueueSave();}
+    internal void OpenDiagnostics()=>Safe(()=>{
+        if(navigationHost?.Content is PackageEditorPage draft&&!draft.ConfirmDiscard()){ShowLauncher();return;}
+        ShowLauncher();
+        navigationHost.Content=new DiagnosticsPage(BackHome);
+    });
     private void EditTyping()=>Safe(()=>{
         var page=new StackPanel{MaxWidth=850,Margin=new Thickness(22)};page.Children.Add(Ui.Light("‹ 返回",BackHome));var heading=Ui.Caption("打字统计","只统计按键次数，不记录按键内容；关闭后停止监听。",true);heading.Margin=new Thickness(0,16,0,16);page.Children.Add(heading);
         var deps=new List<Action>();void Set(Func<TypingSettings,TypingSettings> patch)=>Safe(()=>{ChangeTyping(patch);foreach(var d in deps)d();});var s=catalog.Typing;bool globalEnabled=catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;
