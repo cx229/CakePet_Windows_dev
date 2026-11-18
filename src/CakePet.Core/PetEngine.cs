@@ -17,22 +17,28 @@ public sealed class PetEngine : IDisposable
     public DesktopSpace? Space {get;private set;}
     public bool HorizontalWrap {get;private set;}
     private int? surfaceSegment;
+    private bool startingLeap;
+    private Point? flightAnchorOffset;
+    private Point? flightImpactAnchor;
+    public Point? FlightTargetWorld=>Body.LeapTarget;
+    public Edge FlightLaunchEdges=>Body.LeapLaunchEdges;
     private Point? surfacePosition;
     private Point AnchorWorld=>Body.Position+AnchorOffset;
     public void SetDesktopSpace(DesktopSpace? space,bool wrap)
     {
         if(ReferenceEquals(Space,space)&&HorizontalWrap==wrap)return;
-        Space=space;HorizontalWrap=wrap;surfaceSegment=null;surfacePosition=null;Body.UseDesktopSpace=space!=null;Body.SpaceMotionProject=space==null?null:ProjectSpace;
+        Space=space;HorizontalWrap=wrap;surfaceSegment=null;surfacePosition=null;Body.UseDesktopSpace=space!=null;Body.SpaceMotionProject=space==null?null:ProjectSpace;Body.FlightContacts=space==null?null:q=>space.Touching(q+AnchorOffset,HorizontalWrap);
         if(space!=null&&Body.State!=PhysicalState.Dragging)ReconcileSpace();
     }
     private SpaceMotion ProjectSpace(Point from,Point next)
     {
-        var anchor=AnchorOffset;var result=Space!.Move(from+anchor,next-from,HorizontalWrap&&Body.State!=PhysicalState.Flying);
+        var anchor=AnchorOffset;var result=Space!.Move(from+anchor,next-from,HorizontalWrap);
         return result with{Position=result.Position-anchor};
     }
     private void ReconcileSpace()
     {
         if(Space==null||Body.State==PhysicalState.Dragging)return;
+        if(Body.State==PhysicalState.Flying){surfaceSegment=null;surfacePosition=null;return;}
         if(Body.ClimbEdge!=Edge.None||Body.SnappedEdge!=Edge.None)
         {
             var side=Body.SnappedEdge!=Edge.None?Body.SnappedEdge:Body.ClimbEdge;
@@ -209,6 +215,7 @@ public sealed class PetEngine : IDisposable
         if(geometryProvider!=null&&ActivityArea!=null)
         {
             Body.SetPosition(old+(Body.State is PhysicalState.Dragging or PhysicalState.Throwing?default:oldAnchor-AnchorAt(size)));
+            if(Body.State==PhysicalState.Flying)flightAnchorOffset=AnchorOffset;
             RefreshGeometry();return;
         }
         // Window bounds are refreshed by the host; preserve the support-side anchor approximately.
@@ -235,8 +242,17 @@ public sealed class PetEngine : IDisposable
         if(!CanStartLeap())return false;
         if(Space!=null)
         {
-            var start=AnchorWorld;var candidates=Space.Edges.Where((e,i)=>Space.IsWalkable(i,HorizontalWrap)&&(requested==null||e.Side==requested)&&e.Side!=Body.ClimbEdge).OrderBy(_=>random.Next()).ToArray();
-            foreach(var edge in candidates){var target=edge.At(edge.Length*random.NextDouble());var delta=target-start;if(delta.Length<2||Space.Move(start,delta).Position!=target)continue;var origin=target-AnchorOffset;if(!Body.BeginLeap(edge.Side,origin,new Bounds(Math.Min(Body.Position.X,origin.X),Math.Min(Body.Position.Y,origin.Y),Math.Max(Body.Position.X,origin.X),Math.Max(Body.Position.Y,origin.Y)),LeapSpeed))continue;Role.SetEnvironment(false,PhysicalState.Flying);return true;}return false;
+            var start=AnchorWorld;var launch=Space.Touching(start,HorizontalWrap);
+            var choice=Space.LeapTarget(start,launch,requested,HorizontalWrap,random);
+            if(choice is not {} selected)return false;
+            var delta=selected.Target-start;
+            if(!Body.BeginLeapDirection(selected.Side,selected.Target,delta,launch,LeapSpeed))return false;
+            surfaceSegment=null;surfacePosition=null;
+            if(Math.Abs(delta.X)>1e-7)Facing=delta.X<0?-1:1;
+            startingLeap=true;
+            try{Role.SetEnvironment(false,PhysicalState.Flying);Body.SetPosition(start-AnchorOffset);flightAnchorOffset=AnchorOffset;}
+            finally{startingLeap=false;}
+            RefreshGeometry();ApplyFrameMotion(Role.Animation.Current);return true;
         }
         var touched=SurfaceMotion.Touching(Body.Position,Bounds);
         var open=ConnectedEdges?.Invoke()??Edge.None;var choices=SurfaceMotion.Sides.Where(x=>!touched.HasFlag(x)&&!open.HasFlag(x)).ToArray();
@@ -247,7 +263,8 @@ public sealed class PetEngine : IDisposable
             Bounds.Top+random.NextDouble()*(Bounds.Bottom-Bounds.Top));
         if(!Body.BeginLeap(side,p,Bounds,LeapSpeed))return false;
         if(Body.Velocity.X!=0)Facing=Body.Velocity.X<0?-1:1;
-        Role.SetEnvironment(false,PhysicalState.Flying);RefreshGeometry();return true;
+        startingLeap=true;try{Role.SetEnvironment(false,PhysicalState.Flying);}finally{startingLeap=false;}
+        RefreshGeometry();ApplyFrameMotion(Role.Animation.Current);return true;
     }
     private void TryAttachCurrent()
     {
@@ -258,13 +275,23 @@ public sealed class PetEngine : IDisposable
         var side=SurfaceMotion.Sides.FirstOrDefault(x=>touched.HasFlag(x)&&!open.HasFlag(x));
         if(Body.TryAttach(side,Bounds)){Role.SetClimbing(true);RefreshGeometry();}
     }
-    private void OnFrame(Frame frame){RefreshGeometry();ApplyFrameMotion(frame);RefreshGeometry();}
+    private void OnFrame(Frame frame)
+    {
+        if(startingLeap)return;
+        if(Space!=null&&Body.State==PhysicalState.Flying)
+        {
+            if(flightAnchorOffset is Point old)Body.SetPosition(Body.Position+old-AnchorOffset);
+            flightAnchorOffset=AnchorOffset;
+        }
+        RefreshGeometry();ApplyFrameMotion(frame);RefreshGeometry();
+    }
     private void ApplyFrameMotion(Frame frame)
     {
         if(Role.StaticStandby||Body.SnappedEdge!=Edge.None||
-           Body.State is not (PhysicalState.Free or PhysicalState.Climbing)||frame.Dx==0&&frame.Dy==0)return;
+           Body.State is not (PhysicalState.Free or PhysicalState.Climbing or PhysicalState.Flying)||frame.Dx==0&&frame.Dy==0)return;
         var scale=DisplaySize/Role.Package.AnchorRes;
         var local=new Point(frame.Dx*scale*Facing,frame.Dy*scale);
+        if(Body.State==PhysicalState.Flying){Body.MoveFrame(local,Bounds);return;}
         // Attach before applying the frame, so the first small step at a corner uses the contour.
         if(Space!=null&&local.Y>=0)TryAttachCurrent();
         if(Space!=null&&Body.State==PhysicalState.Climbing&&CurrentContact() is BoundaryContact contact&&local.Y>=0)
@@ -299,9 +326,13 @@ public sealed class PetEngine : IDisposable
     {
         if(milliseconds<0)throw new ArgumentOutOfRangeException(nameof(milliseconds));
         RefreshGeometry();var previous=Body.State;
+        var beforeAnchor=AnchorOffset;
         if(Body.Advance(milliseconds/1000.0,Bounds))
         {
-            if(ClimbEnabled&&!Role.StaticStandby){if(Space!=null){var contact=Space.Nearest(AnchorWorld,Body.LastImpactEdge==Edge.None?Edge.All:Body.LastImpactEdge,wrap:HorizontalWrap);if(contact is BoundaryContact c&&c.Distance<2)AttachSpace(c);}else Body.TryAttach(Body.LastImpactEdge,Bounds);}
+            var impact=Body.LastImpactEdge;
+            if(previous==PhysicalState.Flying&&Space!=null){flightImpactAnchor=Body.Position+beforeAnchor;Body.SetPosition(flightImpactAnchor.Value-AnchorOffset);}
+            if(ClimbEnabled&&!Role.StaticStandby){if(Space!=null){var contact=Space.Nearest(flightImpactAnchor??AnchorWorld,impact==Edge.None?Edge.All:impact,wrap:HorizontalWrap);if(contact is BoundaryContact c&&c.Distance<2)AttachSpace(c);}else Body.TryAttach(impact,Bounds);}
+            flightAnchorOffset=null;flightImpactAnchor=null;
             Role.CompletePhysicalMotion(previous==PhysicalState.Flying?"climb/leap/landing":"touch/jump_down",Body.State);
         }
         if(Foraging)UpdateForageFacing();
@@ -310,6 +341,6 @@ public sealed class PetEngine : IDisposable
     }
     public void Dispose()
     {
-        Body.ProjectMotion=null;ConnectedLimits=null;ConnectedEdges=null;ConnectedMotion=null;Role.FrameEntered-=OnFrame;Role.ChooseAutomaticFunction=null;ChooseForage=null;
+        Body.ProjectMotion=null;Body.FlightContacts=null;ConnectedLimits=null;ConnectedEdges=null;ConnectedMotion=null;Role.FrameEntered-=OnFrame;Role.ChooseAutomaticFunction=null;ChooseForage=null;
     }
 }

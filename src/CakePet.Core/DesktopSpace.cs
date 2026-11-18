@@ -96,6 +96,48 @@ public sealed class DesktopSpace
     {
         BoundaryContact? best=null;for(int i=0;i<edges.Length;i++){if(!IsWalkable(i,wrap)||!allowed.HasFlag(edges[i].Side)||sameLoop is int loop&&!SameLoop(i,loop,wrap))continue;var q=edges[i].Closest(p);var d=(p-q).Length;if(best==null||d<best.Value.Distance)best=new(i,q,d);}return best;
     }
+    public Edge Touching(Point p,bool wrap=false,double tolerance=.5)
+    {
+        Edge result=Edge.None;
+        for(int i=0;i<edges.Length;i++)if(IsWalkable(i,wrap)&&(edges[i].Closest(p)-p).Length<=tolerance)result|=edges[i].Side;
+        return result;
+    }
+    // Split candidate intervals at rays through boundary vertices. Visibility is
+    // constant inside each interval, so weighting by length is independent of grid subdivision.
+    public (Edge Side,Point Target)? LeapTarget(Point start,Edge launch,Edge? requested,bool wrap,Random random)
+    {
+        var candidates=new List<(Edge Side,DesktopBoundary Segment,double From,double To)>();
+        var vertices=edges.SelectMany(e=>new[]{e.Start,e.End}).Distinct().ToArray();
+        foreach(var (e,i) in edges.Select((e,i)=>(e,i)))
+        {
+            if(!IsWalkable(i,wrap)||launch.HasFlag(e.Side)||(requested.HasValue&&requested.Value!=e.Side))continue;
+            var cuts=new List<double>{0,e.Length};
+            foreach(var v in vertices)
+            {
+                var ray=v-start;var tangent=e.Tangent;var offset=e.Start-start;
+                double cross=ray.X*tangent.Y-ray.Y*tangent.X;
+                if(Math.Abs(cross)<Eps)continue;
+                double u=(offset.X*ray.Y-offset.Y*ray.X)/cross;
+                if(u>Eps&&u<e.Length-Eps)cuts.Add(u);
+            }
+            var ordered=cuts.Distinct().Order().ToArray();
+            for(int k=1;k<ordered.Length;k++)
+            {
+                double lo=ordered[k-1],hi=ordered[k];if(hi-lo<Eps)continue;
+                var target=e.At((lo+hi)/2);var delta=target-start;
+                if(delta.Length<2||(Move(start,delta).Position-target).Length>1e-5)continue;
+                // A visible destination must be approached from the occupied side.
+                var normal=e.Side switch{Edge.Left=>new Point(-1,0),Edge.Right=>new Point(1,0),Edge.Top=>new Point(0,-1),_=>new Point(0,1)};
+                if(delta.X*normal.X+delta.Y*normal.Y<=Eps)continue;
+                candidates.Add((e.Side,e,lo,hi));
+            }
+        }
+        var groups=candidates.GroupBy(c=>c.Side).ToArray();if(groups.Length==0)return null;
+        var group=groups[random.Next(groups.Length)].ToArray();
+        double pick=random.NextDouble()*group.Sum(c=>c.To-c.From);
+        foreach(var c in group){double length=c.To-c.From;if(pick<length)return(c.Side,c.Segment.At(c.From+Math.Clamp(pick,Math.Min(Eps,length/4),length-Math.Min(Eps,length/4))));pick-=length;}
+        var last=group[^1];return(last.Side,last.Segment.At((last.From+last.To)/2));
+    }
     public bool SameLoop(int a,int b,bool wrap=false){var labels=wrap?wrapComponent:component;return labels[a]>=0&&labels[a]==labels[b];}
     // At horizontal wrap openings there is no solid wall to spawn food on.
     public bool IsWrapOpening(DesktopBoundary edge,Point p,bool wrap)

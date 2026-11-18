@@ -247,6 +247,19 @@ try
  Assert(steppedAcross.Position==new Point(200,105)&&steppedAcross.Side==Edge.Right,"partial wrap connects to real opposite step");
  var steppedRoute=steppedWrap.Route(steppedStart.Segment,steppedStart.Position,new Point(195,110),true);
  Assert(steppedRoute.HasValue&&steppedRoute.Value.Direction==1&&steppedRoute.Value.Distance==15,"partial wrap route follows opposite solid wall");
+ var flightBody=new PhysicsBody(new Point(50,100));
+ Assert(flightBody.BeginLeap(Edge.Top,new Point(50,0),new Bounds(0,0,100,100),100),"fixed direction launch");
+ var initialVelocity=flightBody.Velocity;
+ flightBody.MoveFrame(new Point(25,-10),new Bounds(0,0,100,100));
+ flightBody.Advance(.1,new Bounds(0,0,100,100));
+ Assert(flightBody.Position==new Point(75,80)&&flightBody.Velocity==initialVelocity,"flight displacement does not retarget");
+ flightBody.MoveFrame(new Point(30,0),new Bounds(0,0,100,100));
+ Assert(flightBody.Advance(0,new Bounds(0,0,100,100))&&flightBody.LastImpactEdge==Edge.Right,"frame collision lands on actual new edge");
+ var directionCounts=new Dictionary<Edge,int>();
+ var flatSpace=new DesktopSpace(new[]{new Bounds(0,0,100,100),new Bounds(100,0,200,100)});
+ var rng=new Random(123);
+ for(int i=0;i<3000;i++){var choice=flatSpace.LeapTarget(new Point(100,100),Edge.Bottom,null,false,rng);Assert(choice.HasValue,"reachable flight target");var side=choice!.Value.Side;directionCounts[side]=directionCounts.GetValueOrDefault(side)+1;}
+ Assert(directionCounts.Count==3&&directionCounts.Values.All(n=>n>850&&n<1150),"uniform direction independent of segment subdivision");
  Assert(!new RoleSettings().HorizontalWrap&&new RoleSettings().ScreenConnect,"screen defaults");
  Assert(new RoleSettings().Scale==.5&&new RoleSettings().FoodScale==.5,"Windows initial pet and food size");
  var invalidSize=new RoleSettings{Scale=double.NaN,FoodScale=double.NaN}.Normalize();Assert(invalidSize.Scale==.5&&invalidSize.FoodScale==.5,"Windows invalid size fallback");

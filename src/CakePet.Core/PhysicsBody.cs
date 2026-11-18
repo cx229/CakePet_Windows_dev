@@ -49,7 +49,10 @@ public sealed class PhysicsBody
     public Edge LastImpactEdge { get; private set; }
     public Edge LeapTargetEdge { get; private set; }
     public Point? LeapTarget { get; private set; }
-    private double leapSpeed;
+    public Edge LeapLaunchEdges {get;private set;}
+    public Func<Point,Edge>? FlightContacts {get;set;}
+    private bool leapLanded;
+    private Edge leapFrameHit;
     public double Gravity { get; set; }=1500;
     public double Bounce { get; set; }=.7;
     public double MaxSpeed { get; set; }=2000;
@@ -72,7 +75,7 @@ public sealed class PhysicsBody
     public void Place(Point point,Bounds? bounds=null){Position=bounds is Bounds b?Clamp(point,b):point;Velocity=default;}
     private void ClearPhysicalState()
     {
-        State=PhysicalState.Free;SnappedEdge=ClimbEdge=LastImpactEdge=LeapTargetEdge=Edge.None;LeapTarget=null;
+        State=PhysicalState.Free;SnappedEdge=ClimbEdge=LastImpactEdge=LeapTargetEdge=Edge.None;LeapTarget=null;LeapLaunchEdges=Edge.None;leapLanded=false;leapFrameHit=Edge.None;
     }
     public void Reset(Point point,Bounds? bounds=null){Place(point,bounds);ClearPhysicalState();}
     public void Grab(){ClearPhysicalState();State=PhysicalState.Dragging;Velocity=default;}
@@ -83,7 +86,7 @@ public sealed class PhysicsBody
         if(State!=PhysicalState.Dragging)Position=Clamp(Position,b);
         if(SnappedEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,b,SnappedEdge);
         if(ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,b,ClimbEdge);
-        if(LeapTarget is Point target)LeapTarget=SurfaceMotion.OnEdge(Clamp(target,b),b,LeapTargetEdge);
+        
     }
     public void Release(Point velocity,Bounds? bounds=null,Bounds? activity=null,Point anchor=default,Point? pointer=null)
     {
@@ -122,19 +125,46 @@ public sealed class PhysicsBody
            !SurfaceMotion.IsSingle(targetEdge)||SurfaceMotion.Touching(Position,bounds).HasFlag(targetEdge)||
            !double.IsFinite(speed)||speed<=0)return false;
         target=SurfaceMotion.OnEdge(Clamp(target,bounds),bounds,targetEdge);
-        var delta=target-Position;if(delta.Length<.001)return false;
-        ClearPhysicalState();State=PhysicalState.Flying;LeapTargetEdge=targetEdge;LeapTarget=target;
-        leapSpeed=speed;Velocity=delta*(speed/delta.Length);return true;
+        return BeginLeapDirection(targetEdge,target,target-Position,SurfaceMotion.Touching(Position,bounds),speed);
+    }
+    public bool BeginLeapDirection(Edge targetEdge,Point target,Point direction,Edge launchEdges,double speed)
+    {
+        if(!MotionEnabled||SnappedEdge!=Edge.None||State is not (PhysicalState.Free or PhysicalState.Climbing)||
+           !SurfaceMotion.IsSingle(targetEdge)||launchEdges.HasFlag(targetEdge)||!double.IsFinite(speed)||speed<=0||direction.Length<.001)return false;
+        ClearPhysicalState();State=PhysicalState.Flying;LeapTargetEdge=targetEdge;LeapTarget=target;LeapLaunchEdges=launchEdges;
+        Velocity=direction*(speed/direction.Length);return true;
     }
     public bool MoveFrame(Point delta,Bounds? bounds=null)
     {
-        if(!MotionEnabled||State is not (PhysicalState.Free or PhysicalState.Climbing)||SnappedEdge!=Edge.None)return false;
+        if(!MotionEnabled||State is not (PhysicalState.Free or PhysicalState.Climbing or PhysicalState.Flying)||SnappedEdge!=Edge.None)return false;
+        if(State==PhysicalState.Flying){if(leapLanded)return true;return MoveFlight(delta,bounds);}
         var next=Position+delta;
         if(SpaceMotionProject!=null){var motion=SpaceMotionProject(Position,next);Position=motion.Position;return motion.Hit!=Edge.None;}
         if(bounds.HasValue&&ProjectMotion?.Invoke(Position,next) is MotionProjection projection){next=projection.Position;bounds=projection.Bounds;}
         Position=bounds is Bounds b?Clamp(next,b):next;
         if(bounds is Bounds limits&&ClimbEdge!=Edge.None)Position=SurfaceMotion.OnEdge(Position,limits,ClimbEdge);
         return Position!=next;
+    }
+    private bool MoveFlight(Point delta,Bounds? bounds)
+    {
+        if(delta.Length<1e-9)return false;
+        var next=Position+delta;Edge hit=Edge.None;
+        if(SpaceMotionProject!=null){var motion=SpaceMotionProject(Position,next);Position=motion.Position;hit=motion.Hit;}
+        else if(bounds is Bounds box)
+        {
+            Position=Clamp(next,box);
+            if(delta.X<0&&next.X<=box.Left)hit|=Edge.Left;
+            if(delta.X>0&&next.X>=box.Right)hit|=Edge.Right;
+            if(delta.Y<0&&next.Y<=box.Top)hit|=Edge.Top;
+            if(delta.Y>0&&next.Y>=box.Bottom)hit|=Edge.Bottom;
+        }
+        else Position=next;
+        hit&=~LeapLaunchEdges;
+        if(FlightContacts!=null)LeapLaunchEdges&=FlightContacts(Position);
+        else if(bounds is Bounds current)LeapLaunchEdges&=SurfaceMotion.Touching(Position,current);
+        if(hit==Edge.None)return false;
+        leapFrameHit=hit.HasFlag(LeapTargetEdge)?LeapTargetEdge:SurfaceMotion.Sides.First(e=>hit.HasFlag(e));
+        leapLanded=true;return true;
     }
     private Point Acceleration=>!MotionEnabled||!GravityEnabled?default:new Point(
         Gravity*((GravityEdges.HasFlag(Edge.Right)?1:0)-(GravityEdges.HasFlag(Edge.Left)?1:0)),
@@ -145,15 +175,11 @@ public sealed class PhysicsBody
     {
         if(!double.IsFinite(seconds)||seconds<0)throw new ArgumentOutOfRangeException(nameof(seconds));
         if(!MotionEnabled||SnappedEdge!=Edge.None)return false;
-        if(State==PhysicalState.Flying&&LeapTarget is Point target)
+        if(State==PhysicalState.Flying)
         {
-            var delta=target-Position;var distance=delta.Length;var travel=leapSpeed*seconds;
-            if(distance<=travel||distance<.001)
-            {
-                var projected=SpaceMotionProject?.Invoke(Position,target);Position=projected?.Position??target;Velocity=default;State=PhysicalState.Free;
-                LastImpactEdge=projected is SpaceMotion m&&m.Hit!=Edge.None?SurfaceMotion.Sides.First(e=>m.Hit.HasFlag(e)):LeapTargetEdge;LeapTargetEdge=Edge.None;LeapTarget=null;return true;
-            }
-            Velocity=delta*(leapSpeed/distance);var movement=delta*(travel/distance);if(SpaceMotionProject!=null){var projected=SpaceMotionProject(Position,Position+movement);Position=projected.Position;if(projected.Hit!=Edge.None){LastImpactEdge=SurfaceMotion.Sides.First(e=>projected.Hit.HasFlag(e));Velocity=default;State=PhysicalState.Free;LeapTargetEdge=Edge.None;LeapTarget=null;return true;}}else Position+=movement;return false;
+            if(!leapLanded)MoveFlight(Velocity*seconds,bounds);
+            if(!leapLanded)return false;
+            LastImpactEdge=leapFrameHit;Velocity=default;State=PhysicalState.Free;LeapTargetEdge=Edge.None;LeapTarget=null;LeapLaunchEdges=Edge.None;leapLanded=false;leapFrameHit=Edge.None;return true;
         }
         if(State is not (PhysicalState.Free or PhysicalState.Throwing))return false;
         while(seconds>0)
