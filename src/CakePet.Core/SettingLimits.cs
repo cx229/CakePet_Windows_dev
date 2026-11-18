@@ -38,11 +38,11 @@ public static class SettingLimits
     {
         var keys=group switch{
             "显示与交互"=>new[]{"Count","Scale","Opacity","ClickThrough","PixelHit"},
-            "移动"=>new[]{"Move","MaxSpeed","ScreenConnect","GravityEnabled","Gravity","GravityEdges","BounceEnabled","Bounce","BounceEdges","Throw","ThrowCoefficient","Climb","Forage","ForageMultiplier","Leap","LeapProbability","LeapSpeed"},
+            "移动"=>new[]{"Move","MaxSpeed","GravityEnabled","Gravity","GravityEdges","BounceEnabled","Bounce","BounceEdges","Throw","ThrowCoefficient","Climb","Forage","ForageMultiplier","Leap","LeapProbability","LeapSpeed"},
             "吸附边缘"=>new[]{"Snap","SnapDistance","SnapSpeed","SnapEdges"},
             "投食"=>new[]{"Feed","AutoFeed","FoodMinSeconds","FoodMaxSeconds","FoodLimit","FoodLifetimeSeconds","FoodScale","FoodOpacity","FoodAtEdge","Grow","FeedGrowth","MaxScale"},
             "碎碎念"=>new[]{"Thinking","ThoughtStyle","ThoughtRestMin","ThoughtRestMax"},
-            "屏幕适应"=>new[]{"MonitorId","FullScreen","OffsetLeft","OffsetRight","OffsetTop","OffsetBottom"},
+            "屏幕适应"=>new[]{"MonitorId","ScreenConnect","HorizontalWrap","FullScreen","OffsetLeft","OffsetRight","OffsetTop","OffsetBottom"},
             "随机模式"=>new[]{"RandomMode"},_=>Array.Empty<string>()};
         var dest=System.Text.Json.JsonSerializer.SerializeToNode(target,ArchiveIO.Options)!.AsObject();var src=System.Text.Json.JsonSerializer.SerializeToNode(source,ArchiveIO.Options)!.AsObject();
         foreach(var key in keys)dest[key]=src[key]?.DeepClone();

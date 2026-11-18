@@ -73,7 +73,7 @@ internal sealed class RoleSettingsPage:UserControl
         Flag(input,"点击穿透","开启后无法点击「"+petName+"」，按住 Ctrl 临时恢复",s.ClickThrough,(r,v)=>r with{ClickThrough=v});
         var motion=Section("移动","调整「"+petName+"」在桌面上的移动行为");Summary(()=>!Supports("standby/static_pool")?"强制开启":MoveOn()?"已开启":"已关闭");Group(motion,"动动动");
         var move=Card(motion,"移动","关闭后，「"+petName+"」将会静悄悄地",MoveOn(),(r,v)=>r with{Move=v});if(!Supports("standby/static_pool"))move.ForceOn("素材包缺少静止待机池，移动强制开启");
-        Number(move,"最大速度","「"+petName+"」能跑多快",s.MaxSpeed,100,10000,50,"px/s",(r,v)=>r with{MaxSpeed=v},"MaxSpeed",1);Flag(move,"屏幕连接","允许自主跨屏移动，左右外缘循环；关闭后仍可手动拖动跨屏。",s.ScreenConnect,(r,v)=>r with{ScreenConnect=v});
+        Number(move,"最大速度","「"+petName+"」能跑多快",s.MaxSpeed,100,10000,50,"px/s",(r,v)=>r with{MaxSpeed=v},"MaxSpeed",1);
         move.AddGroup(Ui.Text("重重重",12,true));
         var gravity=Card(motion,"重力","万有引力，来自地心的吸引",s.GravityEnabled,(r,v)=>r with{GravityEnabled=v},dependency:MoveOn);
         motion.Children.Remove(gravity);move.AddChild(gravity);
@@ -117,6 +117,8 @@ internal sealed class RoleSettingsPage:UserControl
         var area=Section("屏幕适应","选择「"+petName+"」可以活动的屏幕范围");
         var display=Card(area,"显示器","拖动角色时仍可跨屏。");var options=new[]{new Option("","自动 / 主显示器")}.Concat(DesktopPlatform.Screens.Select(x=>new Option(x.Id,x.Id+(x.Primary?"（主显示器）":"")))).ToList();if(!options.Any(x=>x.Id==s.MonitorId))options.Add(new Option(s.MonitorId,s.MonitorId+"（未连接）"));
         var monitor=new ComboBox{ItemsSource=options,DisplayMemberPath="Label",SelectedValuePath="Id",SelectedValue=s.MonitorId,Width=190};monitor.SelectionChanged+=(_,_)=>Set(r=>r with{MonitorId=monitor.SelectedValue as string??""});display.Add(Ui.Pair(Ui.Caption("首选显示器","召唤时优先使用。"),monitor));
+        var multi=new ComboBox{ItemsSource=new[]{"跨屏幕","关闭"},SelectedIndex=s.ScreenConnect?0:1,Width=160};multi.SelectionChanged+=(_,_)=>Set(r=>r with{ScreenConnect=multi.SelectedIndex==0});display.Add(Ui.Pair(Ui.Caption("多屏幕策略","跨屏幕时沿多个屏幕的活动区域移动；关闭后仍可手动拖到其他屏幕。"),multi));
+        Flag(display,"左右循环","从最左侧出去，从最右侧回来，反之亦然。",s.HorizontalWrap,(r,v)=>r with{HorizontalWrap=v});
         Flag(display,"包含任务栏","允许角色活动到任务栏所在区域。",s.FullScreen,(r,v)=>r with{FullScreen=v});
         var offsets=Card(area,"四边偏移","正值向内收缩，负值向外扩展。");Number(offsets,"左侧","",s.OffsetLeft,-500,500,1,"px",(r,v)=>r with{OffsetLeft=v},"OffsetLeft",1);Number(offsets,"右侧","",s.OffsetRight,-500,500,1,"px",(r,v)=>r with{OffsetRight=v},"OffsetRight",1);Number(offsets,"顶部","",s.OffsetTop,-500,500,1,"px",(r,v)=>r with{OffsetTop=v},"OffsetTop",1);Number(offsets,"底部","",s.OffsetBottom,-500,500,1,"px",(r,v)=>r with{OffsetBottom=v},"OffsetBottom",1);
         var random=Section("随机模式","「"+petName+"」的行为会偷偷改变");Summary(()=>current().Settings.RandomMode.Enabled?"已开启":"已关闭");Group(random,"变变变");

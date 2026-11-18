@@ -214,6 +214,18 @@ try
  var styleLimited=SettingLimits.Clamp(new RoleSettings{ThoughtStyle=new ThinkingStyle{Size=30},Limits=new(){["ThoughtStyle.Size"]=new(12,20)}});Assert(styleLimited.ThoughtStyle.Size==20,"thought style threshold");
  var itemApplied=SettingLimits.ApplyItem(new RoleSettings{Count=5,Scale=2},limited,"Scale");Assert(itemApplied.Count==5&&itemApplied.Scale==1.5&&itemApplied.Limits.ContainsKey("Scale"),"single habit item");
  var styleApplied=SettingLimits.ApplyItem(new RoleSettings{ThoughtStyle=new ThinkingStyle{Alpha=.3}},styleLimited,"ThoughtStyle.Size");Assert(styleApplied.ThoughtStyle.Size==20&&styleApplied.ThoughtStyle.Alpha==.3,"nested habit item");
+ var desktopSpace=new DesktopSpace(new[]{new Bounds(0,0,100,100),new Bounds(100,40,200,140)});
+ Assert(desktopSpace.Contains(new Point(150,80))&&!desktopSpace.Contains(new Point(150,20)),"desktop union excludes gaps");
+ var lowerEdge=desktopSpace.Nearest(new Point(90,100),Edge.Bottom)!.Value;
+ var acrossCorner=desktopSpace.Walk(lowerEdge.Segment,lowerEdge.Position,-25);
+ Assert(acrossCorner.Position==new Point(100,115)&&acrossCorner.Side==Edge.Left,"concave corner retains remaining motion");
+ var aroundOuter=desktopSpace.Walk(lowerEdge.Segment,lowerEdge.Position,-65);
+ Assert(aroundOuter.Position==new Point(115,140)&&aroundOuter.Side==Edge.Bottom,"convex corner crosses monitor");
+ Assert(desktopSpace.Move(new Point(80,80),new Point(60,0)).Position==new Point(140,80),"seam is not wall");
+ Assert(desktopSpace.Move(new Point(80,20),new Point(60,0)).Hit.HasFlag(Edge.Right),"missing screen is wall");
+ var wrapSpace=new DesktopSpace(new[]{new Bounds(-100,0,100,100)});
+ Assert(wrapSpace.Move(new Point(95,50),new Point(10,0),true).Position==new Point(-95,50),"independent horizontal wrap");
+ Assert(!new RoleSettings().HorizontalWrap&&new RoleSettings().ScreenConnect,"screen defaults");
  if(args.Length>0){var real=RolePackage.Load(args[0]);Assert(real.Version=="1.12"&&real.Candidates("standby/pool").Count>0,"Android template");var menuModes=real.Candidates("menu/pool");Assert(menuModes.Count>1,"Android menu pool");var menuRole=new RoleRuntime(real,new Random(7));foreach(var mode in menuModes){Assert(menuRole.TriggerMode("menu/pool",mode)&&menuRole.Animation.Mode.Id==mode,"exact Android menu mode "+mode);}Console.WriteLine($"Real template: {real.Modes.Count} modes, {real.Functions.Count} functions, {real.Warnings.Count} warnings");}
  Console.WriteLine("Core smoke tests passed.");
 }
