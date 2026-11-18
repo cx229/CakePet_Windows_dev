@@ -46,8 +46,7 @@ internal static class Program
         var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         using var launcher=new Launcher(root);
         launcher.StartResident();
-        if(args.Length>1&&args[1]=="diagnostics")launcher.OpenDiagnostics();
-        else if(args.Length>1&&Guid.TryParse(args[1],out var role))launcher.OpenRole(role);
+        if(args.Length>1&&Guid.TryParse(args[1],out var role))launcher.OpenRole(role);
         else launcher.ShowLauncher();
         return app.Run();
     }
@@ -217,11 +216,15 @@ internal sealed class Launcher : IDisposable
             lastPoll=now;
             try
             {
-                var before=pets.Select(x=>x.InstanceId).ToArray();var reply=HostConnection.Call(new("snapshot"));UpdateLive(reply);
-                if(!dirty&&reply.Catalog!=null)storage.Adopt(reply.Catalog);
-                if(!before.SequenceEqual(pets.Select(x=>x.InstanceId))&&navigationHost?.Content==homeShell)RefreshCards();else Refresh();
+                // Diagnostics pages own their polling while visible; do not issue a second concurrent snapshot.
+                if(navigationHost?.Content is not DiagnosticsPage)
+                {
+                    var before=pets.Select(x=>x.InstanceId).ToArray();var reply=HostConnection.Call(new("snapshot"));UpdateLive(reply);
+                    if(!dirty&&reply.Catalog!=null)storage.Adopt(reply.Catalog);
+                    if(!before.SequenceEqual(pets.Select(x=>x.InstanceId))&&navigationHost?.Content==homeShell)RefreshCards();else Refresh();
+                }
                 var signal=HostConnection.SettingsSignalPath;
-                if(File.Exists(signal)){var value=File.ReadAllText(signal);File.Delete(signal);if(value=="diagnostics")OpenDiagnostics();else if(Guid.TryParse(value,out var id))OpenRole(id);else ShowLauncher();}
+                if(File.Exists(signal)){var value=File.ReadAllText(signal);File.Delete(signal);if(Guid.TryParse(value,out var id))OpenRole(id);else ShowLauncher();}
                 hostAvailable=true;
             }
             catch(Exception){if(hostAvailable){hostAvailable=false;ShowMessage("常驻进程已断开，关闭设置后重新启动 CakePet。","CakePet");}}
@@ -242,7 +245,10 @@ internal sealed class Launcher : IDisposable
     internal void OpenDiagnostics()=>Safe(()=>{
         if(navigationHost?.Content is PackageEditorPage draft&&!draft.ConfirmDiscard()){ShowLauncher();return;}
         ShowLauncher();
-        navigationHost.Content=new DiagnosticsPage(BackHome);
+        navigationHost.Content=new DiagnosticsPage(BackHome,OpenMemoryDiagnostics);
+    });
+    private void OpenMemoryDiagnostics()=>Safe(()=>{
+        navigationHost.Content=new DiagnosticsPage(OpenDiagnostics,memoryOnly:true);
     });
     private void EditTyping()=>Safe(()=>{
         var page=new StackPanel{MaxWidth=850,Margin=new Thickness(22)};page.Children.Add(Ui.Light("‹ 返回",BackHome));var heading=Ui.Caption("打字统计","只统计按键次数，不记录按键内容；关闭后停止监听。",true);heading.Margin=new Thickness(0,16,0,16);page.Children.Add(heading);

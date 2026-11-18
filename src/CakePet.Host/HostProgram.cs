@@ -58,7 +58,7 @@ internal sealed class ResidentHost:IDisposable
             ("打开 CakePet",()=>OpenSettings()),("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);}),
             ("全部归位",()=>{foreach(var p in pets)p.Engine.ReturnHome();}),("召回全部",()=>Recall(null)),
             ("恢复全部点击",RestoreInput),("托盘显示设置",()=>Process.Start(new ProcessStartInfo("ms-settings:taskbar"){UseShellExecute=true})),
-            ("清除全部定格",()=>{foreach(var p in pets)p.ClearFreezes();}),("内存诊断",MemoryReport),(null,null),("退出",()=>loop.Stop())
+            ("清除全部定格",()=>{foreach(var p in pets)p.ClearFreezes();}),(null,null),("退出",()=>loop.Stop())
         },probe?new Guid("36fbddc0-3cd6-4e04-9349-c90700fb2140"):null,probe?"CakePet framework probe":"CakePet");
         loop.Tick+=Tick;
     }
@@ -116,17 +116,16 @@ internal sealed class ResidentHost:IDisposable
         for(int i=0;i<existing.Count;i++)existing[i].ApplySettings(settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);
         foreach(var pet in created)pet.Show();
     }
-    private void OpenSettings(Guid? id=null,bool diagnostics=false)
+    private void OpenSettings(Guid? id=null)
     {
         SaveTyping();
-        if(settingsProcess is {HasExited:false}){HostConnection.SignalSettings(id,diagnostics);return;}
+        if(settingsProcess is {HasExited:false}){HostConnection.SignalSettings(id);return;}
         settingsProcess?.Dispose();
         var path=Path.Combine(AppContext.BaseDirectory,"settings","CakePet.exe");
-        var info=new ProcessStartInfo(path){UseShellExecute=false};info.ArgumentList.Add("--settings-client");if(diagnostics)info.ArgumentList.Add("diagnostics");else if(id.HasValue)info.ArgumentList.Add(id.Value.ToString());
+        var info=new ProcessStartInfo(path){UseShellExecute=false};info.ArgumentList.Add("--settings-client");if(id.HasValue)info.ArgumentList.Add(id.Value.ToString());
         settingsProcess=Process.Start(info);
     }
     internal Dictionary<string,object?> Sample(string phase)=>MemoryDiagnostics.Sample(phase,new(){["ticks"]=ticks,["intervalMs"]=loop.IntervalMs,["trayRegistered"]=tray.Registered,["pets"]=pets.Count,["foodWindows"]=foodWindows.Count,["settingsOpen"]=settingsProcess is {HasExited:false},["loadedPackages"]=packages.Count,["imageCacheBytes"]=0L,["foodCacheBytes"]=0L,["nativeCacheBytes"]=packages.Values.Sum(p=>p.Images.Bytes)});
-    private void MemoryReport()=>OpenSettings(diagnostics:true);
     // Only host-owned counters are sampled here; OS process statistics are read in settings.
     private string DiagnosticCounters()
     {

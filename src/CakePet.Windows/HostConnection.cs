@@ -18,7 +18,12 @@ internal sealed class LivePet
 internal static class HostConnection
 {
     internal static string PipeName=>"CakePet.Host."+Environment.UserName+"."+System.Diagnostics.Process.GetCurrentProcess().SessionId;
+    private static readonly object requestGate=new();
     internal static HostReply Call(HostRequest request,string? pipeName=null)
+    {
+        lock(requestGate)return Exchange(request,pipeName);
+    }
+    private static HostReply Exchange(HostRequest request,string? pipeName)
     {
         using var pipe=new NamedPipeClientStream(".",pipeName??PipeName,PipeDirection.InOut,PipeOptions.CurrentUserOnly);
         pipe.Connect(3000);
@@ -31,7 +36,7 @@ internal static class HostConnection
         return reply;
     }
     internal static string SettingsSignalPath=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CakePet","settings-activation.txt");
-    internal static void SignalSettings(Guid? role,bool diagnostics=false){File.WriteAllText(SettingsSignalPath,diagnostics?"diagnostics":role?.ToString()??"home");}
+    internal static void SignalSettings(Guid? role){File.WriteAllText(SettingsSignalPath,role?.ToString()??"home");}
 }
 #if NATIVE_HOST
 internal sealed class HostServer:IDisposable
