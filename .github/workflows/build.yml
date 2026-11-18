@@ -41,6 +41,9 @@ jobs:
         run: |
           dotnet run --project src/CakePet.Windows -c Release -- --validate-assets "android-reference/app/src/main/assets/白酥"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile production native host
+        shell: pwsh
+        run: dotnet build src/CakePet.Host -c Release
       - name: Compile native host experiment
         shell: pwsh
         run: dotnet build tests/CakePet.NativeProbe -c Release
@@ -52,7 +55,9 @@ jobs:
       - name: Publish desktop executable
         shell: pwsh
         run: |
-          dotnet publish src/CakePet.Windows -c Release -r win-x64 --self-contained true -o artifacts/CakePet "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
+          dotnet publish src/CakePet.Host -c Release -r win-x64 --self-contained true -o artifacts/CakePet "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish src/CakePet.Windows -c Release -r win-x64 --self-contained true -o artifacts/CakePet/settings "-p:InformationalVersion=$env:CAKEPET_BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path artifacts/CakePet/assets | Out-Null
           Copy-Item -Recurse -LiteralPath "android-reference/app/src/main/assets/白酥" -Destination artifacts/CakePet/assets/default
@@ -61,9 +66,9 @@ jobs:
           git -C android-reference rev-parse HEAD | Set-Content -Encoding utf8 artifacts/CakePet/assets/android-source.txt
           $folder = 'artifacts/CakePet'
           foreach ($dir in (Get-ChildItem $folder -Directory)) {
-            if ($dir.Name -notin @('zh-Hans','zh-Hant','en','assets') -and ($dir.Name -match '^[a-z]{2}(-[A-Za-z]+)?$')) { Remove-Item $dir.FullName -Recurse -Force }
+            if ($dir.Name -notin @('zh-Hans','zh-Hant','en','assets','settings') -and ($dir.Name -match '^[a-z]{2}(-[A-Za-z]+)?$')) { Remove-Item $dir.FullName -Recurse -Force }
           }
-          if (!(Test-Path "$folder/CakePet.exe") -or !(Test-Path "$folder/assets/default/modes.jsonc")) { throw "Incomplete publish: $folder" }
+          if (!(Test-Path "$folder/CakePet.exe") -or !(Test-Path "$folder/settings/CakePet.exe") -or !(Test-Path "$folder/assets/default/modes.jsonc")) { throw "Incomplete publish: $folder" }
           $files = Get-ChildItem $folder -Recurse -File
           Write-Host "$folder : $($files.Count) files, $([Math]::Round(($files | Measure-Object Length -Sum).Sum / 1MB, 2)) MiB"
       - uses: actions/upload-artifact@v4

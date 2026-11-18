@@ -10,7 +10,7 @@ internal sealed class RoleSettingsPage:UserControl
     private readonly List<Action> dependencies=new();
     internal Guid RoleId=>current().Id;
     internal int SelectedSection {get;private set;}
-    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null,Func<IReadOnlyList<PetWindow>>? instances=null)
+    public RoleSettingsPage(Func<RoleEntry> current,RolePackage? pack,Action<Func<RoleEntry,RoleEntry>> change,Action back,bool defaults=false,bool globalThinking=true,Action<string>? applyHabits=null,Action? exportHabits=null,Action? importHabits=null,Action? resetHabits=null,int initialSection=0,Action<int>? reopen=null,Func<IReadOnlyList<LivePet>>? instances=null)
     {
         this.current=current;this.change=change;
         var entry=current();var s=entry.Settings.Normalize();

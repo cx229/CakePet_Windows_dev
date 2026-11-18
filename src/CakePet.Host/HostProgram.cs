@@ -124,6 +124,7 @@ internal sealed class ResidentHost:IDisposable
     private void ReloadCatalog(bool reloadAssets,RoleCatalog? replacement=null)
     {
         SaveTyping();
+        var oldPolicy=catalog.ThinkingPolicy;
         var old=catalog.Roles.ToDictionary(r=>r.Id);var oldPacks=catalog.Packs.ToDictionary(p=>p.Id);
         var active=pets.Select(p=>p.RoleId).Distinct().ToArray();
         if(replacement!=null)storage.Commit(replacement);else storage.Reload();
@@ -137,7 +138,7 @@ internal sealed class ResidentHost:IDisposable
             bool changed=reloadAssets||!old.TryGetValue(id,out var before)||before.PackId!=next.PackId||!oldPacks.TryGetValue(next.PackId,out var oldPack)||oldPack!=catalog.Packs.Single(p=>p.Id==next.PackId);
             if(changed){Recall(id);Summon(next);}
             else if(pets.Count(p=>p.RoleId==id)!=next.Settings.Count)Summon(next);
-            else if(!old.TryGetValue(id,out var prior)||prior!=next)ApplyRunning(next);
+            else if(oldPolicy!=catalog.ThinkingPolicy||!old.TryGetValue(id,out var prior)||prior!=next)ApplyRunning(next);
             }catch(Exception e){var error=e.Message;loop.Post(()=>NativeMessage.Show(error,"角色更新失败"));}
         }
         ReleaseUnused();
