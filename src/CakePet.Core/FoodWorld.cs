@@ -71,7 +71,7 @@ public sealed class FoodWorld
         var hw=extent.Width/2;var hh=extent.Height/2;
         var b=new Bounds(area.Left+hw,area.Top+hh,Math.Max(area.Left+hw,area.Right-hw),Math.Max(area.Top+hh,area.Bottom-hh));
         var p=new Point(b.Left+random.NextDouble()*(b.Right-b.Left),b.Top+random.NextDouble()*(b.Bottom-b.Top));
-        if(edge)p=SurfaceMotion.OnEdge(p,b,SurfaceMotion.Sides[random.Next(4)]);
+        if(edge){if(owner.Space!=null){var position=owner.FindEdgeFoodPosition(extent.Width,extent.Height,random);if(position==null)return null;p=position.Value;}else p=SurfaceMotion.OnEdge(p,b,SurfaceMotion.Sides[random.Next(4)]);}
         var cursor=new AnimationCursor(owner.Role.Package,selected,new Random(random.Next()));
         var food=new FoodInstance(owner,cursor,p,extent,lifetimeMs){StartMode=cursor.Mode.Id,Opacity=opacity};foods.Add(food);Spawned?.Invoke(food);return food;
     }
@@ -125,8 +125,7 @@ public sealed class FoodWorld
         var b=pet.ActivityArea??new Bounds(pet.Bounds.Left,pet.Bounds.Top,pet.Bounds.Right+pet.DisplaySize,pet.Bounds.Bottom+pet.DisplaySize);
         return f.Center.X>=b.Left&&f.Center.X<=b.Right&&f.Center.Y>=b.Top&&f.Center.Y<=b.Bottom;
     }
-    private FoodInstance? BestForage(PetEngine pet)=>foods.Where(f=>InRange(pet,f)).MinBy(f=>
-        pet.ForageDistance(f.Center));
+    private FoodInstance? BestForage(PetEngine pet)=>foods.Where(f=>InRange(pet,f)&&double.IsFinite(pet.ForageDistance(f.Center))).MinBy(f=>pet.ForageDistance(f.Center));
     private bool ChooseForage(PetEngine pet)
     {
         if(!pet.CanForage)return false;

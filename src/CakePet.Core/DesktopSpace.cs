@@ -62,6 +62,43 @@ public sealed class DesktopSpace
     {
         BoundaryContact? best=null;for(int i=0;i<edges.Length;i++){if(!allowed.HasFlag(edges[i].Side)||sameLoop is int loop&&component[i]!=component[loop])continue;var q=edges[i].Closest(p);var d=(p-q).Length;if(best==null||d<best.Value.Distance)best=new(i,q,d);}return best;
     }
+    public bool SameLoop(int a,int b)=>component[a]==component[b];
+    // At horizontal wrap openings there is no solid wall to spawn food on.
+    public bool IsWrapOpening(DesktopBoundary edge,Point p,bool wrap)
+    {
+        if(!wrap||edge.Side is not (Edge.Left or Edge.Right))return false;
+        double left=areas.Min(a=>a.Left),right=areas.Max(a=>a.Right);
+        return Math.Abs(p.X-(edge.Side==Edge.Left?left:right))<Eps&&Contains(new Point(edge.Side==Edge.Left?right:left,p.Y));
+    }
+    // Food center lies just inside a real perimeter segment; its whole rectangle must fit the union.
+    public bool ContainsRectangle(Bounds rectangle)
+    {
+        var xs=areas.SelectMany(a=>new[]{a.Left,a.Right}).Where(x=>x>rectangle.Left&&x<rectangle.Right).Append(rectangle.Left).Append(rectangle.Right).Distinct().Order().ToArray();
+        var ys=areas.SelectMany(a=>new[]{a.Top,a.Bottom}).Where(y=>y>rectangle.Top&&y<rectangle.Bottom).Append(rectangle.Top).Append(rectangle.Bottom).Distinct().Order().ToArray();
+        for(int x=0;x<xs.Length-1;x++)for(int y=0;y<ys.Length-1;y++)if(!Contains(new Point((xs[x]+xs[x+1])/2,(ys[y]+ys[y+1])/2)))return false;
+        return true;
+    }
+    public Point? SpawnEdge(int segment,double width,double height,bool wrap,Random random)
+    {
+        var candidates=Enumerable.Range(0,edges.Length).Where(i=>SameLoop(segment,i)).OrderBy(_=>random.Next()).ToArray();
+        foreach(int i in candidates)
+        {
+            var e=edges[i];double margin=e.Side is Edge.Left or Edge.Right?height/2:width/2;
+            if(e.Length+Eps<2*margin)continue;
+            // A few positions per segment allow partially open wrap edges and stepped corners.
+            foreach(double fraction in new[]{random.NextDouble(),.5,0.0,1.0})
+            {
+                var boundary=e.At(margin+Math.Max(0,e.Length-2*margin)*fraction);
+                if(IsWrapOpening(e,boundary,wrap))continue;
+                var inward=e.Side switch{Edge.Left=>new Point(width/2,0),Edge.Right=>new Point(-width/2,0),Edge.Top=>new Point(0,height/2),_=>new Point(0,-height/2)};
+                var p=boundary+inward;
+                if(!ContainsRectangle(new Bounds(p.X-width/2,p.Y-height/2,p.X+width/2,p.Y+height/2)))continue;
+                // Use the same nearest real boundary as forage; never choose a different loop.
+                var nearest=Nearest(p);if(nearest is BoundaryContact c&&SameLoop(segment,c.Segment))return p;
+            }
+        }
+        return null;
+    }
     public BoundaryTravel Walk(int segment,Point position,double distance)
     {
         int i=segment;double along=edges[i].Along(position);int direction=distance>=0?1:-1;double left=Math.Abs(distance);
@@ -78,7 +115,7 @@ public sealed class DesktopSpace
     }
     public (int Direction,double Distance)? Route(int segment,Point position,Point target)
     {
-        var destination=Nearest(target,Edge.All,segment);if(destination==null)return null;
+        var destination=Nearest(target);if(destination==null||!SameLoop(segment,destination.Value.Segment))return null;
         double start=edges[segment].Along(position),end=edges[destination.Value.Segment].Along(destination.Value.Position);
         double forward=0,total=0;int i=segment;bool found=false;
         do{if(i==destination.Value.Segment&&!found){forward=total+end-start;found=true;}total+=edges[i].Length;i=next[i];}while(i>=0&&i!=segment);

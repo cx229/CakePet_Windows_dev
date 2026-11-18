@@ -225,6 +225,13 @@ try
  Assert(desktopSpace.Move(new Point(80,20),new Point(60,0)).Hit.HasFlag(Edge.Right),"missing screen is wall");
  var wrapSpace=new DesktopSpace(new[]{new Bounds(-100,0,100,100)});
  Assert(wrapSpace.Move(new Point(95,50),new Point(10,0),true).Position==new Point(-95,50),"independent horizontal wrap");
+ var detachedSpace=new DesktopSpace(new[]{new Bounds(0,0,100,100),new Bounds(150,0,250,100)});
+ var startContact=detachedSpace.Nearest(new Point(50,100),Edge.Bottom)!.Value;
+ Assert(detachedSpace.Route(startContact.Segment,startContact.Position,new Point(200,95))==null,"unreachable separate contour excluded");
+ for(int i=0;i<100;i++){var food=detachedSpace.SpawnEdge(startContact.Segment,10,10,false,new Random(i));Assert(food!=null&&food.Value.X<100,"food stays on reachable contour");}
+ var wrapContact=wrapSpace.Nearest(new Point(0,100),Edge.Bottom)!.Value;
+ for(int i=0;i<100;i++){var food=wrapSpace.SpawnEdge(wrapContact.Segment,10,10,true,new Random(i));Assert(food!=null&&(food.Value.Y==5||food.Value.Y==95),"food excludes horizontal wrap openings");}
+ var tiny=lowerEdge;for(int i=0;i<260;i++){var step=desktopSpace.Walk(tiny.Segment,tiny.Position,-.25);tiny=new BoundaryContact(step.Segment,step.Position,0);}Assert((tiny.Position-aroundOuter.Position).Length<.001,"fractional corner steps accumulate");
  Assert(!new RoleSettings().HorizontalWrap&&new RoleSettings().ScreenConnect,"screen defaults");
  Assert(new RoleSettings().Scale==.5&&new RoleSettings().FoodScale==.5,"Windows initial pet and food size");
  var invalidSize=new RoleSettings{Scale=double.NaN,FoodScale=double.NaN}.Normalize();Assert(invalidSize.Scale==.5&&invalidSize.FoodScale==.5,"Windows invalid size fallback");

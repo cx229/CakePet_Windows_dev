@@ -87,7 +87,16 @@ internal sealed class PetWindow : Window
     private Bounds[] spaceAreas=Array.Empty<Bounds>();private DesktopSpace? desktopSpace;
     private void RefreshDesktopSpace()
     {
-        var areas=(settings.ScreenConnect?DesktopPlatform.Screens:new[]{Monitor}).Select(AreaOf).Distinct().OrderBy(a=>a.Left).ThenBy(a=>a.Top).ThenBy(a=>a.Right).ThenBy(a=>a.Bottom).ToArray();
+        var screens=settings.ScreenConnect?DesktopPlatform.Screens:new[]{Monitor};
+        var raw=screens.Select(s=>fullScreen?s.Full:s.Work).ToArray();
+        var areas=raw.Select(a=>{
+            bool left=raw.Any(b=>b.Right==a.Left&&Math.Min(a.Bottom,b.Bottom)>Math.Max(a.Top,b.Top));
+            bool right=raw.Any(b=>b.Left==a.Right&&Math.Min(a.Bottom,b.Bottom)>Math.Max(a.Top,b.Top));
+            bool top=raw.Any(b=>b.Bottom==a.Top&&Math.Min(a.Right,b.Right)>Math.Max(a.Left,b.Left));
+            bool bottom=raw.Any(b=>b.Top==a.Bottom&&Math.Min(a.Right,b.Right)>Math.Max(a.Left,b.Left));
+            double l=a.Left+(left?0:settings.OffsetLeft),t=a.Top+(top?0:settings.OffsetTop);
+            return new Bounds(l,t,Math.Max(l+1,a.Right-(right?0:settings.OffsetRight)),Math.Max(t+1,a.Bottom-(bottom?0:settings.OffsetBottom)));
+        }).Distinct().OrderBy(a=>a.Left).ThenBy(a=>a.Top).ThenBy(a=>a.Right).ThenBy(a=>a.Bottom).ToArray();
         if(areas.Length==0)areas=new[]{ActivityArea};if(!areas.SequenceEqual(spaceAreas)){spaceAreas=areas;desktopSpace=new DesktopSpace(areas);}
         engine.SetDesktopSpace(desktopSpace,settings.HorizontalWrap);
     }
