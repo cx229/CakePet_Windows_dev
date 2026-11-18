@@ -54,12 +54,7 @@ internal sealed class ResidentHost:IDisposable
         typingInput=new TypingInput(()=>{if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){typing.Press(clock.ElapsedMilliseconds,Today(),catalog.Typing);typingDirty=true;}});
         thoughts.Add(typing);thoughts.Policy=catalog.ThinkingPolicy;
         world.Spawned+=OnFoodSpawned;world.Removed+=OnFoodRemoved;
-        tray=new NativeTray(Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico"),()=>OpenSettings(),a=>loop.Post(()=>Safe(a)),new (string?,Action?)[]{
-            ("打开 CakePet",()=>OpenSettings()),("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);}),
-            ("全部归位",()=>{foreach(var p in pets)p.Engine.ReturnHome();}),("召回全部",()=>Recall(null)),
-            ("恢复全部点击",RestoreInput),("托盘显示设置",()=>Process.Start(new ProcessStartInfo("ms-settings:taskbar"){UseShellExecute=true})),
-            ("清除全部定格",()=>{foreach(var p in pets)p.ClearFreezes();}),(null,null),("退出",()=>loop.Stop())
-        },probe?new Guid("36fbddc0-3cd6-4e04-9349-c90700fb2140"):null,probe?"CakePet framework probe":"CakePet");
+        tray=new NativeTray(Path.Combine(AppContext.BaseDirectory,"assets","CakePet.ico"),()=>OpenSettings(),a=>loop.Post(()=>Safe(a)),BuildTrayMenu,probe?new Guid("36fbddc0-3cd6-4e04-9349-c90700fb2140"):null,probe?"CakePet framework probe":"CakePet");
         loop.Tick+=Tick;
     }
     private void Safe(Action action){try{action();}catch(Exception e){if(probe)throw;NativeMessage.Show(e.Message,"CakePet");}}
@@ -97,7 +92,58 @@ internal sealed class ResidentHost:IDisposable
     private void OnFoodRemoved(FoodInstance food){if(foodWindows.Remove(food,out var window))window.CloseFromWorld();}
     private void ApplyRunning(RoleEntry entry){var group=pets.Where(p=>p.RoleId==entry.Id).ToArray();for(int i=0;i<group.Length;i++){group[i].RoleName=entry.Name;group[i].ApplySettings(entry.Settings,i==0,catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None);}}
     private void ChangeRole(Guid id,Func<RoleSettings,RoleSettings> change){var r=catalog.Roles.Single(x=>x.Id==id);catalog.Update(r with{Settings=change(r.Settings)});storage.Save();InvalidateCatalog();ApplyRunning(catalog.Roles.Single(x=>x.Id==id));}
-    private void RestoreInput(){foreach(var r in catalog.Roles.ToArray())ChangeRole(r.Id,s=>s with{ClickThrough=false});}
+    private void RestoreInput()=>ChangeAllRoles(RoleMenus.Switches[0],false);
+    private void ChangeAllRoles(RoleMenus.Feature feature,bool value)
+    {
+        var changed=new List<RoleEntry>();
+        foreach(var entry in catalog.Roles.ToArray())
+        {
+            if(!feature.Supported(MenuPack(entry)))continue;
+            var next=entry with{Settings=feature.Set(entry.Settings,value)};
+            if(next==entry)continue;catalog.Update(next);changed.Add(next);
+        }
+        if(changed.Count==0)return;
+        storage.Save();InvalidateCatalog();
+        foreach(var entry in changed)ApplyRunning(entry);
+    }
+    // For recalled roles read package metadata only; do not allocate native image caches.
+    private RolePackage? MenuPack(RoleEntry entry)
+    {
+        try
+        {
+            var root=storage.Resolve(catalog.Packs.Single(p=>p.Id==entry.PackId));
+            return packages.TryGetValue(root,out var pair)?pair.Pack:RolePackage.Load(root);
+        }
+        catch(Exception){return null;}
+    }
+    private IReadOnlyList<NativeMenu.Item> BuildRoleMenu(Guid id,PetWindow? instance=null,RolePackage? pack=null)
+    {
+        var entry=catalog.Roles.Single(r=>r.Id==id);
+        var live=pets.Where(p=>p.RoleId==id).OrderBy(p=>p.InstanceNumber).ToArray();
+        return RoleMenus.Build(entry.Settings,pack??MenuPack(entry),live,instance,
+            ()=>Summon(catalog.Roles.Single(r=>r.Id==id)),()=>Recall(id),()=>OpenSettings(id),patch=>ChangeRole(id,patch),
+            ()=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);},
+            live.Any(p=>world.Foods.Any(f=>f.Owner==p.Engine)));
+    }
+    private IReadOnlyList<NativeMenu.Item> BuildTrayMenu()
+    {
+        var roles=catalog.Roles.ToArray();
+        var packs=roles.ToDictionary(r=>r.Id,MenuPack);
+        var children=roles.Select(r=>new NativeMenu.Item(r.Name.Replace("&","&&"),Children:BuildRoleMenu(r.Id,pack:packs[r.Id]))).ToList();
+        if(children.Count>0)children.Add(new(null));
+        children.Add(new("召唤全部",()=>{foreach(var r in catalog.Roles.ToArray())Summon(r);},roles.Length>0));
+        children.Add(new("归位全部",()=>{foreach(var p in pets.ToArray())p.ReturnHome();},pets.Count>0));
+        children.Add(new("召回全部",()=>Recall(null),pets.Count>0));
+        var items=new List<NativeMenu.Item>{new("打开 CakePet",()=>OpenSettings()),new("角色",Children:children),new(null)};
+        foreach(var feature in RoleMenus.Switches)
+        {
+            var eligible=roles.Where(r=>feature.Supported(packs[r.Id])).ToArray();
+            bool all=eligible.Length>0&&eligible.All(r=>feature.Get(r.Settings));
+            bool mixed=!all&&eligible.Any(r=>feature.Get(r.Settings));
+            items.Add(new(feature.Name+"（全局"+(mixed?"·部分开启":"")+"）",()=>ChangeAllRoles(feature,!all),eligible.Length>0,all));
+        }
+        items.Add(new(null));items.Add(new("退出",()=>loop.Stop()));return items;
+    }
     private void Recall(Guid? id){foreach(var pet in pets.Where(p=>id==null||p.RoleId==id).ToArray())pet.Close();ReleaseUnused();}
     private void Summon(RoleEntry entry)
     {
@@ -107,7 +153,7 @@ internal sealed class ResidentHost:IDisposable
         while(existing.Count<settings.Count)
         {
             var role=new RoleRuntime(pair.Pack,probe?new Random(1234+existing.Count):null);var pet=new PetWindow(role,pair.Images,pets.Count,world,entry.Id,existing.Count+1){RoleName=entry.Name};
-            pet.OpenSettings+=id=>OpenSettings(id);pet.ChangeSettings+=ChangeRole;pet.RecallRole+=id=>Recall(id);
+            pet.BuildContextMenu=()=>BuildRoleMenu(entry.Id,pet);pet.OpenSettings+=id=>OpenSettings(id);pet.ChangeSettings+=ChangeRole;pet.RecallRole+=id=>Recall(id);
             pet.ClearRoleFood+=id=>{foreach(var p in pets.Where(p=>p.RoleId==id).ToArray())world.Clear(p.Engine);};
             pets.Add(pet);existing.Add(pet);world.Add(pet.Engine,entry.Id);role.Thoughts.Enabled=settings.Thinking&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None;thoughts.Add(role.Thoughts,entry.Id);
             pet.Closed+=(_,_)=>{world.Remove(pet.Engine);thoughts.Remove(role.Thoughts);pets.Remove(pet);if(!pets.Any(p=>p.RoleId==entry.Id))randomSchedule.Forget(entry.Id);};
@@ -174,6 +220,7 @@ internal sealed class ResidentHost:IDisposable
             case "restore-input":RestoreInput();break;
             case "clear-food":world.Clear();break;
             case "clear-freezes":foreach(var p in pets)p.ClearFreezes();break;
+            case "debug-instance":pets.FirstOrDefault(p=>p.InstanceId==req.InstanceId&&p.RoleId==req.RoleId)?.ToggleDebug();break;
             case "scale":pets.FirstOrDefault(p=>p.InstanceId==req.InstanceId)?.SetInstanceScale(req.Scale??.5);break;
             case "shutdown":loop.Post(loop.Stop);break;
             default:throw new InvalidOperationException("Unknown command: "+req.Command);

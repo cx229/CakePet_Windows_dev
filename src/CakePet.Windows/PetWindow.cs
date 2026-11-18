@@ -48,6 +48,12 @@ internal sealed class PetWindow
     internal event Action<Guid>? RecallRole;
     internal event Action<Guid>? OpenSettings;
     internal event Action<Guid>? ClearRoleFood;
+    internal Func<IReadOnlyList<NativeMenu.Item>>? BuildContextMenu;
+    internal bool HasFreezes=>freezes.Count>0;
+    internal bool CanPat=>!closed&&role.CanTrigger(body.SnappedEdge==Edge.None?"pat_head/pat_head":"snap/pat_head/pat_head");
+    internal bool CanFeed=>!closed&&engine.FeedingEnabled;
+    internal bool CanMenuAnimation=>!closed&&role.CanTrigger("menu/pool");
+    internal bool HasRoleFood=>foodWorld.Foods.Any(f=>f.Owner==engine);
     private void Change(Func<RoleSettings,RoleSettings> change)=>ChangeSettings?.Invoke(RoleId,change);
     internal Guid RoleId {get;}
     internal Guid InstanceId {get;}=Guid.NewGuid();
@@ -137,21 +143,9 @@ internal sealed class PetWindow
         menuOpen=true;layer.Pass(false);
         try
         {
-            var animations=role.Package.Candidates("menu/pool").Select(mode=>new NativeMenu.Item(mode,()=>{if(engine.MenuAction(mode))Render();})).ToArray();
-            NativeMenu.Show(layer.Handle,new NativeMenu.Item[]{
-                new("摸摸头",()=>{engine.PatHead();Render();}),
-                new("菜单动画",Enabled:animations.Length>0&&role.CanTrigger("menu/pool"),Children:animations),
-                new("归位",()=>{engine.ReturnHome();Render();}),
-                new("静止待机",()=>Change(s=>s with{Move=!s.Move}),role.Package.Supports("standby/static_pool"),role.StaticStandby),
-                new(null),
-                new("投食",()=>{SpawnFood();foodWorld.ResetSpawnTimer(engine);},engine.FeedingEnabled),
-                new("清除本角色食物",()=>ClearRoleFood?.Invoke(RoleId)),
-                new("恢复大小",ResetSize),
-                new("点击穿透（Ctrl 临时恢复）",()=>Change(s=>s with{ClickThrough=!s.ClickThrough}),true,ClickThrough),
-                new("定格当前画面",Freeze),new("清除当前实例定格",ClearFreezes),
-                new("实时调试窗口",ToggleDebug),new("角色设置",()=>OpenSettings?.Invoke(RoleId)),
-                new("召回角色（全部实例）",()=>RecallRole?.Invoke(RoleId))
-            });
+            var items=BuildContextMenu?.Invoke()??RoleMenus.Build(settings,role.Package,new[]{this},this,
+                null,()=>RecallRole?.Invoke(RoleId),()=>OpenSettings?.Invoke(RoleId),Change,()=>ClearRoleFood?.Invoke(RoleId),HasRoleFood);
+            NativeMenu.Show(layer.Handle,items);
         }
         finally{menuOpen=false;ApplyInputStyle();}
     }
@@ -186,13 +180,17 @@ internal sealed class PetWindow
     internal void SetInstanceScale(double scale){if(closed||!double.IsFinite(scale))return;var min=SettingLimits.Get(settings,SettingLimits.Specs.First(x=>x.Key=="Scale")).Min;engine.Resize(role.Package.AnchorRes*Math.Clamp(scale,min,Math.Max(min,settings.MaxScale)));Render();}
     internal void ResetSize(){SetInstanceScale(settings.Scale);}
     internal void ClearFreezes(){foreach(var freeze in freezes.ToArray())freeze.Close();}
-    private void Freeze()
+    internal void ReturnHome(){if(!closed){engine.ReturnHome();Render();}}
+    internal void Pat(){if(!closed){engine.PatHead();Render();}}
+    internal void FeedNow(){if(CanFeed){SpawnFood();foodWorld.ResetSpawnTimer(engine);}}
+    internal void PlayMenuAnimation(string mode){if(!closed&&engine.MenuAction(mode))Render();}
+    internal void Freeze()
     {
         var pixels=Math.Max(1,(int)Math.Round(Side));
         var bitmap=images.Get(role.Animation.Current,pixels,engine.Facing,engine.RenderEdge,false);
         var freeze=new FreezeWindow(bitmap,body.Position,Side);freezes.Add(freeze);freeze.Closed+=(_,_)=>freezes.Remove(freeze);freeze.Show();
     }
-    private void ToggleDebug()
+    internal void ToggleDebug()
     {
         if(debug!=null){debug.Close();return;}
         var window=new NativeDebugWindow((string.IsNullOrWhiteSpace(RoleName)?role.Package.Name:RoleName)+" #"+InstanceNumber);debug=window;window.Closed+=(_,_)=>debug=null;UpdateDebug();window.Show();

@@ -13,7 +13,7 @@ internal sealed class NativeTray : IDisposable
     internal bool Registered=>registered;
     private readonly Action activate;
     private readonly Action<Action> dispatch;
-    private readonly (string? Label,Action? Run)[] items;
+    private readonly Func<IReadOnlyList<NativeMenu.Item>> items;
     private readonly string className="CakePet.Tray."+Environment.ProcessId;
     private readonly WndProc procedure;
     private readonly nint instance=GetModuleHandle(null);
@@ -21,6 +21,8 @@ internal sealed class NativeTray : IDisposable
     private nint hwnd,icon;
     private bool ownsIcon,registered,version4,useGuid=true,disposed;
     public NativeTray(string iconPath,Action activate,Action<Action> dispatch,(string? Label,Action? Run)[] items,Guid? identity=null,string tooltip="CakePet")
+        :this(iconPath,activate,dispatch,()=>items.Select(x=>new NativeMenu.Item(x.Label,x.Run)).ToArray(),identity,tooltip){}
+    public NativeTray(string iconPath,Action activate,Action<Action> dispatch,Func<IReadOnlyList<NativeMenu.Item>> items,Guid? identity=null,string tooltip="CakePet")
     {
         this.activate=activate;this.dispatch=dispatch;this.items=items;this.identity=identity??new Guid("9e0ecb47-15ad-4bdb-a290-0c3ff6edcd10");this.tooltip=tooltip;procedure=OnMessage;
         var cls=new WindowClass{Size=(uint)Marshal.SizeOf<WindowClass>(),Instance=instance,Procedure=Marshal.GetFunctionPointerForDelegate(procedure),ClassName=className};
@@ -56,24 +58,7 @@ internal sealed class NativeTray : IDisposable
         }
         return DefWindowProc(window,message,w,l);
     }
-    private void ShowMenu()
-    {
-        var menu=CreatePopupMenu();if(menu==0)return;
-        uint chosen=0;
-        try
-        {
-            for(int i=0;i<items.Length;i++)
-            {
-                var label=items[i].Label;
-                AppendMenu(menu,label==null?0x800u:0u,(nuint)(i+1),label);
-            }
-            GetCursorPos(out var point);SetForegroundWindow(hwnd);
-            chosen=TrackPopupMenu(menu,0x100|0x2,point.X,point.Y,0,hwnd,0);
-            PostMessage(hwnd,0,0,0);
-        }
-        finally{DestroyMenu(menu);}
-        if(chosen>0&&chosen<=(uint)items.Length&&items[(int)chosen-1].Run is Action run)dispatch(run);
-    }
+    private void ShowMenu()=>NativeMenu.Show(hwnd,items(),dispatch);
     public void Dispose()
     {
         if(disposed)return;disposed=true;
@@ -112,11 +97,4 @@ internal sealed class NativeTray : IDisposable
     [DllImport("user32.dll")]private static extern bool DestroyIcon(nint icon);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)]private static extern uint RegisterWindowMessage(string message);
     [DllImport("shell32.dll",EntryPoint="Shell_NotifyIconW")]private static extern bool ShellNotifyIcon(uint message,ref NotifyData data);
-    [DllImport("user32.dll")]private static extern nint CreatePopupMenu();
-    [DllImport("user32.dll",CharSet=CharSet.Unicode)]private static extern bool AppendMenu(nint menu,uint flags,nuint id,string? label);
-    [DllImport("user32.dll")]private static extern bool DestroyMenu(nint menu);
-    [DllImport("user32.dll")]private static extern bool GetCursorPos(out Point point);
-    [DllImport("user32.dll")]private static extern bool SetForegroundWindow(nint hwnd);
-    [DllImport("user32.dll")]private static extern uint TrackPopupMenu(nint menu,uint flags,int x,int y,int reserved,nint hwnd,nint rect);
-    [DllImport("user32.dll",EntryPoint="PostMessageW")]private static extern bool PostMessage(nint hwnd,uint message,nint w,nint l);
 }

@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/CakePet.Core/CakePet.Core.csproj"/>
     <Compile Include="../../src/CakePet.Windows/TrayIcon.cs" Link="NativeTray.cs"/>
+    <Compile Include="../../src/CakePet.Windows/NativeMenu.cs" Link="NativeMenu.cs"/>
     <Compile Include="../../src/CakePet.Windows/MemoryDiagnostics.cs" Link="MemoryDiagnostics.cs"/>
   </ItemGroup>
 </Project>
