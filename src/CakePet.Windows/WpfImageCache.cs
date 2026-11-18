@@ -8,6 +8,9 @@ namespace CakePet.Windows;
 
 internal sealed class WpfImageCache(RolePackage pack)
 {
+    private NativeSpriteCache? native;
+    internal NativeSpriteCache Native=>native??=new NativeSpriteCache(pack);
+    internal long CachedNativeBytes=>native?.Bytes??0;
     private const long ImageBudget=32L*1024*1024;
     private const long FoodBudget=16L*1024*1024;
     private readonly Dictionary<(string,string),(BitmapSource Bitmap,long Bytes,LinkedListNode<(string,string)> Node)> cache=new();
@@ -16,7 +19,7 @@ internal sealed class WpfImageCache(RolePackage pack)
     internal long CachedImageBytes=>imageBytes;
     internal long CachedFoodBytes=>foodBytes;
     private readonly LinkedList<string> recentFood=new();
-    public void Clear(){cache.Clear();recent.Clear();imageBytes=0;foodVisuals.Clear();recentFood.Clear();foodBytes=0;alpha=new();}
+    public void Clear(){native?.Dispose();native=null;cache.Clear();recent.Clear();imageBytes=0;foodVisuals.Clear();recentFood.Clear();foodBytes=0;alpha=new();}
     private static long Bytes(BitmapSource b)=>(long)b.PixelWidth*b.PixelHeight*4;
     private static long Bytes(FoodVisual v)=>v.Frames.Values.Sum(Bytes);
     private void TrimImages()

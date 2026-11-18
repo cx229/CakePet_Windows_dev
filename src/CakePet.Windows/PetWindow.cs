@@ -26,7 +26,6 @@ internal sealed class PetWindow
     private int renderedFacing;
     private Edge renderedEdge;
     private bool renderedCanvas;
-    private byte[]? renderedPixels;
     internal event EventHandler? Closed;
     public void Show(){Render();layer.Show();}
     public void Close()=>layer.Dispose();
@@ -213,7 +212,7 @@ internal sealed class PetWindow
         var size=Math.Max(1,(int)Math.Round(Side));var frame=role.Animation.Current;var facing=engine.Facing;var edge=engine.RenderEdge;bool canvasHit=!pixelHit||DesktopPlatform.ControlDown;
         if(rendered!=frame||renderedSize!=size||renderedFacing!=facing||renderedEdge!=edge||renderedCanvas!=canvasHit)
         {
-            renderedPixels=NativePetPixels.Sprite(images,frame,size,role.Package.AnchorRes,facing,edge,canvasHit);
+            var renderedPixels=NativePetPixels.Sprite(images,frame,size,role.Package.AnchorRes,facing,edge,canvasHit);
             layer.Paint(renderedPixels,size,size,body.Position.X,body.Position.Y,opacity);
             rendered=frame;renderedSize=size;renderedFacing=facing;renderedEdge=edge;renderedCanvas=canvasHit;
         }
