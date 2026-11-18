@@ -56,6 +56,7 @@ internal sealed partial class CatalogStorage
         var result=HostConnection.Call(new("save-catalog",Baseline:baseline,Catalog:System.Text.Json.JsonSerializer.Serialize(value,CoreJson.Default.RoleCatalog)));
         Adopt(result.Catalog??throw new IOException("Missing catalog"));
     }
+    internal bool AdoptIfChanged(string json){if(json==baseline)return false;Adopt(json);return true;}
     public void Adopt(string json){if(json==baseline&&System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog)==baseline)return;Catalog=RoleCatalog.Parse(json);baseline=System.Text.Json.JsonSerializer.Serialize(Catalog,CoreJson.Default.RoleCatalog);Revision++;}
     public void Reload()=>Adopt(remote?HostConnection.Call(new("snapshot")).Catalog??throw new IOException("Missing catalog"):File.ReadAllText(FilePath));
     public string Resolve(PackEntry p){if(!Guid.TryParseExact(p.Directory,"N",out _))throw new InvalidDataException("Invalid package directory.");return Path.Combine(root,"packs",p.Directory);}

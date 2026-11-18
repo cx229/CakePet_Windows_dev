@@ -104,9 +104,10 @@ internal sealed class Launcher : IDisposable
     {
         if(saving||commandBusy||!dirty||shuttingDown)return;
         saving=true;storage.AsyncSaveInFlight=true;saveTimer.Stop();
-        var request=storage.CaptureSave();long revision=commandRevision;
+        long revision=commandRevision;
         try
         {
+            var request=storage.CaptureSave();
             var reply=await HostConnection.CallAsync(request);
             dirty=storage.CompleteSave(request,reply);
             saveFailures=0;nextSaveAt=0;
@@ -138,7 +139,7 @@ internal sealed class Launcher : IDisposable
     }
     private Task RunDataOperationAsync(Func<CatalogStorage,string?> operation,bool returnHome=false)
     {
-        if(shuttingDown)return Task.CompletedTask;
+        if(shuttingDown||closingRequested)return Task.CompletedTask;
         var previous=commandTail;queuedCommands++;commandBusy=true;commandRevision++;saveTimer.Stop();
         return commandTail=ExecuteDataOperationAsync(previous,operation,returnHome);
     }
@@ -147,9 +148,12 @@ internal sealed class Launcher : IDisposable
         try
         {
             await previous;await WaitForPendingSave();
-            navigationHost.IsEnabled=false;
+            dataOperationActive=true;navigationHost.IsEnabled=false;
             await SaveStrictAsync();
             if(dirty)throw new InvalidOperationException("设置仍有待同步的修改，请重试。");
+            var live=await HostConnection.CallAsync(new("snapshot"));
+            if(IsStale(live))throw new IOException("常驻进程状态尚未更新，请稍后重试。");
+            AcceptCommand(live);
             var initial=storage.CaptureSave().Catalog!;
             var result=await Task.Run(()=>{
                 var worker=new CatalogStorage(defaultRoot,true,initialCatalog:initial);
@@ -157,14 +161,15 @@ internal sealed class Launcher : IDisposable
                 return (Message:message,Catalog:worker.CaptureSave().Catalog!);
             });
             storage.Adopt(result.Catalog);
-            if(returnHome){ReleaseIdleImages();BackHome();}else RefreshCards();
-            syncNotice=null;Refresh();
-            if(result.Message!=null)ShowMessage(result.Message,"CakePet");
+            if(returnHome){ReleaseLauncherUi();ShowLauncher();}else RefreshCards();
+            operationNotice=null;syncNotice=null;Refresh();
+            if(result.Message!=null&&!closingRequested)ShowMessage(result.Message,"CakePet");
         }
-        catch(Exception e){LogSyncError("data-operation",e);syncNotice="数据操作未完成："+e.Message;Refresh();}
+        catch(Exception e){LogSyncError("data-operation",e);operationNotice="数据操作未完成："+e.Message;Refresh();}
         finally
         {
-            if(navigationHost!=null)navigationHost.IsEnabled=true;
+            dataOperationActive=false;
+            if(navigationHost!=null&&!closingRequested)navigationHost.IsEnabled=true;
             commandBusy=--queuedCommands>0;if(!commandBusy&&dirty&&!shuttingDown)saveTimer.Start();
         }
     }
@@ -176,11 +181,11 @@ internal sealed class Launcher : IDisposable
     private StackPanel packCards=null!;
     private readonly List<LivePet> pets=new();
     private int foodCount;
-    private long lastPoll;
+    private long lastPoll,lastActivation;
     private bool polling,hostExitNotified;
     private int pollFailures;
     private long nextPollAt,commandRevision;
-    private string? syncNotice;
+    private string? syncNotice,operationNotice;
     private readonly Dictionary<string,long> lastLog=new();
     private readonly Dictionary<string,(RolePackage Pack,WpfImageCache Images)> packages=new(StringComparer.OrdinalIgnoreCase);
     private readonly RandomSchedule randomSchedule=new();
@@ -189,7 +194,7 @@ internal sealed class Launcher : IDisposable
     private readonly Stopwatch clock=Stopwatch.StartNew();
     private long lastTick;
     private void UpdateTickRate(){if(!shuttingDown&&started&&!timer.IsEnabled)timer.Start();}
-    private bool shuttingDown,started;
+    private bool shuttingDown,started,closingRequested,closeApproved,dataOperationActive;
     private string Version=>typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??"dev";
     private TextBlock? status;
     private readonly List<Action> globalGateRefresh=new();
@@ -222,7 +227,7 @@ internal sealed class Launcher : IDisposable
     }
     private Task RunCommandAsync(HostRequest request,Action? completed=null)
     {
-        if(shuttingDown)return Task.CompletedTask;
+        if(shuttingDown||closingRequested)return Task.CompletedTask;
         var previous=commandTail;queuedCommands++;commandBusy=true;commandRevision++;saveTimer.Stop();
         return commandTail=ExecuteCommandAsync(previous,request,completed);
     }
@@ -234,9 +239,9 @@ internal sealed class Launcher : IDisposable
             // Summoning a newly created role requires its record to be confirmed first.
             if(request.Command=="summon"&&dirty)await SaveStrictAsync();
             var reply=await HostConnection.CallAsync(request);AcceptCommand(reply);
-            completed?.Invoke();
+            operationNotice=null;completed?.Invoke();Refresh();
         }
-        catch(Exception e){LogSyncError(request.Command,e);syncNotice="操作未确认："+e.Message;Refresh();}
+        catch(Exception e){LogSyncError(request.Command,e);operationNotice="操作未确认："+e.Message;Refresh();}
         finally{commandBusy=--queuedCommands>0;if(!commandBusy&&dirty&&!shuttingDown)saveTimer.Start();}
     }
     private async Task ChangeGlobalLimitAsync(RoleMenus.Feature feature,bool allowed,CheckBox control)
@@ -262,12 +267,14 @@ internal sealed class Launcher : IDisposable
             else Dispatcher.BeginInvoke(new Action(()=>{if(ReferenceEquals(window,next)&&next.WindowState==WindowState.Minimized)next.Close();}));
         };
         next.Closing+=(_,e)=>{
-            if(shuttingDown)return;
-            if(commandBusy||saving){e.Cancel=true;return;}
+            if(shuttingDown||closeApproved)return;
+            if(closingRequested){e.Cancel=true;return;}
             if(navigationHost?.Content is PackageEditorPage editor&&!editor.ConfirmDiscard()){e.Cancel=true;return;}
-            if(dirty)
+            if(dirty||commandBusy||saving)
             {
-                e.Cancel=true;_ = SaveAndCloseAsync(next);
+                e.Cancel=true;closingRequested=true;
+                if(navigationHost!=null)navigationHost.IsEnabled=false;
+                _ = SaveAndCloseAsync(next);
             }
         };
         next.Closed+=(_,_)=>{
@@ -278,14 +285,27 @@ internal sealed class Launcher : IDisposable
     }
     private async Task SaveAndCloseAsync(Window target)
     {
-        await System.Windows.Threading.Dispatcher.Yield(DispatcherPriority.Background);nextSaveAt=0;await SavePendingAsync();
-        if(!ReferenceEquals(window,target))return;
-        if(dirty)
+        try
         {
-            if(MessageBox.Show(target,"设置尚未保存。是否放弃未同步的修改并关闭？","保存设置",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
-            dirty=false;
+            await System.Windows.Threading.Dispatcher.Yield(DispatcherPriority.Background);
+            operationNotice="正在完成设置操作…";Refresh();
+            await commandTail;await WaitForPendingSave();nextSaveAt=0;await SavePendingAsync();
+            if(!ReferenceEquals(window,target))return;
+            if(dirty)
+            {
+                if(MessageBox.Show(target,"设置尚未保存。是否放弃未同步的修改并关闭？","保存设置",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+                dirty=false;
+            }
+            closeApproved=true;target.Close();
         }
-        target.Close();
+        finally
+        {
+            closingRequested=false;
+            if(!closeApproved&&ReferenceEquals(window,target))
+            {
+                operationNotice=null;if(navigationHost!=null)navigationHost.IsEnabled=true;Refresh();
+            }
+        }
     }
     private string BundledSource()
     {
@@ -376,15 +396,21 @@ internal sealed class Launcher : IDisposable
     private void ReleaseIdleImages(){foreach(var pair in packages.Values)pair.Images.Clear();packages.Clear();}
     internal void StartResident(){if(started)return;started=true;lastPoll=lastTick=clock.ElapsedMilliseconds;UpdateTickRate();}
     internal void ShowLauncher(){if(shuttingDown)return;BuildLauncherUi();window!.WindowState=WindowState.Normal;window.Show();window.Activate();UpdateTickRate();}
-    private void Refresh(){if(window!=null)window.Title="CakePet · "+Version+(dirty&&saveFailures>0?" · 设置待同步":syncNotice!=null?" · "+syncNotice:"");if(status!=null)status.Text=$"已召唤 {pets.Count} 个角色 · {foodCount} 条食物。右键角色可投食；拖动食物至角色松手。"+(syncNotice==null?"":"\n"+syncNotice);}
+    private static bool IsStale(HostReply reply)=>reply.SnapshotTick>0&&Environment.TickCount64-reply.SnapshotTick>3000;
+    private void Refresh()
+    {
+        var notice=operationNotice??syncNotice;
+        if(window!=null)window.Title="CakePet · "+Version+(closingRequested?" · 正在完成设置操作…":notice!=null?" · "+notice:"");
+        if(status!=null)status.Text=$"已召唤 {pets.Count} 个角色 · {foodCount} 条食物。右键角色可投食；拖动食物至角色松手。"+(notice==null?"":"\n"+notice);
+    }
     private void Tick()
     {
         var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
+        if(now-lastActivation>=250&&!closingRequested&&!dataOperationActive){lastActivation=now;ReadActivationSignal();}
         if(now-lastPoll>=1000)
         {
             lastPoll=now;
-            ReadActivationSignal();
-            if(IsVisible&&!polling&&!saving&&!commandBusy&&now>=nextPollAt&&navigationHost?.Content is not DiagnosticsPage)_=PollHostAsync();
+            if(IsVisible&&!closingRequested&&!polling&&!saving&&!commandBusy&&now>=nextPollAt&&navigationHost?.Content is not DiagnosticsPage)_=PollHostAsync();
         }
         if(IsVisible&&navigationHost?.Content==homeShell&&roleCards!=null&&roleCards.IsVisible)foreach(var preview in previews){preview.Cursor.Advance(dt);var bitmap=preview.Cache.Get(preview.Cursor.Current);if(preview.Image.Source!=bitmap)preview.Image.Source=bitmap;}
     }
@@ -437,7 +463,9 @@ internal sealed class Launcher : IDisposable
                 return;
             }
             if(shuttingDown||window==null)return;
-            pollFailures=0;nextPollAt=0;hostExitNotified=false;if(!dirty)syncNotice=null;
+            pollFailures=0;nextPollAt=0;hostExitNotified=false;
+            if(IsStale(reply)){if(!dirty)syncNotice="常驻进程状态暂未更新。";Refresh();return;}
+            if(!dirty)syncNotice=null;
             // A background response must never overwrite a more recent local edit or command.
             if(saving||commandBusy||revision!=commandRevision||storageRevision!=storage.Revision||navigationHost?.Content is DiagnosticsPage){Refresh();return;}
             var before=pets.Select(x=>x.InstanceId).ToArray();
@@ -445,7 +473,7 @@ internal sealed class Launcher : IDisposable
             catch(Exception e){LogSyncError("instance update",e);return;}
             if(!dirty&&reply.Catalog!=null)
             {
-                try{var priorLimits=catalog.FeatureLimits;storage.Adopt(reply.Catalog);if(priorLimits!=catalog.FeatureLimits){foreach(var sync in globalGateRefresh)sync();if(navigationHost?.Content is RoleSettingsPage rolePage)rolePage.RefreshGlobalLimits();}}
+                try{var priorLimits=catalog.FeatureLimits;storage.AdoptIfChanged(reply.Catalog);if(priorLimits!=catalog.FeatureLimits){foreach(var sync in globalGateRefresh)sync();if(navigationHost?.Content is RoleSettingsPage rolePage)rolePage.RefreshGlobalLimits();}}
                 catch(Exception e){LogSyncError("catalog parsing",e);}
             }
             try
@@ -460,7 +488,7 @@ internal sealed class Launcher : IDisposable
     private (RolePackage Pack,WpfImageCache Images) GetPack(Guid id)
     {
         var entry=catalog.Packs.Single(p=>p.Id==id);var root=storage.Resolve(entry);
-        if(!packages.TryGetValue(root,out var pair)){var pack=RolePackage.Load(root,WpfImageCache.IsReadable);pair=(pack,new WpfImageCache(pack));packages[root]=pair;}return pair;
+        if(!packages.TryGetValue(root,out var pair)){var pack=RolePackage.Load(root);pair=(pack,new WpfImageCache(pack));packages[root]=pair;}return pair;
     }
     private void Safe(Action action){try{action();}catch(Exception e){ShowMessage(e.Message,"CakePet");}}
     private void ShowMessage(string message,string title){if(window?.IsVisible==true)MessageBox.Show(window,message,title);else NativeMessage.Show(message,title);}
@@ -504,19 +532,19 @@ internal sealed class Launcher : IDisposable
     });
     private Task RunZipImportAsync(string archive)
     {
-        if(shuttingDown)return Task.CompletedTask;
+        if(shuttingDown||closingRequested)return Task.CompletedTask;
         var previous=commandTail;queuedCommands++;commandBusy=true;commandRevision++;saveTimer.Stop();
         return commandTail=ExecuteZipImportAsync(previous,archive);
     }
     private async Task ExecuteZipImportAsync(Task previous,string archive)
     {
-        try{await previous;await WaitForPendingSave();var pack=await storage.ImportPackZipAsync(archive);RefreshCards();ShowMessage("已导入素材包："+pack.Name,"导入完成");}
-        catch(Exception e){LogSyncError("import-zip",e);ShowMessage(e.Message,"导入素材包");}
+        try{await previous;await WaitForPendingSave();var pack=await storage.ImportPackZipAsync(archive);RefreshCards();if(!closingRequested)ShowMessage("已导入素材包："+pack.Name,"导入完成");}
+        catch(Exception e){LogSyncError("import-zip",e);operationNotice="导入未完成："+e.Message;Refresh();}
         finally{commandBusy=--queuedCommands>0;if(!commandBusy&&dirty&&!shuttingDown)saveTimer.Start();}
     }
     private Task RunImportAsync(string source,bool edit=false)
     {
-        if(shuttingDown)return Task.CompletedTask;
+        if(shuttingDown||closingRequested)return Task.CompletedTask;
         var previous=commandTail;queuedCommands++;commandBusy=true;commandRevision++;saveTimer.Stop();
         return commandTail=ExecuteImportAsync(previous,source,edit);
     }
@@ -525,9 +553,9 @@ internal sealed class Launcher : IDisposable
         try
         {
             await previous;await WaitForPendingSave();
-            var pack=await storage.ImportAsync(source);RefreshCards();if(edit)EditPack(pack);
+            var pack=await storage.ImportAsync(source);RefreshCards();if(edit&&!closingRequested)EditPack(pack);
         }
-        catch(Exception e){LogSyncError("import",e);ShowMessage(e.Message,"导入素材包");}
+        catch(Exception e){LogSyncError("import",e);operationNotice="导入未完成："+e.Message;Refresh();}
         finally{commandBusy=--queuedCommands>0;if(!commandBusy&&dirty&&!shuttingDown)saveTimer.Start();}
     }
     private string? ChooseSave(string filename,string filter){var d=new SaveFileDialog{FileName=filename,Filter=filter};return d.ShowDialog(window!)==true?d.FileName:null;}

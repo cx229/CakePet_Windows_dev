@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace CakePet.Windows;
 internal sealed record HostRequest(string Command,Guid? RoleId=null,Guid? InstanceId=null,double? Scale=null,string? Baseline=null,string? Catalog=null,CakePet.Core.PackEntry? Pack=null,string? Feature=null,bool? Allowed=null,Guid? RequestId=null);
 internal sealed record LiveInstance(Guid RoleId,Guid InstanceId,int InstanceNumber,double CurrentScale);
-internal sealed record HostReply(bool Success,string? Error,LiveInstance[] Instances,int FoodCount,string? Catalog=null,int HostPid=0,Guid? RequestId=null);
+internal sealed record HostReply(bool Success,string? Error,LiveInstance[] Instances,int FoodCount,string? Catalog=null,int HostPid=0,Guid? RequestId=null,long SnapshotTick=0);
 internal sealed class LivePet
 {
     public Guid RoleId {get;private set;}
@@ -48,7 +48,8 @@ internal static class HostConnection
         var watch=System.Diagnostics.Stopwatch.StartNew();string stage="connect";
         try
         {
-            using var pipe=new NamedPipeClientStream(".",pipeName??PipeName,PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+            var endpoint=(pipeName??PipeName)+(request.Command=="snapshot"?".snapshot":"");
+            using var pipe=new NamedPipeClientStream(".",endpoint,PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
             using(var connect=CancellationTokenSource.CreateLinkedTokenSource(cancellation)){connect.CancelAfter(3000);await pipe.ConnectAsync(connect.Token).ConfigureAwait(false);}
             using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellation);deadline.CancelAfter(TimeSpan.FromSeconds(10));
             using var reader=new StreamReader(pipe,leaveOpen:true);
@@ -107,16 +108,19 @@ internal sealed class HostServer:IDisposable
     private const int Connections=4;
     public HostServer(HostLoop loop,Func<HostRequest,HostReply> handler,string? pipeName=null,Func<HostReply>? snapshot=null)
     {
-        workers=Enumerable.Range(0,Connections).Select(_=>Task.Run(()=>Serve(loop,handler,pipeName??HostConnection.PipeName,cancel.Token,snapshot))).ToArray();
+        var name=pipeName??HostConnection.PipeName;
+        var commands=Enumerable.Range(0,Connections).Select(_=>Task.Run(()=>Serve(loop,handler,name,cancel.Token,snapshot,false,Connections)));
+        var reads=Enumerable.Range(0,2).Select(_=>Task.Run(()=>Serve(loop,handler,name+".snapshot",cancel.Token,snapshot,true,2)));
+        workers=commands.Concat(reads).ToArray();
     }
-    private static async Task Serve(HostLoop loop,Func<HostRequest,HostReply> handler,string name,CancellationToken shutdown,Func<HostReply>? snapshot)
+    private static async Task Serve(HostLoop loop,Func<HostRequest,HostReply> handler,string name,CancellationToken shutdown,Func<HostReply>? snapshot,bool readOnly,int maxConnections)
     {
         while(!shutdown.IsCancellationRequested)
         {
             HostRequest? request=null;var watch=System.Diagnostics.Stopwatch.StartNew();string stage="accept";
             try
             {
-                using var pipe=new NamedPipeServerStream(name,PipeDirection.InOut,Connections,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+                using var pipe=new NamedPipeServerStream(name,PipeDirection.InOut,maxConnections,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
                 await pipe.WaitForConnectionAsync(shutdown).ConfigureAwait(false);watch.Restart();
                 using var deadline=CancellationTokenSource.CreateLinkedTokenSource(shutdown);deadline.CancelAfter(TimeSpan.FromSeconds(9));
                 using var reader=new StreamReader(pipe,leaveOpen:true);
@@ -125,6 +129,7 @@ internal sealed class HostServer:IDisposable
                 if(line==null)continue;
                 request=JsonSerializer.Deserialize(line,HostJson.Default.HostRequest)??throw new InvalidDataException();
                 var req=request;
+                if(readOnly&&req.Command!="snapshot")throw new InvalidDataException("Invalid read-only request");
                 if(req.Command=="snapshot"&&snapshot!=null)
                 {
                     // The published response is immutable. Reads never wait for the Win32 loop.

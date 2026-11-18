@@ -49,7 +49,7 @@ internal sealed class ResidentHost:IDisposable
     private string CatalogJson(){if(!ReferenceEquals(cachedCatalog,catalog)||cachedCatalogJson==null){cachedCatalog=catalog;cachedCatalogJson=JsonSerializer.Serialize(catalog,CoreJson.Default.RoleCatalog);}return cachedCatalogJson;}
     private HostReply? publishedSnapshot;
     private long lastSnapshotAt;
-    private HostReply MakeSnapshot()=>new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,CatalogJson(),Environment.ProcessId);
+    private HostReply MakeSnapshot()=>new(true,null,pets.Select(p=>new LiveInstance(p.RoleId,p.InstanceId,p.InstanceNumber,p.CurrentScale)).ToArray(),world.Foods.Count,CatalogJson(),Environment.ProcessId,SnapshotTick:Environment.TickCount64);
     private HostReply PublishSnapshot(){var snapshot=MakeSnapshot();Volatile.Write(ref publishedSnapshot,snapshot);lastSnapshotAt=clock.ElapsedMilliseconds;return snapshot;}
     internal HostReply ReadSnapshot()=>Volatile.Read(ref publishedSnapshot)??throw new InvalidOperationException("常驻进程尚未初始化。");
     private Process? settingsProcess;
@@ -77,7 +77,7 @@ internal sealed class ResidentHost:IDisposable
         if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));storage.Save();InvalidateCatalog();}}
         world.Advance(dt);var live=pets.ToArray();foreach(var pet in live)pet.Step(dt);world.UpdateInteractions();foreach(var pet in live)pet.Render();foreach(var food in foodWindows.Values.ToArray())food.Render();
         if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)SaveTyping();}
-        if((probe||settingsProcess is {HasExited:false})&&now-lastSnapshotAt>=250)PublishSnapshot();
+        if(now-lastSnapshotAt>=250&&(probe||settingsProcess is {HasExited:false}))PublishSnapshot();
         // Physics and movement follow the configured interval; text layout has its own deadline.
         if(now-lastThoughtPaint<16)return;
         lastThoughtPaint=now;

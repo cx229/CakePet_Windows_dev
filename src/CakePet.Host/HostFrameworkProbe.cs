@@ -32,7 +32,7 @@ internal static class HostFrameworkProbe
                             if(!entered.Wait(TimeSpan.FromSeconds(2)))throw new InvalidDataException("Host loop did not enter probe");
                             using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(2));
                             var read=HostConnection.CallAsync(new("snapshot"),pipe,deadline.Token).GetAwaiter().GetResult();
-                            if(!read.Success||read.Catalog!=before.Catalog)throw new InvalidDataException("Independent snapshot failed");
+                            if(!read.Success||read.Catalog!=before.Catalog||read.SnapshotTick==0)throw new InvalidDataException("Independent snapshot failed");
                         }
                         finally{release.Set();}
                     }
