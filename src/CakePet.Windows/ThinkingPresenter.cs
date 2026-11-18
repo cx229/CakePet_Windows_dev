@@ -9,21 +9,22 @@ internal sealed class ThinkingPresenter:IDisposable
 {
     private sealed record Item(Border Bubble,TextBlock Text,ThoughtMessage Message);
     private readonly Grid panel=new(){ClipToBounds=true};
-    private readonly Window window;
+    private Window? window;
     private readonly Dictionary<string,Item> items=new();
     private ThoughtMessage[] previous=Array.Empty<ThoughtMessage>();
     private ThinkingLocation previousLocation=(ThinkingLocation)(-1);
     private ThinkingDisplayPolicy previousPolicy=ThinkingDisplayPolicy.None;
     private long lastLayout;
-    public ThinkingPresenter()
+    private Window EnsureWindow()
     {
+        if(window!=null)return window;
         window=new Window{Width=400,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=true,IsHitTestVisible=false,Content=panel};
-        window.SourceInitialized+=(_,_)=>NativeStyles.NonActivating(window,true);
+        window.SourceInitialized+=(_,_)=>{if(window!=null)NativeStyles.NonActivating(window,true);};return window;
     }
-    public void Clear(){items.Clear();panel.Children.Clear();previous=Array.Empty<ThoughtMessage>();if(window.IsVisible)window.Hide();}
+    public void Clear(){items.Clear();panel.Children.Clear();previous=Array.Empty<ThoughtMessage>();if(window?.IsVisible==true)window.Hide();}
     public void Render(IEnumerable<ThoughtMessage> thoughts,ThinkingLocation location,ThinkingDisplayPolicy policy)
     {
-        if(policy==ThinkingDisplayPolicy.None){if(window.IsVisible||items.Count>0)Clear();previousPolicy=policy;return;}
+        if(policy==ThinkingDisplayPolicy.None){if(window?.IsVisible==true||items.Count>0)Clear();previousPolicy=policy;return;}
         var entries=thoughts.OrderByDescending(x=>x.Order).ToArray();
         if(policy==ThinkingDisplayPolicy.Latest)entries=entries.Take(1).ToArray();
         var now=Environment.TickCount64;bool policyChanged=policy!=previousPolicy;
@@ -33,9 +34,9 @@ internal sealed class ThinkingPresenter:IDisposable
         foreach(var key in items.Keys.Except(entries.Select(x=>x.Key)).ToArray())
         {
             var item=items[key];items.Remove(key);
-            if(!policyChanged&&(policy==ThinkingDisplayPolicy.Overlap||entries.Length==0)&&item.Message.Style.FlashOut&&window.IsVisible)
+            if(!policyChanged&&(policy==ThinkingDisplayPolicy.Overlap||entries.Length==0)&&item.Message.Style.FlashOut&&window?.IsVisible==true)
             {
-                var fade=new DoubleAnimation(0,TimeSpan.FromMilliseconds(160));fade.Completed+=(_,_)=>{panel.Children.Remove(item.Bubble);if(items.Count==0&&panel.Children.Count==0&&window.IsVisible)window.Hide();};item.Bubble.BeginAnimation(UIElement.OpacityProperty,fade);
+                var fade=new DoubleAnimation(0,TimeSpan.FromMilliseconds(160));fade.Completed+=(_,_)=>{panel.Children.Remove(item.Bubble);if(items.Count==0&&panel.Children.Count==0&&window?.IsVisible==true)window.Hide();};item.Bubble.BeginAnimation(UIElement.OpacityProperty,fade);
             }
             else panel.Children.Remove(item.Bubble);
         }
@@ -55,8 +56,9 @@ internal sealed class ThinkingPresenter:IDisposable
             item.Bubble.Background=style.Background?new SolidColorBrush(ThinkingStyleSettings.ColorOf(style.BackgroundColor,style.BackgroundAlpha)):Brushes.Transparent;
             Panel.SetZIndex(item.Bubble,entries.Length-i);items[message.Key]=item with{Message=message};
         }
-        if(entries.Length==0){if(panel.Children.Count==0&&window.IsVisible)window.Hide();return;}
-        var work=DesktopPlatform.Primary.Work;var dpi=window.IsVisible?DesktopPlatform.DpiScale(window):1;
+        if(entries.Length==0){if(panel.Children.Count==0&&window?.IsVisible==true)window.Hide();return;}
+        var activeWindow=EnsureWindow();
+        var work=DesktopPlatform.Primary.Work;var dpi=activeWindow.IsVisible?DesktopPlatform.DpiScale(activeWindow):1;
         var taskbar=location==ThinkingLocation.PrimaryBottom?null:DesktopPlatform.Taskbar();
         if(taskbar is {} data&&data.Bar.Right-data.Bar.Left>data.Bar.Bottom-data.Bar.Top&&data.Bar.Bottom-data.Bar.Top>=20&&(location!=ThinkingLocation.TrayLeft||data.Tray.HasValue))
         {
@@ -89,8 +91,8 @@ internal sealed class ThinkingPresenter:IDisposable
     }
     private void Place(double x,double y,double width,double height)
     {
-        if(width<=0||height<=0)return;if(!window.IsVisible)window.Show();
-        var scale=DesktopPlatform.DpiScale(window);window.Width=width/scale;window.Height=height/scale;DesktopPlatform.Place(window,x,y,width,height);
+        if(width<=0||height<=0)return;var active=EnsureWindow();if(!active.IsVisible)active.Show();
+        var scale=DesktopPlatform.DpiScale(active);active.Width=width/scale;active.Height=height/scale;DesktopPlatform.Place(active,x,y,width,height);
     }
-    public void Dispose()=>window.Close();
+    public void Dispose(){window?.Close();window=null;}
 }

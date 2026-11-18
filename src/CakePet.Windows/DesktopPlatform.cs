@@ -29,10 +29,11 @@ internal static class DesktopPlatform
     [DllImport("user32.dll")]private static extern uint GetDpiForWindow(nint hwnd);
     [DllImport("user32.dll")]private static extern short GetAsyncKeyState(int key);
     private static IReadOnlyList<DesktopScreen> screens=ReadScreens();
+    public static long ScreenRevision {get;private set;}
     private static long refreshed=Environment.TickCount64;
     public static IReadOnlyList<DesktopScreen> Screens
     {
-        get {if(Environment.TickCount64-refreshed>=500){screens=ReadScreens();refreshed=Environment.TickCount64;}return screens;}
+        get {if(Environment.TickCount64-refreshed>=500){var next=ReadScreens();if(!screens.SequenceEqual(next)){screens=next;ScreenRevision++;}refreshed=Environment.TickCount64;}return screens;}
     }
     private static IReadOnlyList<DesktopScreen> ReadScreens()
     {
@@ -48,6 +49,30 @@ internal static class DesktopPlatform
             list.Add(new DesktopScreen("primary",full,new Bounds(r.Left,r.Top,r.Right,r.Bottom),true));
         }
         return list;
+    }
+    private readonly record struct SpaceKey(string Monitor,bool FullScreen,double Left,double Top,double Right,double Bottom);
+    private static readonly Dictionary<SpaceKey,DesktopSpace> spaces=new();
+    private static long spacesRevision=-1;
+    public static DesktopSpace ActivitySpace(DesktopScreen monitor,RoleSettings settings)
+    {
+        var all=Screens;
+        if(spacesRevision!=ScreenRevision){spaces.Clear();spacesRevision=ScreenRevision;}
+        var key=new SpaceKey(settings.ScreenConnect?"":monitor.Id,settings.FullScreen,settings.OffsetLeft,settings.OffsetTop,settings.OffsetRight,settings.OffsetBottom);
+        if(spaces.TryGetValue(key,out var existing))return existing;
+        var selected=settings.ScreenConnect?all:new[]{monitor};
+        var raw=selected.Select(s=>settings.FullScreen?s.Full:s.Work).ToArray();
+        var areas=raw.Select(a=>{
+            bool left=raw.Any(b=>b.Right==a.Left&&Math.Min(a.Bottom,b.Bottom)>Math.Max(a.Top,b.Top));
+            bool right=raw.Any(b=>b.Left==a.Right&&Math.Min(a.Bottom,b.Bottom)>Math.Max(a.Top,b.Top));
+            bool top=raw.Any(b=>b.Bottom==a.Top&&Math.Min(a.Right,b.Right)>Math.Max(a.Left,b.Left));
+            bool bottom=raw.Any(b=>b.Top==a.Bottom&&Math.Min(a.Right,b.Right)>Math.Max(a.Left,b.Left));
+            double l=a.Left+(left?0:settings.OffsetLeft),t=a.Top+(top?0:settings.OffsetTop);
+            return new Bounds(l,t,Math.Max(l+1,a.Right-(right?0:settings.OffsetRight)),Math.Max(t+1,a.Bottom-(bottom?0:settings.OffsetBottom)));
+        }).Distinct().OrderBy(a=>a.Left).ThenBy(a=>a.Top).ThenBy(a=>a.Right).ThenBy(a=>a.Bottom).ToArray();
+        if(areas.Length==0)areas=new[]{settings.ApplyOffsets(settings.FullScreen?monitor.Full:monitor.Work)};
+        // Settings sliders can generate many unique rectangles: keep the lookup bounded.
+        if(spaces.Count>=64)spaces.Clear();
+        return spaces[key]=new DesktopSpace(areas);
     }
     public static DesktopScreen Primary=>Screens.FirstOrDefault(x=>x.Primary)??Screens[0];
     public static DesktopScreen At(P p)=>DesktopGeometry.Nearest(Screens,p);
@@ -69,11 +94,25 @@ internal static class DesktopPlatform
     {
         var h=new WindowInteropHelper(window).Handle;var dpi=h==0?96:GetDpiForWindow(h);return dpi==0?1:dpi/96.0;
     }
+    private sealed class Placement
+    {
+        public int X,Y,Width,Height;public nint Handle;public bool Valid;public long Revision;
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Window,Placement> placements=new();
     public static void Place(Window window,double x,double y,double width,double height)
     {
         var h=new WindowInteropHelper(window).Handle;if(h==0)return;
         int ix=(int)Math.Round(x),iy=(int)Math.Round(y),w=Math.Max(1,(int)Math.Round(width)),he=Math.Max(1,(int)Math.Round(height));
-        if(GetWindowRect(h,out var old)&&old.Left==ix&&old.Top==iy&&old.Right-old.Left==w&&old.Bottom-old.Top==he)return;
-        SetWindowPos(h,0,ix,iy,w,he,0x0010|0x0004|0x0200);
+        var last=placements.GetValue(window,key=>{
+            var entry=new Placement();
+            key.DpiChanged+=(_,_)=>entry.Valid=false;
+            key.SizeChanged+=(_,_)=>entry.Valid=false;
+            key.LocationChanged+=(_,_)=>entry.Valid=false;
+            return entry;
+        });
+        if(last.Valid&&last.Handle==h&&last.Revision==ScreenRevision&&last.X==ix&&last.Y==iy&&last.Width==w&&last.Height==he)return;
+        if(!(GetWindowRect(h,out var old)&&old.Left==ix&&old.Top==iy&&old.Right-old.Left==w&&old.Bottom-old.Top==he))
+            if(!SetWindowPos(h,0,ix,iy,w,he,0x0010|0x0004|0x0200))return;
+        last.Handle=h;last.Revision=ScreenRevision;last.X=ix;last.Y=iy;last.Width=w;last.Height=he;last.Valid=true;
     }
 }

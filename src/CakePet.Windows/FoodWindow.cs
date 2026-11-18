@@ -62,8 +62,7 @@ internal sealed class FoodWindow : Window
     internal void Render()
     {
         if(closingFromWorld)return;
-        Opacity=food.Opacity;
-        DesktopPlatform.Place(this,food.Center.X-food.Width/2,food.Center.Y-food.Height/2,food.Width,food.Height);
+        if(Opacity!=food.Opacity)Opacity=food.Opacity;
         var dpi=DesktopPlatform.DpiScale(this);var w=food.Width/dpi;var h=food.Height/dpi;
         if(Math.Abs(Width-w)>.01)Width=w;if(Math.Abs(Height-h)>.01)Height=h;
         DesktopPlatform.Place(this,food.Center.X-food.Width/2,food.Center.Y-food.Height/2,food.Width,food.Height);

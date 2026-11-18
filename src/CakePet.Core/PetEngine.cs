@@ -77,7 +77,7 @@ public sealed class PetEngine : IDisposable
         return AnchorGeometry.Transform(new Point(g.AnchorX*scale,g.AnchorY*scale),size,RenderEdge,Facing);
     }
     public void SetActivityArea(Bounds area,Func<Frame,FrameGeometry> geometry)
-    {ActivityArea=area;geometryProvider=geometry;RefreshGeometry();}
+    {if(ActivityArea==area&&geometryProvider==geometry)return;ActivityArea=area;geometryProvider=geometry;RefreshGeometry();}
     public void RefreshGeometry()
     {
         if(ActivityArea is Bounds area&&geometryProvider!=null)

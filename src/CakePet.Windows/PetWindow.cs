@@ -31,6 +31,9 @@ internal sealed class PetWindow : Window
     private WPoint pressedAt,previousMouse;
     private P pressedBody,velocity;
     private bool pressed,dragging,closed;
+    private bool? lastInputPass;
+    private nint lastInputHandle;
+    private Func<Frame,FrameGeometry>? frameGeometry;
     private Frame? rendered;
     private double Side=>engine.DisplaySize;
     internal PetEngine Engine=>engine;
@@ -68,13 +71,14 @@ internal sealed class PetWindow : Window
         if(automatic!=foodWorld.IsAutomatic(engine)||(automatic&&(old.FoodMinSeconds!=settings.FoodMinSeconds||old.FoodMaxSeconds!=settings.FoodMaxSeconds)))foodWorld.SetAutomatic(engine,automatic,new Interval(settings.FoodMinSeconds*1000,settings.FoodMaxSeconds*1000),SpawnFood);
         foreach(var food in foodWorld.Foods.Where(f=>f.Owner==engine))food.Opacity=settings.FoodOpacity;
         if(!engine.FeedingEnabled)foodWorld.Clear(engine);
-        RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,images.Geometry);Render();
+        RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,frameGeometry!);Render();
     }
     private bool configured;
     private FoodInstance? SpawnFood()=>foodWorld.Spawn(engine,ActivityArea,48,settings.FoodLifetimeSeconds==0?null:settings.FoodLifetimeSeconds*1000L,settings.FoodAtEdge,settings.FoodLimit,id=>{var v=images.GetFoodVisual(id);return new FoodExtent(v.LogicalWidth*settings.FoodScale,v.LogicalHeight*settings.FoodScale);},settings.FoodOpacity);
     private bool HitAt(P pointer)
     {
-        var local=AnchorGeometry.Inverse(pointer-body.Position,Side,engine.RenderEdge,engine.Facing);
+        var offset=pointer-body.Position;if(offset.X<0||offset.Y<0||offset.X>=Side||offset.Y>=Side)return false;
+        var local=AnchorGeometry.Inverse(offset,Side,engine.RenderEdge,engine.Facing);
         var g=images.Geometry(role.Animation.Current);var scale=Side/role.Package.AnchorRes;
         return images.OpaqueAt(role.Animation.Current,(local.X/scale-g.Left)/g.Width,(local.Y/scale-g.Top)/g.Height);
     }
@@ -87,32 +91,29 @@ internal sealed class PetWindow : Window
     private Bounds ConnectedLimits(Bounds ordinary){if(!LegacyCanConnect)return ordinary;var regions=Regions();return ConnectedDesktop.Limits(regions,SourceRegion(regions),body.Position,engine.AnchorOffset,body.ClimbEdge);}
     private Edge ConnectedEdges(){if(!LegacyCanConnect)return Edge.None;var regions=Regions();return ConnectedDesktop.OpenEdges(regions,SourceRegion(regions),body.Position,body.ClimbEdge);}
     private MotionProjection? ConnectedMotion(P from,P next){if(!LegacyCanConnect)return null;var regions=Regions();var transfer=ConnectedDesktop.Project(regions,SourceRegion(regions),from,next,engine.AnchorOffset,body.ClimbEdge);monitorId=transfer.Region.Id;engine.AdoptMotionArea(transfer.Region.Area,transfer.Limits);return new MotionProjection(transfer.Position,transfer.Limits);}
-    private Bounds[] spaceAreas=Array.Empty<Bounds>();private DesktopSpace? desktopSpace;
+    private long spaceRevision=-1;
+    private RoleSettings? spaceSettings;
+    private string? spaceMonitor;
     private void RefreshDesktopSpace()
     {
-        var screens=settings.ScreenConnect?DesktopPlatform.Screens:new[]{Monitor};
-        var raw=screens.Select(s=>fullScreen?s.Full:s.Work).ToArray();
-        var areas=raw.Select(a=>{
-            bool left=raw.Any(b=>b.Right==a.Left&&Math.Min(a.Bottom,b.Bottom)>Math.Max(a.Top,b.Top));
-            bool right=raw.Any(b=>b.Left==a.Right&&Math.Min(a.Bottom,b.Bottom)>Math.Max(a.Top,b.Top));
-            bool top=raw.Any(b=>b.Bottom==a.Top&&Math.Min(a.Right,b.Right)>Math.Max(a.Left,b.Left));
-            bool bottom=raw.Any(b=>b.Top==a.Bottom&&Math.Min(a.Right,b.Right)>Math.Max(a.Left,b.Left));
-            double l=a.Left+(left?0:settings.OffsetLeft),t=a.Top+(top?0:settings.OffsetTop);
-            return new Bounds(l,t,Math.Max(l+1,a.Right-(right?0:settings.OffsetRight)),Math.Max(t+1,a.Bottom-(bottom?0:settings.OffsetBottom)));
-        }).Distinct().OrderBy(a=>a.Left).ThenBy(a=>a.Top).ThenBy(a=>a.Right).ThenBy(a=>a.Bottom).ToArray();
-        if(areas.Length==0)areas=new[]{ActivityArea};if(!areas.SequenceEqual(spaceAreas)){spaceAreas=areas;desktopSpace=new DesktopSpace(areas);}
-        engine.SetDesktopSpace(desktopSpace,settings.HorizontalWrap);
+        var monitor=Monitor;var revision=DesktopPlatform.ScreenRevision;
+        var selected=settings.ScreenConnect?"":monitor.Id;
+        if(spaceRevision==revision&&spaceSettings==settings&&spaceMonitor==selected)return;
+        spaceRevision=revision;spaceSettings=settings;spaceMonitor=selected;
+        engine.SetDesktopSpace(DesktopPlatform.ActivitySpace(monitor,settings),settings.HorizontalWrap);
     }
     internal bool ClickThrough {get=>clickThrough;set{clickThrough=value;ApplyInputStyle();}}
     private void ApplyInputStyle()
     {
         var control=DesktopPlatform.ControlDown;
         var pass=!pressed&&ContextMenu?.IsOpen!=true&&!control&&(clickThrough||(pixelHit&&!HitAt(DesktopPlatform.Cursor())));
-        NativeStyles.NonActivating(this,pass);
+        var handle=new WindowInteropHelper(this).Handle;if(handle==0)return;
+        if(lastInputPass==pass&&lastInputHandle==handle)return;
+        NativeStyles.NonActivating(this,pass);lastInputPass=pass;lastInputHandle=handle;
     }
     public PetWindow(RoleRuntime role,WpfImageCache images,int index,FoodWorld world,Guid roleId=default,int instanceNumber=1)
     {
-        this.images=images;foodWorld=world;RoleId=roleId;InstanceNumber=instanceNumber;Title=role.Package.Name;
+        this.images=images;frameGeometry=images.Geometry;foodWorld=world;RoleId=roleId;InstanceNumber=instanceNumber;Title=role.Package.Name;
         Width=Height=160;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;AllowsTransparency=true;
         Background=Brushes.Transparent;Topmost=true;ShowInTaskbar=false;ShowActivated=false;
         canvas.Children.Add(image);Content=canvas;
@@ -198,7 +199,7 @@ internal sealed class PetWindow : Window
     private void FinishDrag()
     {
         dragging=false;if(clock.ElapsedMilliseconds-lastMouse>120)velocity=default;
-        RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,images.Geometry);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
+        RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,frameGeometry!);engine.EndDrag(velocity,DesktopPlatform.Cursor());Render();
     }
     internal void SetInstanceScale(double scale){if(closed||!double.IsFinite(scale))return;var min=SettingLimits.Get(settings,SettingLimits.Specs.First(x=>x.Key=="Scale")).Min;engine.Resize(role.Package.AnchorRes*Math.Clamp(scale,min,Math.Max(min,settings.MaxScale)));Render();}
     internal void ResetSize(){SetInstanceScale(settings.Scale);}
@@ -226,14 +227,13 @@ internal sealed class PetWindow : Window
     private void UpdateDebug()=>debug?.Refresh(engine,monitorId,DesktopPlatform.DpiScale(this),foodWorld.Foods.Count(f=>f.Owner==engine),ClickThrough,pixelHit,InstanceId,InstanceNumber,settings.Scale,CurrentScale,settings.Count);
     internal void Step(long dt)
     {
-        if(closed)return;ApplyInputStyle();var monitor=Monitor;monitorId=monitor.Id;RefreshDesktopSpace();engine.SetActivityArea(ActivityArea,images.Geometry);engine.Step(dt);if(body.State!=PhysicalState.Dragging)monitorId=DesktopPlatform.At(body.Position+engine.AnchorOffset).Id;
-        foreach(var freeze in freezes.ToArray())freeze.Refresh();
-        debugTick+=dt;if(debugTick>=150){debugTick=0;UpdateDebug();}
+        if(closed)return;var monitor=Monitor;monitorId=monitor.Id;RefreshDesktopSpace();engine.SetActivityArea(AreaOf(monitor),frameGeometry!);engine.Step(dt);if(body.State!=PhysicalState.Dragging)monitorId=DesktopPlatform.At(body.Position+engine.AnchorOffset).Id;
+        if(freezes.Count>0)foreach(var freeze in freezes)freeze.Refresh();
+        if(debug!=null){debugTick+=dt;if(debugTick>=150){debugTick=0;UpdateDebug();}}
     }
     internal void Render()
     {
         if(closed)return;
-        DesktopPlatform.Place(this,body.Position.X,body.Position.Y,Side,Side);
         var dipSide=Side/DesktopPlatform.DpiScale(this);
         if(Math.Abs(Width-dipSide)>.01||Math.Abs(Height-dipSide)>.01)Width=Height=dipSide;
         DesktopPlatform.Place(this,body.Position.X,body.Position.Y,Side,Side);
@@ -245,7 +245,6 @@ internal sealed class PetWindow : Window
             image.Source=bitmap;image.Width=g.Width*scale;image.Height=g.Height*scale;
             Canvas.SetLeft(image,g.Left*scale);Canvas.SetTop(image,g.Top*scale);rendered=frame;renderedSize=dipSide;
         }
-        ApplyInputStyle();
         var facing=engine.Facing;
         var angle=engine.RenderEdge switch{Edge.Left=>90,Edge.Right=>-90,Edge.Top=>180,_=>0};
         if(canvas.RenderTransform is not TransformGroup group||((ScaleTransform)group.Children[0]).ScaleX!=facing||((RotateTransform)group.Children[1]).Angle!=angle)
@@ -253,6 +252,7 @@ internal sealed class PetWindow : Window
             canvas.RenderTransformOrigin=new WPoint(.5,.5);
             var transform=new TransformGroup();transform.Children.Add(new ScaleTransform(facing,1));transform.Children.Add(new RotateTransform(angle));canvas.RenderTransform=transform;
         }
+        ApplyInputStyle();
     }
 }
 

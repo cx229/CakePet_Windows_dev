@@ -203,11 +203,11 @@ internal sealed class Launcher : Window
     private void Tick()
     {
         var now=clock.ElapsedMilliseconds;var dt=Math.Clamp(now-lastTick,0,100);lastTick=now;
-        if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));QueueSave();if(navigationHost.Content is RoleSettingsPage page&&page.RoleId==entry.Id&&!page.IsKeyboardFocusWithin)EditAt(entry,page.SelectedSection);}}
+        if(now-lastRandomCheck>=1000){lastRandomCheck=now;foreach(var entry in catalog.Roles.Where(r=>pets.Any(p=>p.RoleId==r.Id)).ToArray())if(randomSchedule.Due(entry.Id,entry.Settings.RandomMode,now)){catalog.Update(entry with{Settings=entry.Settings.RandomMode.Apply(entry.Settings,Random.Shared)});ApplyRunning(catalog.Roles.Single(r=>r.Id==entry.Id));QueueSave();if(IsVisible&&navigationHost.Content is RoleSettingsPage page&&page.RoleId==entry.Id&&!page.IsKeyboardFocusWithin)EditAt(entry,page.SelectedSection);}}
         world.Advance(dt);
-        foreach(var pet in pets.ToArray())pet.Step(dt);
+        var live=pets.ToArray();foreach(var pet in live)pet.Step(dt);
         world.UpdateInteractions();
-        foreach(var pet in pets.ToArray())pet.Render();
+        foreach(var pet in live)pet.Render();
         foreach(var food in foodWindows.Values.ToArray())food.Render();
         if(catalog.Typing.Enabled&&catalog.ThinkingPolicy!=ThinkingDisplayPolicy.None){if(typing.RollDay(Today()))typingDirty=true;typing.Advance(now);if(typingDirty&&now-lastTypingSave>=5000)Safe(SaveTyping);}
         var messages=pets.Where(p=>!string.IsNullOrWhiteSpace(p.VisibleThought)).Select(p=>new ThoughtMessage(p.InstanceId+":"+thoughts.Order(p.Engine.Role.Thoughts),catalog.Roles.FirstOrDefault(r=>r.Id==p.RoleId)?.Name??p.Engine.Role.Package.Name,p.VisibleThought!,p.ThoughtStyle,thoughts.Order(p.Engine.Role.Thoughts))).ToList();
